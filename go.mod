@@ -1,6 +1,6 @@
 module github.com/latolukasz/orm
 
-go 1.21
+go 1.23
 
 require (
 	github.com/bsm/redislock v0.9.4
