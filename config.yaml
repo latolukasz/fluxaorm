@@ -1,0 +1,38 @@
+default:
+  mysql:
+    uri: root:root@tcp(localhost:3308)/test
+    connMaxLifetime: 30
+    maxOpenConnections: 10
+    maxIdleConnections: 10
+    defaultEncoding: utf8
+    defaultCollate: 0900_ai_ci
+    ignoredTables:
+      - table1
+      - table2
+  redis: localhost:6385:0
+  local_cache: 100
+another:
+  sentinel:
+    master:1:
+      - :26379
+      - 192.156.23.11:26379
+      - 192.156.23.12:26379
+third:
+  sentinel:
+    master2:2:
+      - :26380
+      - 192.156.23.15:26379
+      - 192.156.23.16:26379
+default_queue:
+  redis: localhost:6385:1:test_namespace
+sockets:
+  redis: /var/redis.sock:1
+sockets_namespace:
+  redis: /var/redis.sock:2:test_namespace
+redis_credentials:
+  redis: localhost:6385:11?user=test&password=test2
+  sentinel:
+    master:1?user=test&password=test2:
+      - :26379
+      - 192.156.23.11:26379
+      - 192.156.23.12:26379
