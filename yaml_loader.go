@@ -2,15 +2,22 @@ package orm
 
 import (
 	"fmt"
+	"github.com/pkg/errors"
 	"net/url"
 	"strconv"
 	"strings"
 	"time"
 )
 
-func (r *registry) InitByYaml(yaml map[string]any) error {
-	for key, data := range yaml {
-		dataAsMap, err := fixYamlMap(data, "orm")
+func (r *registry) InitByYaml(yaml any) error {
+	asMap, err := fixYamlMap(yaml, "")
+	if err != nil {
+		return errors.New("orm yaml is not valid")
+	}
+
+	for key, data := range asMap {
+		dataAsMap, err := fixYamlMap(data, key)
+		fmt.Printf("AA %v\n", dataAsMap)
 		if err != nil {
 			return err
 		}
@@ -43,7 +50,7 @@ func (r *registry) InitByYaml(yaml map[string]any) error {
 	for _, plugin := range r.plugins {
 		pluginInterfaceValidateRegistry, isInterface := plugin.(PluginInterfaceInitRegistryFromYaml)
 		if isInterface {
-			err := pluginInterfaceValidateRegistry.InitRegistryFromYaml(r, yaml)
+			err := pluginInterfaceValidateRegistry.InitRegistryFromYaml(r, asMap)
 			if err != nil {
 				return err
 			}

@@ -24,7 +24,7 @@ type Registry interface {
 	RegisterMySQL(dataSourceName string, poolCode string, poolOptions *MySQLOptions)
 	RegisterLocalCache(code string, limit int)
 	RegisterRedis(address string, db int, poolCode string, options *RedisOptions)
-	InitByYaml(yaml map[string]any) error
+	InitByYaml(yaml any) error
 	SetOption(key string, value any)
 }
 
