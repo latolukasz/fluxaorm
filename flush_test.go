@@ -1207,9 +1207,9 @@ func TestFlushTransaction(t *testing.T) {
 	// Skipping invalid event
 }
 
-func testFlush(orm ORM, async bool) error {
+func testFlush(ctx Context, async bool) error {
 	if async {
-		return orm.FlushAsync()
+		return ctx.FlushAsync()
 	}
-	return orm.Flush()
+	return ctx.Flush()
 }

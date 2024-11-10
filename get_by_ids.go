@@ -5,8 +5,8 @@ import (
 	"strconv"
 )
 
-func GetByIDs[E any](orm ORM, ids ...uint64) EntityIterator[E] {
-	return getByIDs[E](orm.(*ormImplementation), ids)
+func GetByIDs[E any](ctx Context, ids ...uint64) EntityIterator[E] {
+	return getByIDs[E](ctx.(*ormImplementation), ids)
 }
 
 func getByIDs[E any](orm *ormImplementation, ids []uint64) EntityIterator[E] {

@@ -16,13 +16,13 @@ func publishAsyncEvent(schema *entitySchema, event asyncTemporaryQueueEvent) {
 	schema.asyncTemporaryQueue.Enqueue(event)
 }
 
-func ConsumeAsyncBuffer(orm ORM, errF func(err error)) (stop func()) {
-	engine := orm.Engine().(*engineImplementation)
+func ConsumeAsyncBuffer(ctx Context, errF func(err error)) (stop func()) {
+	engine := ctx.Engine().(*engineImplementation)
 	if engine.asyncTemporaryIsQueueRunning {
 		panic("consumer is already running")
 	}
 	engine.asyncTemporaryIsQueueRunning = true
-	schemas := orm.Engine().Registry().Entities()
+	schemas := ctx.Engine().Registry().Entities()
 	stop = func() {
 		if !engine.asyncTemporaryIsQueueRunning {
 			return
@@ -50,7 +50,7 @@ func ConsumeAsyncBuffer(orm ORM, errF func(err error)) (stop func()) {
 			waitGroup.Add(1)
 			go func() {
 				defer waitGroup.Done()
-				consumeAsyncTempEvent(orm.Clone(), schemaLocal, errF)
+				consumeAsyncTempEvent(ctx.Clone(), schemaLocal, errF)
 			}()
 		}
 		waitGroup.Wait()
@@ -59,8 +59,8 @@ func ConsumeAsyncBuffer(orm ORM, errF func(err error)) (stop func()) {
 	return stop
 }
 
-func consumeAsyncTempEvent(orm ORM, schema *entitySchema, errF func(err error)) {
-	r := orm.Engine().Redis(schema.getForcedRedisCode())
+func consumeAsyncTempEvent(ctx Context, schema *entitySchema, errF func(err error)) {
+	r := ctx.Engine().Redis(schema.getForcedRedisCode())
 	buffer := make([]any, redisRPushPackSize)
 	var values []any
 	var ok bool
@@ -105,7 +105,7 @@ func consumeAsyncTempEvent(orm ORM, schema *entitySchema, errF func(err error)) 
 				buffer[i] = asJSON
 				rows++
 			}
-			r.RPush(orm, schema.asyncCacheKey, buffer[0:rows]...)
+			r.RPush(ctx, schema.asyncCacheKey, buffer[0:rows]...)
 			return !breakMe
 		}()
 		if !res {

@@ -6,9 +6,9 @@ import (
 	"strconv"
 )
 
-func GetByUniqueIndex[E any](orm ORM, indexName string, attributes ...any) (entity *E, found bool) {
+func GetByUniqueIndex[E any](ctx Context, indexName string, attributes ...any) (entity *E, found bool) {
 	var e E
-	schema := orm.(*ormImplementation).engine.registry.entitySchemas[reflect.TypeOf(e)]
+	schema := ctx.(*ormImplementation).engine.registry.entitySchemas[reflect.TypeOf(e)]
 	if schema == nil {
 		panic(fmt.Errorf("entity '%T' is not registered", e))
 	}
@@ -36,15 +36,15 @@ func GetByUniqueIndex[E any](orm ORM, indexName string, attributes ...any) (enti
 		hField = hashString(s)
 		cache, hasRedis := schema.GetRedisCache()
 		if !hasRedis {
-			cache = orm.Engine().Redis(DefaultPoolCode)
+			cache = ctx.Engine().Redis(DefaultPoolCode)
 		}
 		redisForCache = cache
-		previousID, inUse := cache.HGet(orm, hSetKey, hField)
+		previousID, inUse := cache.HGet(ctx, hSetKey, hField)
 		if inUse {
 			id, _ := strconv.ParseUint(previousID, 10, 64)
-			entity, found = GetByID[E](orm, id)
+			entity, found = GetByID[E](ctx, id)
 			if !found {
-				cache.HDel(orm, hSetKey, hField)
+				cache.HDel(ctx, hSetKey, hField)
 			}
 			return entity, found
 		}
@@ -58,12 +58,12 @@ func GetByUniqueIndex[E any](orm ORM, indexName string, attributes ...any) (enti
 		}
 		attributes[i] = bind
 	}
-	entity, found = SearchOne[E](orm, definition.CreteWhere(false, attributes))
+	entity, found = SearchOne[E](ctx, definition.CreteWhere(false, attributes))
 	if !found {
 		return nil, false
 	}
 	if definition.Cached {
-		redisForCache.HSet(orm, hSetKey, hField, strconv.FormatUint(reflect.ValueOf(entity).Elem().FieldByName("ID").Uint(), 10))
+		redisForCache.HSet(ctx, hSetKey, hField, strconv.FormatUint(reflect.ValueOf(entity).Elem().FieldByName("ID").Uint(), 10))
 	}
 	return entity, true
 }

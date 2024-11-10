@@ -51,16 +51,16 @@ func (p *testPluginToTest) EntityFlush(schema EntitySchema, entity reflect.Value
 	p.lastValue = []any{schema, entity, before, after, engine}
 	if p.option == 5 {
 		after["Name"] = "a1"
-		return func(_ ORM) {
+		return func(_ Context) {
 			entity.FieldByName("Name").SetString("a1")
 		}, nil
 	} else if p.option == 6 {
 		after["Name"] = "b1"
-		return func(_ ORM) {
+		return func(_ Context) {
 			entity.FieldByName("Name").SetString("b1")
 		}, nil
 	} else if p.option == 7 {
-		return func(_ ORM) {
+		return func(_ Context) {
 			p.option = 100
 		}, nil
 	}

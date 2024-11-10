@@ -28,7 +28,7 @@ type defaultLogLogger struct {
 	logger     *log.Logger
 }
 
-func (d *defaultLogLogger) Handle(_ ORM, fields map[string]any) {
+func (d *defaultLogLogger) Handle(_ Context, fields map[string]any) {
 	row := ormLogo
 	switch fields["source"] {
 	case "mysql":
@@ -62,7 +62,7 @@ func (d *defaultLogLogger) Handle(_ ORM, fields map[string]any) {
 }
 
 type LogHandler interface {
-	Handle(orm ORM, log map[string]any)
+	Handle(ctx Context, log map[string]any)
 }
 
 func (orm *ormImplementation) RegisterQueryLogger(handler LogHandler, mysql, redis, local bool) {
@@ -107,7 +107,7 @@ func (orm *ormImplementation) appendLog(logs []LogHandler, toAdd LogHandler) []L
 	return append(logs, toAdd)
 }
 
-func fillLogFields(orm ORM, handlers []LogHandler, pool, source, operation, query string, start *time.Time, cacheMiss bool, err error) {
+func fillLogFields(ctx Context, handlers []LogHandler, pool, source, operation, query string, start *time.Time, cacheMiss bool, err error) {
 	fields := map[string]any{
 		"operation": operation,
 		"query":     query,
@@ -117,7 +117,7 @@ func fillLogFields(orm ORM, handlers []LogHandler, pool, source, operation, quer
 	if cacheMiss {
 		fields["miss"] = "TRUE"
 	}
-	meta := orm.GetMetaData()
+	meta := ctx.GetMetaData()
 	if len(meta) > 0 {
 		fields["meta"] = meta
 	}
@@ -131,6 +131,6 @@ func fillLogFields(orm ORM, handlers []LogHandler, pool, source, operation, quer
 		fields["error"] = err.Error()
 	}
 	for _, handler := range handlers {
-		handler.Handle(orm, fields)
+		handler.Handle(ctx, fields)
 	}
 }

@@ -17,7 +17,6 @@ func (r *registry) InitByYaml(yaml any) error {
 
 	for key, data := range asMap {
 		dataAsMap, err := fixYamlMap(data, key)
-		fmt.Printf("AA %v\n", dataAsMap)
 		if err != nil {
 			return err
 		}

@@ -497,21 +497,21 @@ func testUpdateFieldExecute(t *testing.T, async, local, redis bool) {
 	}
 }
 
-func runEditEntityField(orm ORM, entity *updateEntity, field string, value any, async bool) error {
-	err := EditEntityField(orm, entity, field, value)
+func runEditEntityField(ctx Context, entity *updateEntity, field string, value any, async bool) error {
+	err := EditEntityField(ctx, entity, field, value)
 	if err != nil {
 		return err
 	}
 	if async {
-		err = orm.FlushAsync()
+		err = ctx.FlushAsync()
 		if err != nil {
 			return err
 		}
-		stop := ConsumeAsyncBuffer(orm, func(err error) {
+		stop := ConsumeAsyncBuffer(ctx, func(err error) {
 			panic(err)
 		})
 		stop()
-		return ConsumeAsyncFlushEvents(orm, false)
+		return ConsumeAsyncFlushEvents(ctx, false)
 	}
-	return orm.Flush()
+	return ctx.Flush()
 }

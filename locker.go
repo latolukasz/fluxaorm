@@ -34,14 +34,14 @@ func (r *redisCache) GetLocker() *Locker {
 	return r.locker
 }
 
-func (l *Locker) Obtain(orm ORM, key string, ttl time.Duration, waitTimeout time.Duration) (lock *Lock, obtained bool) {
+func (l *Locker) Obtain(ctx Context, key string, ttl time.Duration, waitTimeout time.Duration) (lock *Lock, obtained bool) {
 	if ttl == 0 {
 		panic(errors.New("ttl must be higher than zero"))
 	}
 	if waitTimeout > ttl {
 		panic(errors.New("waitTimeout can't be higher than ttl"))
 	}
-	hasLogger, _ := orm.getRedisLoggers()
+	hasLogger, _ := ctx.getRedisLoggers()
 	start := getNow(hasLogger)
 	var options *redislock.Options
 	if waitTimeout > 0 {
@@ -55,19 +55,19 @@ func (l *Locker) Obtain(orm ORM, key string, ttl time.Duration, waitTimeout time
 		}
 		options.RetryStrategy = redislock.LimitRetry(redislock.LinearBackoff(interval), limit)
 	}
-	redisLock, err := l.locker.Obtain(orm.Context(), key, ttl, options)
+	redisLock, err := l.locker.Obtain(ctx.Context(), key, ttl, options)
 	if err != nil {
 		if err == redislock.ErrNotObtained {
 			if hasLogger {
 				message := fmt.Sprintf("LOCK OBTAIN %s TTL %s WAIT %s", key, ttl.String(), waitTimeout.String())
-				l.fillLogFields(orm, "LOCK OBTAIN", message, start, true, nil)
+				l.fillLogFields(ctx, "LOCK OBTAIN", message, start, true, nil)
 			}
 			return nil, false
 		}
 	}
 	if hasLogger {
 		message := fmt.Sprintf("LOCK OBTAIN %s TTL %s WAIT %s", key, ttl.String(), waitTimeout.String())
-		l.fillLogFields(orm, "LOCK OBTAIN", message, start, false, nil)
+		l.fillLogFields(ctx, "LOCK OBTAIN", message, start, false, nil)
 	}
 	checkError(err)
 	lock = &Lock{lock: redisLock, locker: l, ttl: ttl, key: key, has: true}
@@ -82,12 +82,12 @@ type Lock struct {
 	has    bool
 }
 
-func (l *Lock) Release(orm ORM) {
+func (l *Lock) Release(ctx Context) {
 	if !l.has {
 		return
 	}
 	l.has = false
-	hasLogger, _ := orm.getRedisLoggers()
+	hasLogger, _ := ctx.getRedisLoggers()
 	start := getNow(hasLogger)
 	err := l.lock.Release(context.Background())
 	ok := true
@@ -96,29 +96,29 @@ func (l *Lock) Release(orm ORM) {
 		ok = false
 	}
 	if hasLogger {
-		l.locker.fillLogFields(orm, "LOCK RELEASE", "LOCK RELEASE "+l.key, start, !ok, err)
+		l.locker.fillLogFields(ctx, "LOCK RELEASE", "LOCK RELEASE "+l.key, start, !ok, err)
 	}
 	checkError(err)
 }
 
-func (l *Lock) TTL(orm ORM) time.Duration {
-	hasLogger, _ := orm.getRedisLoggers()
+func (l *Lock) TTL(ctx Context) time.Duration {
+	hasLogger, _ := ctx.getRedisLoggers()
 	start := getNow(hasLogger)
-	t, err := l.lock.TTL(orm.Context())
+	t, err := l.lock.TTL(ctx.Context())
 	if hasLogger {
-		l.locker.fillLogFields(orm, "LOCK TTL", "LOCK TTL "+l.key, start, false, err)
+		l.locker.fillLogFields(ctx, "LOCK TTL", "LOCK TTL "+l.key, start, false, err)
 	}
 	checkError(err)
 	return t
 }
 
-func (l *Lock) Refresh(orm ORM, ttl time.Duration) bool {
+func (l *Lock) Refresh(ctx Context, ttl time.Duration) bool {
 	if !l.has {
 		return false
 	}
-	hasLogger, _ := orm.getRedisLoggers()
+	hasLogger, _ := ctx.getRedisLoggers()
 	start := getNow(hasLogger)
-	err := l.lock.Refresh(orm.Context(), ttl, nil)
+	err := l.lock.Refresh(ctx.Context(), ttl, nil)
 	ok := true
 	if err == redislock.ErrNotObtained {
 		ok = false
@@ -127,13 +127,13 @@ func (l *Lock) Refresh(orm ORM, ttl time.Duration) bool {
 	}
 	if hasLogger {
 		message := fmt.Sprintf("LOCK REFRESH %s %s", l.key, l.ttl)
-		l.locker.fillLogFields(orm, "LOCK REFRESH", message, start, !ok, err)
+		l.locker.fillLogFields(ctx, "LOCK REFRESH", message, start, !ok, err)
 	}
 	checkError(err)
 	return ok
 }
 
-func (l *Locker) fillLogFields(orm ORM, operation, query string, start *time.Time, cacheMiss bool, err error) {
-	_, loggers := orm.getRedisLoggers()
-	fillLogFields(orm, loggers, l.r.config.GetCode(), sourceRedis, operation, query, start, cacheMiss, err)
+func (l *Locker) fillLogFields(ctx Context, operation, query string, start *time.Time, cacheMiss bool, err error) {
+	_, loggers := ctx.getRedisLoggers()
+	fillLogFields(ctx, loggers, l.r.config.GetCode(), sourceRedis, operation, query, start, cacheMiss, err)
 }

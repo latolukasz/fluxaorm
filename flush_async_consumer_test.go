@@ -65,7 +65,7 @@ func TestAsyncConsumer(t *testing.T) {
 
 	// more than one-page blocking mode
 	ctx, cancel := context.WithCancel(context.Background())
-	c2 := orm.Engine().NewORM(ctx)
+	c2 := orm.Engine().NewContext(ctx)
 	c2.Engine().Registry().(*engineRegistryImplementation).asyncConsumerBlockTime = time.Millisecond * 100
 
 	var consumeErr error
@@ -177,10 +177,10 @@ func TestAsyncConsumer(t *testing.T) {
 	assert.Equal(t, "Error 1062 (23000): Duplicate entry 'Valid name 2' for key 'flushEntity.name'", orm.Engine().Redis(DefaultPoolCode).LPop(orm, schema.asyncCacheKey+flushAsyncEventsListErrorSuffix))
 }
 
-func runAsyncConsumer(orm ORM, block bool) error {
-	stop := ConsumeAsyncBuffer(orm, func(err error) {
+func runAsyncConsumer(ctx Context, block bool) error {
+	stop := ConsumeAsyncBuffer(ctx, func(err error) {
 		panic(err)
 	})
 	stop()
-	return ConsumeAsyncFlushEvents(orm, block)
+	return ConsumeAsyncFlushEvents(ctx, block)
 }

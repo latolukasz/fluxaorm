@@ -20,9 +20,9 @@ type referenceDefinition struct {
 
 type Reference[E any] uint64
 
-func (r Reference[E]) GetEntity(orm ORM) *E {
+func (r Reference[E]) GetEntity(ctx Context) *E {
 	if r != 0 {
-		e, found := GetByID[E](orm, uint64(r))
+		e, found := GetByID[E](ctx, uint64(r))
 		if !found {
 			return nil
 		}

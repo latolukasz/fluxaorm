@@ -12,7 +12,7 @@ type MockLogHandler struct {
 	Logs []map[string]any
 }
 
-func (h *MockLogHandler) Handle(_ ORM, log map[string]any) {
+func (h *MockLogHandler) Handle(_ Context, log map[string]any) {
 	h.Logs = append(h.Logs, log)
 }
 
@@ -20,7 +20,7 @@ func (h *MockLogHandler) Clear() {
 	h.Logs = nil
 }
 
-func PrepareTables(t *testing.T, registry Registry, entities ...any) (orm ORM) {
+func PrepareTables(t *testing.T, registry Registry, entities ...any) (orm Context) {
 	registry.RegisterMySQL("root:root@tcp(localhost:3377)/test", DefaultPoolCode, &MySQLOptions{})
 	registry.RegisterRedis("localhost:6385", 0, DefaultPoolCode, nil)
 	registry.RegisterRedis("localhost:6385", 1, "second", nil)
@@ -36,7 +36,7 @@ func PrepareTables(t *testing.T, registry Registry, entities ...any) (orm ORM) {
 		panic(err)
 	}
 
-	orm = engine.NewORM(context.Background())
+	orm = engine.NewContext(context.Background())
 	cacheRedis := engine.Redis(DefaultPoolCode)
 	cacheRedis.FlushDB(orm)
 	engine.Redis("second").FlushDB(orm)

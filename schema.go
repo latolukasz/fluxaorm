@@ -18,7 +18,7 @@ type Alter struct {
 }
 
 type TableSQLSchemaDefinition struct {
-	orm            ORM
+	ctx            Context
 	EntitySchema   EntitySchema
 	EntityColumns  []*ColumnSchemaDefinition
 	EntityIndexes  []*IndexSchemaDefinition
@@ -31,8 +31,8 @@ type TableSQLSchemaDefinition struct {
 	PostAlters     []Alter
 }
 
-func GetAlters(orm ORM) (alters []Alter) {
-	pre, alters, post := getAlters(orm)
+func GetAlters(ctx Context) (alters []Alter) {
+	pre, alters, post := getAlters(ctx)
 	final := pre
 	final = append(final, alters...)
 	final = append(final, post...)
@@ -106,15 +106,15 @@ func (ti *IndexSchemaDefinition) SetColumns(columns []string) {
 	}
 }
 
-func (a Alter) Exec(orm ORM) {
-	orm.Engine().DB(a.Pool).Exec(orm, a.SQL)
+func (a Alter) Exec(ctx Context) {
+	ctx.Engine().DB(a.Pool).Exec(ctx, a.SQL)
 }
 
-func getAlters(orm ORM) (preAlters, alters, postAlters []Alter) {
+func getAlters(ctx Context) (preAlters, alters, postAlters []Alter) {
 	tablesInDB := make(map[string]map[string]bool)
 	tablesInEntities := make(map[string]map[string]bool)
 
-	for poolName, pool := range orm.Engine().Registry().DBPools() {
+	for poolName, pool := range ctx.Engine().Registry().DBPools() {
 		tablesInDB[poolName] = make(map[string]bool)
 		tables := getAllTables(pool.GetDBClient())
 		for _, table := range tables {
@@ -123,11 +123,11 @@ func getAlters(orm ORM) (preAlters, alters, postAlters []Alter) {
 		tablesInEntities[poolName] = make(map[string]bool)
 	}
 	alters = make([]Alter, 0)
-	for _, schemaInterface := range orm.Engine().Registry().Entities() {
+	for _, schemaInterface := range ctx.Engine().Registry().Entities() {
 		schema := schemaInterface.(*entitySchema)
 		db := schema.GetDB()
 		tablesInEntities[db.GetConfig().GetCode()][schema.GetTableName()] = true
-		pre, middle, post := getSchemaChanges(orm, schema)
+		pre, middle, post := getSchemaChanges(ctx, schema)
 		preAlters = append(preAlters, pre...)
 		alters = append(alters, middle...)
 		postAlters = append(postAlters, post...)
@@ -136,11 +136,11 @@ func getAlters(orm ORM) (preAlters, alters, postAlters []Alter) {
 		for tableName := range tables {
 			_, has := tablesInEntities[poolName][tableName]
 			if !has {
-				_, has = orm.Engine().Registry().getDBTables()[poolName][tableName]
+				_, has = ctx.Engine().Registry().getDBTables()[poolName][tableName]
 				if !has {
-					pool := orm.Engine().DB(poolName)
+					pool := ctx.Engine().DB(poolName)
 					dropSQL := fmt.Sprintf("DROP TABLE IF EXISTS `%s`.`%s`;", pool.GetConfig().GetDatabaseName(), tableName)
-					isEmpty := isTableEmptyInPool(orm, poolName, tableName)
+					isEmpty := isTableEmptyInPool(ctx, poolName, tableName)
 					alters = append(alters, Alter{SQL: dropSQL, Safe: isEmpty, Pool: poolName})
 				}
 			}
@@ -152,8 +152,8 @@ func getAlters(orm ORM) (preAlters, alters, postAlters []Alter) {
 	return
 }
 
-func isTableEmptyInPool(orm ORM, poolName string, tableName string) bool {
-	return isTableEmpty(orm.Engine().DB(poolName).GetDBClient(), tableName)
+func isTableEmptyInPool(ctx Context, poolName string, tableName string) bool {
+	return isTableEmpty(ctx.Engine().DB(poolName).GetDBClient(), tableName)
 }
 
 func getAllTables(db DBClient) []string {
@@ -175,9 +175,9 @@ func getAllTables(db DBClient) []string {
 	return tables
 }
 
-func getSchemaChanges(orm ORM, entitySchema *entitySchema) (preAlters, alters, postAlters []Alter) {
+func getSchemaChanges(ctx Context, entitySchema *entitySchema) (preAlters, alters, postAlters []Alter) {
 	indexes := make(map[string]*IndexSchemaDefinition)
-	columns, err := checkStruct(orm.Engine(), entitySchema, entitySchema.GetType(), indexes, nil, "", -1)
+	columns, err := checkStruct(ctx.Engine(), entitySchema, entitySchema.GetType(), indexes, nil, "", -1)
 	checkError(err)
 	indexesSlice := make([]*IndexSchemaDefinition, 0)
 	for _, index := range indexes {
@@ -185,16 +185,16 @@ func getSchemaChanges(orm ORM, entitySchema *entitySchema) (preAlters, alters, p
 	}
 	pool := entitySchema.GetDB()
 	var skip string
-	hasTable := pool.QueryRow(orm, NewWhere(fmt.Sprintf("SHOW TABLES LIKE '%s'", entitySchema.GetTableName())), &skip)
+	hasTable := pool.QueryRow(ctx, NewWhere(fmt.Sprintf("SHOW TABLES LIKE '%s'", entitySchema.GetTableName())), &skip)
 	sqlSchema := &TableSQLSchemaDefinition{
-		orm:           orm,
+		ctx:           ctx,
 		EntitySchema:  entitySchema,
 		EntityIndexes: indexesSlice,
 		DBEncoding:    pool.GetConfig().GetOptions().DefaultEncoding,
 		EntityColumns: columns}
 	if hasTable {
 		sqlSchema.DBTableColumns = make([]*ColumnSchemaDefinition, 0)
-		pool.QueryRow(orm, NewWhere(fmt.Sprintf("SHOW CREATE TABLE `%s`", entitySchema.GetTableName())), &skip, &sqlSchema.DBCreateSchema)
+		pool.QueryRow(ctx, NewWhere(fmt.Sprintf("SHOW CREATE TABLE `%s`", entitySchema.GetTableName())), &skip, &sqlSchema.DBCreateSchema)
 		lines := strings.Split(sqlSchema.DBCreateSchema, "\n")
 		for x := 1; x < len(lines); x++ {
 			l := strings.Trim(lines[x], " ")
@@ -227,7 +227,7 @@ func getSchemaChanges(orm ORM, entitySchema *entitySchema) (preAlters, alters, p
 
 		var rows []indexDB
 		/* #nosec */
-		results, def := pool.Query(orm, fmt.Sprintf("SHOW INDEXES FROM `%s`", entitySchema.GetTableName()))
+		results, def := pool.Query(ctx, fmt.Sprintf("SHOW INDEXES FROM `%s`", entitySchema.GetTableName()))
 		defer def()
 		for results.Next() {
 			var row indexDB

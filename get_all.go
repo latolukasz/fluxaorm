@@ -9,14 +9,14 @@ const cacheAllFakeReferenceKey = "all"
 
 var allEntitiesWhere = NewWhere("1")
 
-func GetAll[E any](orm ORM) EntityIterator[E] {
+func GetAll[E any](ctx Context) EntityIterator[E] {
 	var e E
-	schema := orm.(*ormImplementation).engine.registry.entitySchemas[reflect.TypeOf(e)]
+	schema := ctx.(*ormImplementation).engine.registry.entitySchemas[reflect.TypeOf(e)]
 	if schema == nil {
 		panic(fmt.Errorf("entity '%T' is not registered", e))
 	}
 	if !schema.cacheAll {
-		return Search[E](orm, allEntitiesWhere, nil)
+		return Search[E](ctx, allEntitiesWhere, nil)
 	}
-	return getCachedByReference[E](orm, cacheAllFakeReferenceKey, 0, schema)
+	return getCachedByReference[E](ctx, cacheAllFakeReferenceKey, 0, schema)
 }

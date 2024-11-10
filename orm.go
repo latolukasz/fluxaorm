@@ -19,10 +19,10 @@ func (m Meta) Get(key string) string {
 	return m[key]
 }
 
-type ORM interface {
+type Context interface {
 	Context() context.Context
-	Clone() ORM
-	CloneWithContext(context context.Context) ORM
+	Clone() Context
+	CloneWithContext(context context.Context) Context
 	Engine() Engine
 	Flush() error
 	FlushAsync() error
@@ -54,7 +54,7 @@ type ormImplementation struct {
 	stringBuilder2         *strings.Builder
 	redisPipeLines         map[string]*RedisPipeLine
 	flushDBActions         map[string][]dbAction
-	flushPostActions       []func(orm ORM)
+	flushPostActions       []func(ctx Context)
 	mutexFlush             sync.Mutex
 	mutexData              sync.Mutex
 }
@@ -63,7 +63,7 @@ func (orm *ormImplementation) Context() context.Context {
 	return orm.context
 }
 
-func (orm *ormImplementation) CloneWithContext(context context.Context) ORM {
+func (orm *ormImplementation) CloneWithContext(context context.Context) Context {
 	return &ormImplementation{
 		context:                context,
 		engine:                 orm.engine,
@@ -77,7 +77,7 @@ func (orm *ormImplementation) CloneWithContext(context context.Context) ORM {
 	}
 }
 
-func (orm *ormImplementation) Clone() ORM {
+func (orm *ormImplementation) Clone() Context {
 	return orm.CloneWithContext(orm.context)
 }
 
@@ -94,7 +94,7 @@ func (orm *ormImplementation) RedisPipeLine(pool string) *RedisPipeLine {
 		orm.redisPipeLines = make(map[string]*RedisPipeLine)
 	}
 	r := orm.engine.Redis(pool).(*redisCache)
-	pipeline := &RedisPipeLine{orm: orm, pool: pool, r: r, pipeLine: r.client.Pipeline()}
+	pipeline := &RedisPipeLine{ctx: orm, pool: pool, r: r, pipeLine: r.client.Pipeline()}
 	orm.redisPipeLines[pool] = pipeline
 	return pipeline
 }

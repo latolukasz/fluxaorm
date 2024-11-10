@@ -18,17 +18,17 @@ import (
 
 var codeStartTime = uint64(time.Now().Unix())
 
-func GetEntitySchema[E any](orm ORM) EntitySchema {
-	return getEntitySchema[E](orm)
+func GetEntitySchema[E any](ctx Context) EntitySchema {
+	return getEntitySchema[E](ctx)
 }
 
-func getEntitySchema[E any](orm ORM) *entitySchema {
+func getEntitySchema[E any](ctx Context) *entitySchema {
 	var entity E
-	return getEntitySchemaFromSource(orm, entity)
+	return getEntitySchemaFromSource(ctx, entity)
 }
 
-func getEntitySchemaFromSource(orm ORM, source any) *entitySchema {
-	ci := orm.(*ormImplementation)
+func getEntitySchemaFromSource(ctx Context, source any) *entitySchema {
+	ci := ctx.(*ormImplementation)
 	schema, has := ci.engine.registry.entitySchemasQuickMap[reflect.TypeOf(source)]
 	if !has {
 		panic(fmt.Errorf("entity '%T' is not registered", source))
@@ -55,25 +55,25 @@ type EntitySchemaShared interface {
 
 type EntitySchema interface {
 	EntitySchemaShared
-	DropTable(orm ORM)
-	TruncateTable(orm ORM)
-	UpdateSchema(orm ORM)
-	UpdateSchemaAndTruncateTable(orm ORM)
-	GetSchemaChanges(orm ORM) (alters []Alter, has bool)
+	DropTable(ctx Context)
+	TruncateTable(ctx Context)
+	UpdateSchema(ctx Context)
+	UpdateSchemaAndTruncateTable(ctx Context)
+	GetSchemaChanges(ctx Context) (alters []Alter, has bool)
 	DisableCache(local, redis bool)
-	NewEntity(orm ORM) any
-	GetByID(orm ORM, id uint64) (entity any, found bool)
-	Search(orm ORM, where Where, pager *Pager) EntityAnonymousIterator
-	SearchWithCount(orm ORM, where Where, pager *Pager) (results EntityAnonymousIterator, totalRows int)
-	SearchIDs(orm ORM, where Where, pager *Pager) []uint64
-	SearchIDsWithCount(orm ORM, where Where, pager *Pager) (results []uint64, totalRows int)
-	IsDirty(orm ORM, id uint64) (oldValues, newValues Bind, hasChanges bool)
-	Copy(orm ORM, source any) any
-	EditEntityField(orm ORM, entity any, field string, value any) error
-	EditEntity(orm ORM, entity any) any
-	DeleteEntity(orm ORM, entity any)
+	NewEntity(ctx Context) any
+	GetByID(ctx Context, id uint64) (entity any, found bool)
+	Search(ctx Context, where Where, pager *Pager) EntityAnonymousIterator
+	SearchWithCount(ctx Context, where Where, pager *Pager) (results EntityAnonymousIterator, totalRows int)
+	SearchIDs(ctx Context, where Where, pager *Pager) []uint64
+	SearchIDsWithCount(ctx Context, where Where, pager *Pager) (results []uint64, totalRows int)
+	IsDirty(ctx Context, id uint64) (oldValues, newValues Bind, hasChanges bool)
+	Copy(ctx Context, source any) any
+	EditEntityField(ctx Context, entity any, field string, value any) error
+	EditEntity(ctx Context, entity any) any
+	DeleteEntity(ctx Context, entity any)
 	getCacheKey() string
-	uuid(orm ORM) uint64
+	uuid(ctx Context) uint64
 	getForcedRedisCode() string
 }
 
@@ -211,36 +211,36 @@ func (e *entitySchema) GetType() reflect.Type {
 	return e.t
 }
 
-func (e *entitySchema) DropTable(orm ORM) {
+func (e *entitySchema) DropTable(ctx Context) {
 	pool := e.GetDB()
-	pool.Exec(orm, fmt.Sprintf("DROP TABLE IF EXISTS `%s`.`%s`;", pool.GetConfig().GetDatabaseName(), e.tableName))
+	pool.Exec(ctx, fmt.Sprintf("DROP TABLE IF EXISTS `%s`.`%s`;", pool.GetConfig().GetDatabaseName(), e.tableName))
 }
 
-func (e *entitySchema) TruncateTable(orm ORM) {
+func (e *entitySchema) TruncateTable(ctx Context) {
 	pool := e.GetDB()
 	if e.archived {
-		_ = pool.Exec(orm, fmt.Sprintf("DROP TABLE `%s`.`%s`", pool.GetConfig().GetDatabaseName(), e.tableName))
-		e.UpdateSchema(orm)
+		_ = pool.Exec(ctx, fmt.Sprintf("DROP TABLE `%s`.`%s`", pool.GetConfig().GetDatabaseName(), e.tableName))
+		e.UpdateSchema(ctx)
 	} else {
-		_ = pool.Exec(orm, fmt.Sprintf("TRUNCATE TABLE `%s`.`%s`", pool.GetConfig().GetDatabaseName(), e.tableName))
+		_ = pool.Exec(ctx, fmt.Sprintf("TRUNCATE TABLE `%s`.`%s`", pool.GetConfig().GetDatabaseName(), e.tableName))
 	}
 }
 
-func (e *entitySchema) UpdateSchema(orm ORM) {
+func (e *entitySchema) UpdateSchema(ctx Context) {
 	pool := e.GetDB()
-	alters, has := e.GetSchemaChanges(orm)
+	alters, has := e.GetSchemaChanges(ctx)
 	if has {
 		for _, alter := range alters {
-			_ = pool.Exec(orm, alter.SQL)
+			_ = pool.Exec(ctx, alter.SQL)
 		}
 	}
 }
 
-func (e *entitySchema) UpdateSchemaAndTruncateTable(orm ORM) {
-	e.UpdateSchema(orm)
+func (e *entitySchema) UpdateSchemaAndTruncateTable(ctx Context) {
+	e.UpdateSchema(ctx)
 	pool := e.GetDB()
-	_ = pool.Exec(orm, fmt.Sprintf("DELETE FROM `%s`.`%s`", pool.GetConfig().GetDatabaseName(), e.tableName))
-	_ = pool.Exec(orm, fmt.Sprintf("ALTER TABLE `%s`.`%s` AUTO_INCREMENT = 1", pool.GetConfig().GetDatabaseName(), e.tableName))
+	_ = pool.Exec(ctx, fmt.Sprintf("DELETE FROM `%s`.`%s`", pool.GetConfig().GetDatabaseName(), e.tableName))
+	_ = pool.Exec(ctx, fmt.Sprintf("ALTER TABLE `%s`.`%s` AUTO_INCREMENT = 1", pool.GetConfig().GetDatabaseName(), e.tableName))
 }
 
 func (e *entitySchema) GetDB() DB {
@@ -269,8 +269,8 @@ func (e *entitySchema) GetUniqueIndexes() map[string][]string {
 	return e.uniqueIndexesColumns
 }
 
-func (e *entitySchema) GetSchemaChanges(orm ORM) (alters []Alter, has bool) {
-	pre, alters, post := getSchemaChanges(orm, e)
+func (e *entitySchema) GetSchemaChanges(ctx Context) (alters []Alter, has bool) {
+	pre, alters, post := getSchemaChanges(ctx, e)
 	final := pre
 	final = append(final, alters...)
 	final = append(final, post...)
@@ -526,40 +526,40 @@ func (e *entitySchema) Option(key string) any {
 	return e.options[key]
 }
 
-func (e *entitySchema) uuid(orm ORM) uint64 {
-	r := orm.Engine().Redis(e.getForcedRedisCode())
-	id := r.Incr(orm, e.uuidCacheKey)
+func (e *entitySchema) uuid(ctx Context) uint64 {
+	r := ctx.Engine().Redis(e.getForcedRedisCode())
+	id := r.Incr(ctx, e.uuidCacheKey)
 	if id == 1 {
-		e.initUUID(orm)
-		return e.uuid(orm)
+		e.initUUID(ctx)
+		return e.uuid(ctx)
 	}
 	return uint64(id)
 }
 
-func (e *entitySchema) initUUID(orm ORM) {
-	r := orm.Engine().Redis(e.getForcedRedisCode())
+func (e *entitySchema) initUUID(ctx Context) {
+	r := ctx.Engine().Redis(e.getForcedRedisCode())
 	e.uuidMutex.Lock()
 	defer e.uuidMutex.Unlock()
-	now, has := r.Get(orm, e.uuidCacheKey)
+	now, has := r.Get(ctx, e.uuidCacheKey)
 	if has && now != "1" {
 		return
 	}
 	lockName := e.uuidCacheKey + ":lock"
-	lock, obtained := r.GetLocker().Obtain(orm, lockName, time.Minute, time.Second*5)
+	lock, obtained := r.GetLocker().Obtain(ctx, lockName, time.Minute, time.Second*5)
 	if !obtained {
 		panic(errors.New("uuid lock timeout"))
 	}
-	defer lock.Release(orm)
-	now, has = r.Get(orm, e.uuidCacheKey)
+	defer lock.Release(ctx)
+	now, has = r.Get(ctx, e.uuidCacheKey)
 	if has && now != "1" {
 		return
 	}
 	maxID := int64(0)
-	e.GetDB().QueryRow(orm, NewWhere("SELECT IFNULL(MAX(ID), 0) FROM `"+e.GetTableName()+"`"), &maxID)
+	e.GetDB().QueryRow(ctx, NewWhere("SELECT IFNULL(MAX(ID), 0) FROM `"+e.GetTableName()+"`"), &maxID)
 	if maxID == 0 {
 		maxID = 1
 	}
-	r.IncrBy(orm, e.uuidCacheKey, maxID)
+	r.IncrBy(ctx, e.uuidCacheKey, maxID)
 }
 
 func (e *entitySchema) getForcedRedisCode() string {
@@ -583,77 +583,77 @@ func (e *entitySchema) DisableCache(local, redis bool) {
 	}
 }
 
-func (e *entitySchema) NewEntity(orm ORM) any {
-	return newEntity(orm, orm.Engine().Registry().EntitySchema(e.t).(*entitySchema))
+func (e *entitySchema) NewEntity(ctx Context) any {
+	return newEntity(ctx, ctx.Engine().Registry().EntitySchema(e.t).(*entitySchema))
 }
 
-func (e *entitySchema) GetByID(orm ORM, id uint64) (entity any, found bool) {
-	return getByID(orm.(*ormImplementation), id, orm.Engine().Registry().EntitySchema(e.t).(*entitySchema))
+func (e *entitySchema) GetByID(ctx Context, id uint64) (entity any, found bool) {
+	return getByID(ctx.(*ormImplementation), id, ctx.Engine().Registry().EntitySchema(e.t).(*entitySchema))
 }
 
-func (e *entitySchema) SearchWithCount(orm ORM, where Where, pager *Pager) (results EntityAnonymousIterator, totalRows int) {
-	return e.search(orm, where, pager, true)
+func (e *entitySchema) SearchWithCount(ctx Context, where Where, pager *Pager) (results EntityAnonymousIterator, totalRows int) {
+	return e.search(ctx, where, pager, true)
 }
 
-func (e *entitySchema) Search(orm ORM, where Where, pager *Pager) EntityAnonymousIterator {
-	results, _ := e.search(orm, where, pager, false)
+func (e *entitySchema) Search(ctx Context, where Where, pager *Pager) EntityAnonymousIterator {
+	results, _ := e.search(ctx, where, pager, false)
 	return results
 }
 
-func (e *entitySchema) SearchIDs(orm ORM, where Where, pager *Pager) []uint64 {
-	schema := orm.Engine().Registry().EntitySchema(e.t).(*entitySchema)
-	ids, _ := searchIDs(orm, schema, where, pager, false)
+func (e *entitySchema) SearchIDs(ctx Context, where Where, pager *Pager) []uint64 {
+	schema := ctx.Engine().Registry().EntitySchema(e.t).(*entitySchema)
+	ids, _ := searchIDs(ctx, schema, where, pager, false)
 	return ids
 }
 
-func (e *entitySchema) SearchIDsWithCount(orm ORM, where Where, pager *Pager) (results []uint64, totalRows int) {
-	schema := orm.Engine().Registry().EntitySchema(e.t).(*entitySchema)
-	return searchIDs(orm, schema, where, pager, true)
+func (e *entitySchema) SearchIDsWithCount(ctx Context, where Where, pager *Pager) (results []uint64, totalRows int) {
+	schema := ctx.Engine().Registry().EntitySchema(e.t).(*entitySchema)
+	return searchIDs(ctx, schema, where, pager, true)
 }
 
-func (e *entitySchema) IsDirty(orm ORM, id uint64) (oldValues, newValues Bind, hasChanges bool) {
-	return isDirty(orm, orm.Engine().Registry().EntitySchema(e.t).(*entitySchema), id)
+func (e *entitySchema) IsDirty(ctx Context, id uint64) (oldValues, newValues Bind, hasChanges bool) {
+	return isDirty(ctx, ctx.Engine().Registry().EntitySchema(e.t).(*entitySchema), id)
 }
 
-func (e *entitySchema) Copy(orm ORM, source any) any {
-	schema := orm.Engine().Registry().EntitySchema(e.t).(*entitySchema)
-	insertable := newEntityInsertable(orm, schema)
+func (e *entitySchema) Copy(ctx Context, source any) any {
+	schema := ctx.Engine().Registry().EntitySchema(e.t).(*entitySchema)
+	insertable := newEntityInsertable(ctx, schema)
 	copyEntity(reflect.ValueOf(source).Elem(), insertable.value.Elem(), schema.fields, false)
 	return insertable.entity
 }
 
-func (e *entitySchema) EditEntityField(orm ORM, entity any, field string, value any) error {
-	return editEntityField(orm, entity, field, value)
+func (e *entitySchema) EditEntityField(ctx Context, entity any, field string, value any) error {
+	return editEntityField(ctx, entity, field, value)
 }
 
-func (e *entitySchema) EditEntity(orm ORM, source any) any {
-	writable := copyToEdit(orm, source)
+func (e *entitySchema) EditEntity(ctx Context, source any) any {
+	writable := copyToEdit(ctx, source)
 	writable.id = writable.value.Elem().Field(0).Uint()
 	writable.source = source
-	orm.trackEntity(writable)
+	ctx.trackEntity(writable)
 	return writable.entity
 }
 
-func (e *entitySchema) DeleteEntity(orm ORM, source any) {
-	schema := orm.Engine().Registry().EntitySchema(e.t).(*entitySchema)
+func (e *entitySchema) DeleteEntity(ctx Context, source any) {
+	schema := ctx.Engine().Registry().EntitySchema(e.t).(*entitySchema)
 	toRemove := &removableEntity{}
-	toRemove.orm = orm
+	toRemove.ctx = ctx
 	toRemove.source = source
 	toRemove.value = reflect.ValueOf(source).Elem()
 	toRemove.id = toRemove.value.Field(0).Uint()
 	toRemove.schema = schema
-	orm.trackEntity(toRemove)
+	ctx.trackEntity(toRemove)
 }
 
-func (e *entitySchema) search(orm ORM, where Where, pager *Pager, withCount bool) (results EntityAnonymousIterator, totalRows int) {
-	schema := orm.Engine().Registry().EntitySchema(e.t).(*entitySchema)
+func (e *entitySchema) search(ctx Context, where Where, pager *Pager, withCount bool) (results EntityAnonymousIterator, totalRows int) {
+	schema := ctx.Engine().Registry().EntitySchema(e.t).(*entitySchema)
 	entities := reflect.New(reflect.SliceOf(reflect.PtrTo(e.t))).Elem()
 	if schema.hasLocalCache {
-		ids, total := searchIDs(orm, schema, where, pager, withCount)
+		ids, total := searchIDs(ctx, schema, where, pager, withCount)
 		if total == 0 {
 			return emptyResultsAnonymousIteratorInstance, 0
 		}
-		return &localCacheIDsAnonymousIterator{c: orm.(*ormImplementation), schema: schema, ids: ids, index: -1}, total
+		return &localCacheIDsAnonymousIterator{c: ctx.(*ormImplementation), schema: schema, ids: ids, index: -1}, total
 	}
 	whereQuery := where.String()
 	query := "SELECT " + schema.fieldsQuery + " FROM `" + schema.GetTableName() + "` WHERE " + whereQuery
@@ -661,7 +661,7 @@ func (e *entitySchema) search(orm ORM, where Where, pager *Pager, withCount bool
 		query += " " + pager.String()
 	}
 	pool := schema.GetDB()
-	queryResults, def := pool.Query(orm, query, where.GetParameters()...)
+	queryResults, def := pool.Query(ctx, query, where.GetParameters()...)
 	defer def()
 
 	i := 0
@@ -676,7 +676,7 @@ func (e *entitySchema) search(orm ORM, where Where, pager *Pager, withCount bool
 	def()
 	totalRows = i
 	if pager != nil {
-		totalRows = getTotalRows(orm, withCount, pager, where, schema, i)
+		totalRows = getTotalRows(ctx, withCount, pager, where, schema, i)
 	}
 	resultsIterator := &entityAnonymousIterator{index: -1}
 	resultsIterator.rows = entities

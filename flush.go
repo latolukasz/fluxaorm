@@ -15,7 +15,7 @@ type entitySQLOperations map[FlushType][]EntityFlush
 type schemaSQLOperations map[*entitySchema]entitySQLOperations
 type sqlOperations map[DB]schemaSQLOperations
 type dbAction func(db DBBase)
-type PostFlushAction func(orm ORM)
+type PostFlushAction func(ctx Context)
 
 func (orm *ormImplementation) Flush() error {
 	return orm.flush(false)
@@ -162,7 +162,7 @@ func (orm *ormImplementation) handleDeletes(async bool, schema *entitySchema, op
 			}
 		}
 		if hasLocalCache {
-			orm.flushPostActions = append(orm.flushPostActions, func(_ ORM) {
+			orm.flushPostActions = append(orm.flushPostActions, func(_ Context) {
 				lc.setEntity(orm, operation.ID(), nil)
 			})
 		}
@@ -185,7 +185,7 @@ func (orm *ormImplementation) handleDeletes(async bool, schema *entitySchema, op
 			}
 			refColumn := columnName
 			if schema.hasLocalCache {
-				orm.flushPostActions = append(orm.flushPostActions, func(_ ORM) {
+				orm.flushPostActions = append(orm.flushPostActions, func(_ Context) {
 					lc.removeList(orm, refColumn, id.(uint64))
 				})
 			}
@@ -195,7 +195,7 @@ func (orm *ormImplementation) handleDeletes(async bool, schema *entitySchema, op
 		}
 		if schema.cacheAll {
 			if schema.hasLocalCache {
-				orm.flushPostActions = append(orm.flushPostActions, func(_ ORM) {
+				orm.flushPostActions = append(orm.flushPostActions, func(_ Context) {
 					lc.removeList(orm, cacheAllFakeReferenceKey, 0)
 				})
 			}
@@ -216,7 +216,7 @@ func (orm *ormImplementation) handleDeletes(async bool, schema *entitySchema, op
 			key := indexName
 			id := hashIndexAttributes(indexAttributes)
 			if schema.hasLocalCache {
-				orm.flushPostActions = append(orm.flushPostActions, func(_ ORM) {
+				orm.flushPostActions = append(orm.flushPostActions, func(_ Context) {
 					lc.removeList(orm, key, id)
 				})
 			}
@@ -371,7 +371,7 @@ func (orm *ormImplementation) handleInserts(async bool, schema *entitySchema, op
 			publishAsyncEvent(logTableSchema, data)
 		}
 		if hasLocalCache {
-			orm.flushPostActions = append(orm.flushPostActions, func(_ ORM) {
+			orm.flushPostActions = append(orm.flushPostActions, func(_ Context) {
 				lc.setEntity(orm, insert.ID(), insert.getEntity())
 			})
 		}
@@ -382,7 +382,7 @@ func (orm *ormImplementation) handleInserts(async bool, schema *entitySchema, op
 			}
 			refColumn := columnName
 			if schema.hasLocalCache {
-				orm.flushPostActions = append(orm.flushPostActions, func(_ ORM) {
+				orm.flushPostActions = append(orm.flushPostActions, func(_ Context) {
 					lc.removeList(orm, refColumn, id.(uint64))
 				})
 			}
@@ -391,7 +391,7 @@ func (orm *ormImplementation) handleInserts(async bool, schema *entitySchema, op
 		}
 		if schema.cacheAll {
 			if schema.hasLocalCache {
-				orm.flushPostActions = append(orm.flushPostActions, func(_ ORM) {
+				orm.flushPostActions = append(orm.flushPostActions, func(_ Context) {
 					lc.removeList(orm, cacheAllFakeReferenceKey, 0)
 				})
 			}
@@ -406,7 +406,7 @@ func (orm *ormImplementation) handleInserts(async bool, schema *entitySchema, op
 			key := indexName
 			id := hashIndexAttributes(indexAttributes)
 			if schema.hasLocalCache {
-				orm.flushPostActions = append(orm.flushPostActions, func(_ ORM) {
+				orm.flushPostActions = append(orm.flushPostActions, func(_ Context) {
 					lc.removeList(orm, key, id)
 				})
 			}
@@ -553,7 +553,7 @@ func (orm *ormImplementation) handleUpdates(async bool, schema *entitySchema, op
 				}
 			}
 		} else if schema.hasLocalCache {
-			orm.flushPostActions = append(orm.flushPostActions, func(_ ORM) {
+			orm.flushPostActions = append(orm.flushPostActions, func(_ Context) {
 				sourceValue := update.getSourceValue()
 				func() {
 					schema.localCache.mutex.Lock()
@@ -590,7 +590,7 @@ func (orm *ormImplementation) handleUpdates(async bool, schema *entitySchema, op
 			}
 			if oldAsInt > 0 {
 				if schema.hasLocalCache {
-					orm.flushPostActions = append(orm.flushPostActions, func(_ ORM) {
+					orm.flushPostActions = append(orm.flushPostActions, func(_ Context) {
 						schema.localCache.removeList(orm, refColumn, oldAsInt)
 					})
 				}
@@ -599,7 +599,7 @@ func (orm *ormImplementation) handleUpdates(async bool, schema *entitySchema, op
 			}
 			if newAsInt > 0 {
 				if schema.hasLocalCache {
-					orm.flushPostActions = append(orm.flushPostActions, func(_ ORM) {
+					orm.flushPostActions = append(orm.flushPostActions, func(_ Context) {
 						schema.localCache.removeList(orm, refColumn, newAsInt)
 					})
 				}
@@ -631,7 +631,7 @@ func (orm *ormImplementation) handleUpdates(async bool, schema *entitySchema, op
 			key := indexName
 			id := hashIndexAttributes(indexAttributes)
 			if schema.hasLocalCache {
-				orm.flushPostActions = append(orm.flushPostActions, func(_ ORM) {
+				orm.flushPostActions = append(orm.flushPostActions, func(_ Context) {
 					schema.localCache.removeList(orm, key, id)
 				})
 			}
@@ -650,7 +650,7 @@ func (orm *ormImplementation) handleUpdates(async bool, schema *entitySchema, op
 			key2 := indexName
 			id2 := hashIndexAttributes(indexAttributes)
 			if schema.hasLocalCache {
-				orm.flushPostActions = append(orm.flushPostActions, func(_ ORM) {
+				orm.flushPostActions = append(orm.flushPostActions, func(_ Context) {
 					schema.localCache.removeList(orm, key2, id2)
 				})
 			}

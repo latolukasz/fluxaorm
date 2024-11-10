@@ -47,18 +47,18 @@ type localCacheElement struct {
 }
 
 type LocalCache interface {
-	Set(orm ORM, key string, value any)
-	Remove(orm ORM, key string)
+	Set(ctx Context, key string, value any)
+	Remove(ctx Context, key string)
 	GetConfig() LocalCacheConfig
-	Get(orm ORM, key string) (value any, ok bool)
-	Clear(orm ORM)
+	Get(ctx Context, key string) (value any, ok bool)
+	Clear(ctx Context)
 	GetUsage() []LocalCacheUsage
-	getEntity(orm ORM, id uint64) (value any, ok bool)
-	setEntity(orm ORM, id uint64, value any)
-	removeEntity(orm ORM, id uint64)
-	getList(orm ORM, key string, id uint64) (value any, ok bool)
-	setList(orm ORM, key string, id uint64, value any)
-	removeList(orm ORM, key string, id uint64)
+	getEntity(ctx Context, id uint64) (value any, ok bool)
+	setEntity(ctx Context, id uint64, value any)
+	removeEntity(ctx Context, id uint64)
+	getList(ctx Context, key string, id uint64) (value any, ok bool)
+	setList(ctx Context, key string, id uint64, value any)
+	removeList(ctx Context, key string, id uint64)
 }
 
 type localCache struct {
@@ -154,12 +154,12 @@ func (lc *localCache) GetConfig() LocalCacheConfig {
 	return lc.config
 }
 
-func (lc *localCache) Get(orm ORM, key string) (value any, ok bool) {
+func (lc *localCache) Get(ctx Context, key string) (value any, ok bool) {
 	if lc.config.limit > 0 {
 		val, has := lc.cacheLimit.Load(key)
-		hasLog, _ := orm.getLocalCacheLoggers()
+		hasLog, _ := ctx.getLocalCacheLoggers()
 		if hasLog {
-			lc.fillLogFields(orm, "GET", fmt.Sprintf("GET %v", key), !has)
+			lc.fillLogFields(ctx, "GET", fmt.Sprintf("GET %v", key), !has)
 		}
 		if has {
 			if lc.cacheLimit.Size() >= lc.config.limit {
@@ -170,19 +170,19 @@ func (lc *localCache) Get(orm ORM, key string) (value any, ok bool) {
 		return nil, false
 	}
 	value, ok = lc.cacheNoLimit.Load(key)
-	hasLog, _ := orm.getLocalCacheLoggers()
+	hasLog, _ := ctx.getLocalCacheLoggers()
 	if hasLog {
-		lc.fillLogFields(orm, "GET", fmt.Sprintf("GET %v", key), !ok)
+		lc.fillLogFields(ctx, "GET", fmt.Sprintf("GET %v", key), !ok)
 	}
 	return
 }
 
-func (lc *localCache) getEntity(orm ORM, id uint64) (value any, ok bool) {
+func (lc *localCache) getEntity(ctx Context, id uint64) (value any, ok bool) {
 	if lc.config.limit > 0 {
 		val, has := lc.cacheEntitiesLimit.Load(id)
-		hasLog, _ := orm.getLocalCacheLoggers()
+		hasLog, _ := ctx.getLocalCacheLoggers()
 		if hasLog {
-			lc.fillLogFields(orm, "GET", fmt.Sprintf("GET ENTITY %d", id), !has)
+			lc.fillLogFields(ctx, "GET", fmt.Sprintf("GET ENTITY %d", id), !has)
 		}
 		if has {
 			if lc.cacheEntitiesLimit.Size() >= lc.config.limit {
@@ -193,20 +193,20 @@ func (lc *localCache) getEntity(orm ORM, id uint64) (value any, ok bool) {
 		return nil, false
 	}
 	value, ok = lc.cacheEntitiesNoLimit.Load(id)
-	hasLog, _ := orm.getLocalCacheLoggers()
+	hasLog, _ := ctx.getLocalCacheLoggers()
 	if hasLog {
-		lc.fillLogFields(orm, "GET", fmt.Sprintf("GET ENTITY %d", id), !ok)
+		lc.fillLogFields(ctx, "GET", fmt.Sprintf("GET ENTITY %d", id), !ok)
 	}
 	return
 }
 
-func (lc *localCache) getList(orm ORM, key string, id uint64) (value any, ok bool) {
+func (lc *localCache) getList(ctx Context, key string, id uint64) (value any, ok bool) {
 	if lc.config.limit > 0 {
 		c := lc.cacheListLimit[key]
 		val, has := c.Load(id)
-		hasLog, _ := orm.getLocalCacheLoggers()
+		hasLog, _ := ctx.getLocalCacheLoggers()
 		if hasLog {
-			lc.fillLogFields(orm, "GET", fmt.Sprintf("GET LIST %s %d", key, id), !has)
+			lc.fillLogFields(ctx, "GET", fmt.Sprintf("GET LIST %s %d", key, id), !has)
 		}
 		if has {
 			if c.Size() >= lc.config.limit {
@@ -217,14 +217,14 @@ func (lc *localCache) getList(orm ORM, key string, id uint64) (value any, ok boo
 		return nil, false
 	}
 	value, ok = lc.cacheListNoLimit[key].Load(id)
-	hasLog, _ := orm.getLocalCacheLoggers()
+	hasLog, _ := ctx.getLocalCacheLoggers()
 	if hasLog {
-		lc.fillLogFields(orm, "GET", fmt.Sprintf("GET LIST %s %d", key, id), !ok)
+		lc.fillLogFields(ctx, "GET", fmt.Sprintf("GET LIST %s %d", key, id), !ok)
 	}
 	return
 }
 
-func (lc *localCache) Set(orm ORM, key string, value any) {
+func (lc *localCache) Set(ctx Context, key string, value any) {
 	if lc.config.limit > 0 {
 		element := lc.cacheLRU.PushFront(key)
 		lc.cacheLimit.Store(key, &localCacheElement{lruElement: element, value: value})
@@ -235,20 +235,20 @@ func (lc *localCache) Set(orm ORM, key string, value any) {
 				atomic.AddUint64(&lc.evictions, 1)
 			}
 		}
-		hasLog, _ := orm.getLocalCacheLoggers()
+		hasLog, _ := ctx.getLocalCacheLoggers()
 		if hasLog {
-			lc.fillLogFields(orm, "SET", fmt.Sprintf("SET %s %v", key, value), false)
+			lc.fillLogFields(ctx, "SET", fmt.Sprintf("SET %s %v", key, value), false)
 		}
 		return
 	}
 	lc.cacheNoLimit.Store(key, value)
-	hasLog, _ := orm.getLocalCacheLoggers()
+	hasLog, _ := ctx.getLocalCacheLoggers()
 	if hasLog {
-		lc.fillLogFields(orm, "SET", fmt.Sprintf("SET %s %v", key, value), false)
+		lc.fillLogFields(ctx, "SET", fmt.Sprintf("SET %s %v", key, value), false)
 	}
 }
 
-func (lc *localCache) setEntity(orm ORM, id uint64, value any) {
+func (lc *localCache) setEntity(ctx Context, id uint64, value any) {
 	if lc.config.limit > 0 {
 		element := lc.cacheEntitiesLRU.PushFront(id)
 		lc.cacheEntitiesLimit.Store(id, &localCacheElement{lruElement: element, value: value})
@@ -259,20 +259,20 @@ func (lc *localCache) setEntity(orm ORM, id uint64, value any) {
 				atomic.AddUint64(&lc.evictionsEntities, 1)
 			}
 		}
-		hasLog, _ := orm.getLocalCacheLoggers()
+		hasLog, _ := ctx.getLocalCacheLoggers()
 		if hasLog {
-			lc.fillLogFields(orm, "SET", fmt.Sprintf("SET ENTITY %d %v", id, value), false)
+			lc.fillLogFields(ctx, "SET", fmt.Sprintf("SET ENTITY %d %v", id, value), false)
 		}
 		return
 	}
 	lc.cacheEntitiesNoLimit.Store(id, value)
-	hasLog, _ := orm.getLocalCacheLoggers()
+	hasLog, _ := ctx.getLocalCacheLoggers()
 	if hasLog {
-		lc.fillLogFields(orm, "SET", fmt.Sprintf("SET ENTITY %d [entity value]", id), false)
+		lc.fillLogFields(ctx, "SET", fmt.Sprintf("SET ENTITY %d [entity value]", id), false)
 	}
 }
 
-func (lc *localCache) setList(orm ORM, key string, id uint64, value any) {
+func (lc *localCache) setList(ctx Context, key string, id uint64, value any) {
 	if lc.config.limit > 0 {
 		element := lc.cacheEntitiesLRU.PushFront(id)
 		c := lc.cacheListLimit[key]
@@ -285,20 +285,20 @@ func (lc *localCache) setList(orm ORM, key string, id uint64, value any) {
 				atomic.AddUint64(lc.evictionsList[key], 1)
 			}
 		}
-		hasLog, _ := orm.getLocalCacheLoggers()
+		hasLog, _ := ctx.getLocalCacheLoggers()
 		if hasLog {
-			lc.fillLogFields(orm, "SET", fmt.Sprintf("SET LIST %d %v", id, value), false)
+			lc.fillLogFields(ctx, "SET", fmt.Sprintf("SET LIST %d %v", id, value), false)
 		}
 		return
 	}
 	lc.cacheListNoLimit[key].Store(id, value)
-	hasLog, _ := orm.getLocalCacheLoggers()
+	hasLog, _ := ctx.getLocalCacheLoggers()
 	if hasLog {
-		lc.fillLogFields(orm, "SET", fmt.Sprintf("SET LIST %s %d %v", key, id, value), false)
+		lc.fillLogFields(ctx, "SET", fmt.Sprintf("SET LIST %s %d %v", key, id, value), false)
 	}
 }
 
-func (lc *localCache) Remove(orm ORM, key string) {
+func (lc *localCache) Remove(ctx Context, key string) {
 	if lc.config.limit > 0 {
 		val, loaded := lc.cacheLimit.LoadAndDelete(key)
 		if loaded {
@@ -307,13 +307,13 @@ func (lc *localCache) Remove(orm ORM, key string) {
 	} else {
 		lc.cacheNoLimit.Delete(key)
 	}
-	hasLog, _ := orm.getLocalCacheLoggers()
+	hasLog, _ := ctx.getLocalCacheLoggers()
 	if hasLog {
-		lc.fillLogFields(orm, "REMOVE", fmt.Sprintf("REMOVE %s", key), false)
+		lc.fillLogFields(ctx, "REMOVE", fmt.Sprintf("REMOVE %s", key), false)
 	}
 }
 
-func (lc *localCache) removeEntity(orm ORM, id uint64) {
+func (lc *localCache) removeEntity(ctx Context, id uint64) {
 	if lc.config.limit > 0 {
 		val, loaded := lc.cacheEntitiesLimit.LoadAndDelete(id)
 		if loaded {
@@ -322,13 +322,13 @@ func (lc *localCache) removeEntity(orm ORM, id uint64) {
 	} else {
 		lc.cacheEntitiesNoLimit.Delete(id)
 	}
-	hasLog, _ := orm.getLocalCacheLoggers()
+	hasLog, _ := ctx.getLocalCacheLoggers()
 	if hasLog {
-		lc.fillLogFields(orm, "REMOVE", fmt.Sprintf("REMOVE ENTITY %d", id), false)
+		lc.fillLogFields(ctx, "REMOVE", fmt.Sprintf("REMOVE ENTITY %d", id), false)
 	}
 }
 
-func (lc *localCache) removeList(orm ORM, key string, id uint64) {
+func (lc *localCache) removeList(ctx Context, key string, id uint64) {
 	if lc.config.limit > 0 {
 		val, loaded := lc.cacheListLimit[key].LoadAndDelete(id)
 		if loaded {
@@ -337,13 +337,13 @@ func (lc *localCache) removeList(orm ORM, key string, id uint64) {
 	} else {
 		lc.cacheListNoLimit[key].Delete(id)
 	}
-	hasLog, _ := orm.getLocalCacheLoggers()
+	hasLog, _ := ctx.getLocalCacheLoggers()
 	if hasLog {
-		lc.fillLogFields(orm, "REMOVE", fmt.Sprintf("REMOVE LIST %s %d", key, id), false)
+		lc.fillLogFields(ctx, "REMOVE", fmt.Sprintf("REMOVE LIST %s %d", key, id), false)
 	}
 }
 
-func (lc *localCache) Clear(orm ORM) {
+func (lc *localCache) Clear(ctx Context) {
 	if lc.config.limit > 0 {
 		lc.cacheLimit.Clear()
 		lc.cacheLRU.Init()
@@ -370,9 +370,9 @@ func (lc *localCache) Clear(orm ORM) {
 		}
 	}
 
-	hasLog, _ := orm.getLocalCacheLoggers()
+	hasLog, _ := ctx.getLocalCacheLoggers()
 	if hasLog {
-		lc.fillLogFields(orm, "CLEAR", "CLEAR", false)
+		lc.fillLogFields(ctx, "CLEAR", "CLEAR", false)
 	}
 }
 
@@ -403,7 +403,7 @@ func (lc *localCache) GetUsage() []LocalCacheUsage {
 	return usage
 }
 
-func (lc *localCache) fillLogFields(orm ORM, operation, query string, cacheMiss bool) {
-	_, loggers := orm.getLocalCacheLoggers()
-	fillLogFields(orm, loggers, lc.config.code, sourceLocalCache, operation, query, nil, cacheMiss, nil)
+func (lc *localCache) fillLogFields(ctx Context, operation, query string, cacheMiss bool) {
+	_, loggers := ctx.getLocalCacheLoggers()
+	fillLogFields(ctx, loggers, lc.config.code, sourceLocalCache, operation, query, nil, cacheMiss, nil)
 }
