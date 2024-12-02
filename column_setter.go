@@ -219,7 +219,7 @@ func createReferenceFieldBindSetter(columnName string, t reflect.Type, idSetter 
 			}
 			return id, nil
 		}
-		reference, is := v.(referenceInterface)
+		reference, is := v.(ReferenceInterface)
 		if is {
 			if reference.getType() != t {
 				return nil, &BindError{columnName, "invalid reference type"}
@@ -550,7 +550,11 @@ func createTimeNullableFieldSetter(attributes schemaFieldAttributes, layout stri
 func getSetterField(elem reflect.Value, attributes schemaFieldAttributes, arrayIndex int) reflect.Value {
 	field := elem
 	for _, i := range attributes.Parents {
-		field = field.Field(i)
+		if i < 0 {
+			field = field.Index((i + 1) * -1)
+		} else {
+			field = field.Field(i)
+		}
 	}
 	field = field.Field(attributes.Index)
 	if attributes.IsArray {

@@ -583,8 +583,8 @@ func checkColumn(engine Engine, schema *entitySchema, field *reflect.StructField
 				checkError(err)
 				columns = append(columns, structFields...)
 				continue
-			} else if fieldType.Implements(reflect.TypeOf((*referenceInterface)(nil)).Elem()) {
-				refIDType := reflect.New(reflect.New(fieldType).Interface().(referenceInterface).getType()).Elem().FieldByName("ID").Type().String()
+			} else if fieldType.Implements(reflect.TypeOf((*ReferenceInterface)(nil)).Elem()) {
+				refIDType := reflect.New(reflect.New(fieldType).Interface().(ReferenceInterface).getType()).Elem().FieldByName("ID").Type().String()
 				definition, addNotNullIfNotSet, defaultValue = handleInt(refIDType, attributes, !isRequired)
 			} else if fieldType.Implements(reflect.TypeOf((*EnumValues)(nil)).Elem()) {
 				def := reflect.New(fieldType).Interface().(EnumValues)

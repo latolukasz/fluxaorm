@@ -97,6 +97,7 @@ type entitySchema struct {
 	columnMapping             map[string]int
 	columnAttrToStringSetters map[string]columnAttrToStringSetter
 	fieldBindSetters          map[string]fieldBindSetter
+	fieldDefinitions          map[string]schemaFieldAttributes
 	fieldSetters              map[string]fieldSetter
 	fieldGetters              map[string]fieldGetter
 	uniqueIndexes             map[string]indexDefinition
@@ -355,9 +356,10 @@ func (e *entitySchema) init(registry *registry, entityType reflect.Type) error {
 	}
 	e.columnAttrToStringSetters = make(map[string]columnAttrToStringSetter)
 	e.fieldBindSetters = make(map[string]fieldBindSetter)
+	e.fieldDefinitions = make(map[string]schemaFieldAttributes)
 	e.fieldSetters = make(map[string]fieldSetter)
 	e.fieldGetters = make(map[string]fieldGetter)
-	e.fields = e.buildTableFields(entityType, registry, 0, "", nil, e.tags)
+	e.fields = e.buildTableFields(entityType, registry, 0, "", nil, e.tags, "")
 	e.columnNames, e.fieldsQuery = e.fields.buildColumnNames("")
 	if len(e.fieldsQuery) > 0 {
 		e.fieldsQuery = e.fieldsQuery[1:]
@@ -684,7 +686,7 @@ func (e *entitySchema) search(ctx Context, where Where, pager *Pager, withCount 
 }
 
 func (e *entitySchema) buildTableFields(t reflect.Type, registry *registry,
-	start int, prefix string, parents []int, schemaTags map[string]map[string]string) *tableFields {
+	start int, prefix string, parents []int, schemaTags map[string]map[string]string, extraPrefix string) *tableFields {
 	fields := &tableFields{t: t, prefix: prefix, fields: make(map[int]reflect.StructField)}
 	fields.forcedOldBid = make(map[int]bool)
 	fields.arrays = make(map[int]int)
@@ -704,13 +706,14 @@ func (e *entitySchema) buildTableFields(t reflect.Type, registry *registry,
 			fields.forcedOldBid[i] = true
 		}
 		attributes := schemaFieldAttributes{
-			Fields:   fields,
-			Tags:     tags,
-			Index:    i,
-			Parents:  parents,
-			Prefix:   prefix,
-			Field:    f,
-			TypeName: f.Type.String(),
+			Fields:      fields,
+			Tags:        tags,
+			Index:       i,
+			Parents:     parents,
+			Prefix:      prefix,
+			ExtraPrefix: extraPrefix,
+			Field:       f,
+			TypeName:    f.Type.String(),
 		}
 		fields.fields[i] = f
 		if f.Type.Kind().String() == "array" {
@@ -793,7 +796,7 @@ func (e *entitySchema) buildTableFields(t reflect.Type, registry *registry,
 			} else if k == "slice" && fType.Elem().Implements(reflect.TypeOf((*EnumValues)(nil)).Elem()) {
 				definition := reflect.New(fType.Elem()).Interface().(EnumValues).EnumValues()
 				e.buildStringSliceField(fType.String(), attributes, definition)
-			} else if fType.Implements(reflect.TypeOf((*referenceInterface)(nil)).Elem()) {
+			} else if fType.Implements(reflect.TypeOf((*ReferenceInterface)(nil)).Elem()) {
 				e.buildReferenceField(attributes)
 				if attributes.Tags["cached"] == "true" {
 					fields.forcedOldBid[i] = true
@@ -807,27 +810,28 @@ func (e *entitySchema) buildTableFields(t reflect.Type, registry *registry,
 }
 
 type schemaFieldAttributes struct {
-	Field    reflect.StructField
-	TypeName string
-	Tags     map[string]string
-	Fields   *tableFields
-	Index    int
-	Parents  []int
-	Prefix   string
-	IsArray  bool
+	Field       reflect.StructField
+	TypeName    string
+	Tags        map[string]string
+	Fields      *tableFields
+	Index       int
+	Parents     []int
+	Prefix      string
+	ExtraPrefix string
+	IsArray     bool
 }
 
 func (attributes schemaFieldAttributes) GetColumnNames() []string {
 	l, isArray := attributes.Fields.arrays[attributes.Index]
 	if !isArray {
-		return []string{attributes.Prefix + attributes.Field.Name}
+		return []string{attributes.Prefix + attributes.ExtraPrefix + attributes.Field.Name}
 	}
 	names := make([]string, l)
 	for i := 0; i <= l; i++ {
 		if i == l {
 			break
 		}
-		names[i] = attributes.Prefix + attributes.Field.Name + "_" + strconv.Itoa(i+1)
+		names[i] = attributes.Prefix + attributes.ExtraPrefix + attributes.Field.Name + "_" + strconv.Itoa(i+1)
 	}
 	return names
 }
@@ -848,6 +852,7 @@ func (e *entitySchema) buildUintField(attributes schemaFieldAttributes, min int6
 			return *val.(*uint64)
 		}
 		e.fieldBindSetters[columnName] = createNumberFieldBindSetter(columnName, true, false, min, max)
+		e.fieldDefinitions[columnName] = attributes
 		e.columnAttrToStringSetters[columnName] = createUint64AttrToStringSetter(e.fieldBindSetters[columnName])
 		e.fieldSetters[columnName] = createNumberFieldSetter(attributes, true, false, i)
 		e.fieldGetters[columnName] = createFieldGetter(attributes, false, i)
@@ -876,7 +881,7 @@ func (e *entitySchema) buildReferenceField(attributes schemaFieldAttributes) {
 		e.mapPointerToValue[columnName] = pointerUintNullableScan
 		var refType reflect.Type
 		if i == 0 {
-			refType = reflect.New(fType).Interface().(referenceInterface).getType()
+			refType = reflect.New(fType).Interface().(ReferenceInterface).getType()
 			def := referenceDefinition{
 				Cached: attributes.Tags["cached"] == "true",
 				Type:   refType,
@@ -888,6 +893,7 @@ func (e *entitySchema) buildReferenceField(attributes schemaFieldAttributes) {
 		}
 		idSetter := createNumberFieldBindSetter(columnName, true, !isRequired, 0, math.MaxUint64)
 		e.fieldBindSetters[columnName] = createReferenceFieldBindSetter(columnName, refType, idSetter, !isRequired)
+		e.fieldDefinitions[columnName] = attributes
 		e.columnAttrToStringSetters[columnName] = createUint64AttrToStringSetter(e.fieldBindSetters[columnName])
 		e.fieldSetters[columnName] = createReferenceFieldSetter(attributes, i)
 		e.fieldGetters[columnName] = createFieldGetter(attributes, false, i)
@@ -933,6 +939,7 @@ func (e *entitySchema) buildUintPointerField(attributes schemaFieldAttributes, m
 		e.mapBindToScanPointer[columnName] = scanIntNullablePointer
 		e.mapPointerToValue[columnName] = pointerUintNullableScan
 		e.fieldBindSetters[columnName] = createNumberFieldBindSetter(columnName, true, true, min, max)
+		e.fieldDefinitions[columnName] = attributes
 		e.columnAttrToStringSetters[columnName] = createUint64AttrToStringSetter(e.fieldBindSetters[columnName])
 		e.fieldSetters[columnName] = createNumberFieldSetter(attributes, true, true, i)
 		e.fieldGetters[columnName] = createFieldGetter(attributes, true, i)
@@ -954,6 +961,7 @@ func (e *entitySchema) buildIntField(attributes schemaFieldAttributes, min int64
 			return *val.(*int64)
 		}
 		e.fieldBindSetters[columnName] = createNumberFieldBindSetter(columnName, false, false, min, max)
+		e.fieldDefinitions[columnName] = attributes
 		e.columnAttrToStringSetters[columnName] = createInt64AttrToStringSetter(e.fieldBindSetters[columnName])
 		e.fieldSetters[columnName] = createNumberFieldSetter(attributes, false, false, i)
 		e.fieldGetters[columnName] = createFieldGetter(attributes, false, i)
@@ -999,6 +1007,7 @@ func (e *entitySchema) buildIntPointerField(attributes schemaFieldAttributes, mi
 		e.mapBindToScanPointer[columnName] = scanIntNullablePointer
 		e.mapPointerToValue[columnName] = pointerIntNullableScan
 		e.fieldBindSetters[columnName] = createNumberFieldBindSetter(columnName, false, true, min, max)
+		e.fieldDefinitions[columnName] = attributes
 		e.columnAttrToStringSetters[columnName] = createInt64AttrToStringSetter(e.fieldBindSetters[columnName])
 		e.fieldSetters[columnName] = createNumberFieldSetter(attributes, false, true, i)
 		e.fieldGetters[columnName] = createFieldGetter(attributes, true, i)
@@ -1033,6 +1042,7 @@ func (e *entitySchema) buildEnumField(attributes schemaFieldAttributes, enumName
 		}
 		stringSetter := createStringFieldBindSetter(columnName, 0, def.required)
 		e.fieldBindSetters[columnName] = createEnumFieldBindSetter(columnName, stringSetter, def)
+		e.fieldDefinitions[columnName] = attributes
 		e.columnAttrToStringSetters[columnName] = createStringAttrToStringSetter(e.fieldBindSetters[columnName])
 		e.fieldSetters[columnName] = createStringFieldSetter(attributes, i)
 		e.fieldGetters[columnName] = createFieldGetter(attributes, false, i)
@@ -1075,6 +1085,7 @@ func (e *entitySchema) buildStringField(attributes schemaFieldAttributes) {
 			return nil
 		}
 		e.fieldBindSetters[columnName] = createStringFieldBindSetter(columnName, stringLength, isRequired)
+		e.fieldDefinitions[columnName] = attributes
 		e.columnAttrToStringSetters[columnName] = createStringAttrToStringSetter(e.fieldBindSetters[columnName])
 		e.fieldSetters[columnName] = createStringFieldSetter(attributes, i)
 		e.fieldGetters[columnName] = createFieldGetter(attributes, false, i)
@@ -1090,6 +1101,7 @@ func (e *entitySchema) buildBytesField(attributes schemaFieldAttributes) {
 	for i, columnName := range attributes.GetColumnNames() {
 		e.columnAttrToStringSetters[columnName] = createNotSupportedAttrToStringSetter(columnName)
 		e.fieldBindSetters[columnName] = createBytesFieldBindSetter(columnName)
+		e.fieldDefinitions[columnName] = attributes
 		e.fieldSetters[columnName] = createBytesFieldSetter(attributes, i)
 		e.fieldGetters[columnName] = createFieldGetter(attributes, true, i)
 	}
@@ -1116,6 +1128,7 @@ func (e *entitySchema) buildStringSliceField(enumName string, attributes schemaF
 		stringSetter := createStringFieldBindSetter(columnName, 0, def.required)
 		enumSetter := createEnumFieldBindSetter(columnName, stringSetter, def)
 		e.fieldBindSetters[columnName] = createSetFieldBindSetter(columnName, enumSetter, def)
+		e.fieldDefinitions[columnName] = attributes
 		e.fieldSetters[columnName] = createSetFieldSetter(attributes, i)
 		e.fieldGetters[columnName] = createFieldGetter(attributes, true, i)
 	}
@@ -1131,6 +1144,7 @@ func (e *entitySchema) buildBoolField(attributes schemaFieldAttributes) {
 		e.mapBindToScanPointer[columnName] = scanBoolPointer
 		e.mapPointerToValue[columnName] = pointerBoolScan
 		e.fieldBindSetters[columnName] = createBoolFieldBindSetter(columnName)
+		e.fieldDefinitions[columnName] = attributes
 		e.columnAttrToStringSetters[columnName] = createBoolAttrToStringSetter(e.fieldBindSetters[columnName])
 		e.fieldSetters[columnName] = createBoolFieldSetter(attributes, i)
 		e.fieldGetters[columnName] = createFieldGetter(attributes, false, i)
@@ -1148,6 +1162,7 @@ func (e *entitySchema) buildBoolPointerField(attributes schemaFieldAttributes) {
 		e.mapPointerToValue[columnName] = pointerBoolNullableScan
 		boolSetter := createBoolFieldBindSetter(columnName)
 		e.fieldBindSetters[columnName] = createNullableFieldBindSetter(boolSetter)
+		e.fieldDefinitions[columnName] = attributes
 		e.columnAttrToStringSetters[columnName] = createBoolAttrToStringSetter(e.fieldBindSetters[columnName])
 		e.fieldSetters[columnName] = createBoolNullableFieldSetter(attributes, i)
 		e.fieldGetters[columnName] = createFieldGetter(attributes, true, i)
@@ -1215,6 +1230,7 @@ func (e *entitySchema) buildFloatField(attributes schemaFieldAttributes) {
 			return *val.(*float64)
 		}
 		e.fieldBindSetters[columnName] = createFloatFieldBindSetter(columnName, unsigned, false, precision, floatBitSize, decimalSize)
+		e.fieldDefinitions[columnName] = attributes
 		e.columnAttrToStringSetters[columnName] = createFloatAttrToStringSetter(e.fieldBindSetters[columnName])
 		e.fieldSetters[columnName] = createFloatFieldSetter(attributes, i)
 		e.fieldGetters[columnName] = createFieldGetter(attributes, false, i)
@@ -1279,6 +1295,7 @@ func (e *entitySchema) buildFloatPointerField(attributes schemaFieldAttributes) 
 		e.columnAttrToStringSetters[columnName] = createNotSupportedAttrToStringSetter(columnName)
 		floatSetter := createFloatFieldBindSetter(columnName, unsigned, false, precision, floatBitSize, decimalSize)
 		e.fieldBindSetters[columnName] = createNullableFieldBindSetter(floatSetter)
+		e.fieldDefinitions[columnName] = attributes
 		e.fieldSetters[columnName] = createFloatNullableFieldSetter(attributes, i)
 		e.fieldGetters[columnName] = createFieldGetter(attributes, true, i)
 	}
@@ -1308,6 +1325,7 @@ func (e *entitySchema) buildTimePointerField(attributes schemaFieldAttributes) {
 		e.mapPointerToValue[columnName] = pointerStringNullableScan
 		timeSetter := createDateFieldBindSetter(columnName, layout, true)
 		e.fieldBindSetters[columnName] = createNullableFieldBindSetter(timeSetter)
+		e.fieldDefinitions[columnName] = attributes
 		e.columnAttrToStringSetters[columnName] = createDateTimeAttrToStringSetter(e.fieldBindSetters[columnName])
 		e.fieldSetters[columnName] = createTimeNullableFieldSetter(attributes, layout, i)
 		e.fieldGetters[columnName] = createFieldGetter(attributes, true, i)
@@ -1337,6 +1355,7 @@ func (e *entitySchema) buildTimeField(attributes schemaFieldAttributes) {
 		e.mapBindToScanPointer[columnName] = scanStringPointer
 		e.mapPointerToValue[columnName] = pointerStringScan
 		e.fieldBindSetters[columnName] = createDateFieldBindSetter(columnName, layout, false)
+		e.fieldDefinitions[columnName] = attributes
 		e.columnAttrToStringSetters[columnName] = createDateTimeAttrToStringSetter(e.fieldBindSetters[columnName])
 		e.fieldSetters[columnName] = createTimeFieldSetter(attributes, layout, i)
 		e.fieldGetters[columnName] = createFieldGetter(attributes, false, i)
@@ -1352,15 +1371,25 @@ func (e *entitySchema) buildStructField(attributes schemaFieldAttributes, regist
 	parents = append(parents, attributes.Index)
 	if attributes.IsArray {
 		attributes.Fields.structsArray = append(attributes.Fields.structsArray, attributes.Index)
-		subFields := e.buildTableFields(attributes.Field.Type.Elem(), registry, 0, attributes.Field.Name, parents, schemaTags)
-		attributes.Fields.structsFieldsArray = append(attributes.Fields.structsFieldsArray, subFields)
+		for i := range attributes.GetColumnNames() {
+			newParents := make([]int, 0)
+			for _, p := range parents {
+				newParents = append(newParents, p)
+			}
+			newParents = append(newParents, (i+1)*-1)
+			extraPrefix := fmt.Sprintf("_%d_", i+1)
+			subFields := e.buildTableFields(attributes.Field.Type.Elem(), registry, 0, attributes.Field.Name, newParents, schemaTags, extraPrefix)
+			if i == 0 {
+				attributes.Fields.structsFieldsArray = append(attributes.Fields.structsFieldsArray, subFields)
+			}
+		}
 	} else {
 		attributes.Fields.structs = append(attributes.Fields.structs, attributes.Index)
 		subPrefix := ""
 		if !attributes.Field.Anonymous {
 			subPrefix = attributes.Field.Name
 		}
-		subFields := e.buildTableFields(attributes.Field.Type, registry, 0, subPrefix, parents, schemaTags)
+		subFields := e.buildTableFields(attributes.Field.Type, registry, 0, subPrefix, parents, schemaTags, "")
 		attributes.Fields.structsFields = append(attributes.Fields.structsFields, subFields)
 	}
 }

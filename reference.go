@@ -8,8 +8,9 @@ type IDGetter interface {
 	GetID() uint64
 }
 
-type referenceInterface interface {
+type ReferenceInterface interface {
 	IDGetter
+	Schema(ctx Context) EntitySchema
 	getType() reflect.Type
 }
 
@@ -29,6 +30,10 @@ func (r Reference[E]) GetEntity(ctx Context) *E {
 		return e
 	}
 	return nil
+}
+
+func (r Reference[E]) Schema(ctx Context) EntitySchema {
+	return ctx.Engine().Registry().EntitySchema(r.getType())
 }
 
 func (r Reference[E]) getType() reflect.Type {
