@@ -34,6 +34,7 @@ type RedisCache interface {
 	Exists(ctx Context, keys ...string) int64
 	Type(ctx Context, key string) string
 	LRange(ctx Context, key string, start, stop int64) []string
+	LIndex(ctx Context, key string, index int64) (string, bool)
 	LSet(ctx Context, key string, index int64, value any)
 	RPop(ctx Context, key string) (value string, found bool)
 	BLMove(ctx Context, source, destination, srcPos, destPos string, timeout time.Duration) string
@@ -303,6 +304,23 @@ func (r *redisCache) LRange(ctx Context, key string, start, stop int64) []string
 	}
 	checkError(err)
 	return val
+}
+
+func (r *redisCache) LIndex(ctx Context, key string, index int64) (string, bool) {
+	hasLogger, _ := ctx.getRedisLoggers()
+	s := getNow(hasLogger)
+	val, err := r.client.LIndex(ctx.Context(), key, index).Result()
+	found := true
+	if err == redis.Nil {
+		err = nil
+		found = false
+	}
+	if hasLogger {
+		message := fmt.Sprintf("LINDEX %s %d", key, index)
+		r.fillLogFields(ctx, "LINDEX", message, s, false, err)
+	}
+	checkError(err)
+	return val, found
 }
 
 func (r *redisCache) LSet(ctx Context, key string, index int64, value any) {
