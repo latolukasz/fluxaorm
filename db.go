@@ -340,6 +340,8 @@ func (db *dbImplementation) Commit(ctx Context) {
 	hasLogger, _ := ctx.getDBLoggers()
 	start := getNow(hasLogger)
 	err := db.client.(txClient).Commit()
+	db.client.(*txSQLClient).db = nil
+	db.client.(*txSQLClient).tx = nil
 	db.transaction = false
 	if hasLogger {
 		db.fillLogFields(ctx, "TRANSACTION", "COMMIT", start, err)
