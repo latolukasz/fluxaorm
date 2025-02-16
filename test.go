@@ -21,9 +21,9 @@ func (h *MockLogHandler) Clear() {
 }
 
 func PrepareTables(t *testing.T, registry Registry, entities ...any) (orm Context) {
-	registry.RegisterMySQL("root:LocalMySQL8.0!@unix(/tmp/mysql.sock)/test", DefaultPoolCode, &MySQLOptions{})
-	registry.RegisterRedis("localhost:6379", 0, DefaultPoolCode, nil)
-	registry.RegisterRedis("localhost:6379", 1, "second", nil)
+	registry.RegisterMySQL("root:root@tcp(localhost:3377)/test", DefaultPoolCode, &MySQLOptions{})
+	registry.RegisterRedis("localhost:6385", 0, DefaultPoolCode, nil)
+	registry.RegisterRedis("localhost:6385", 1, "second", nil)
 	registry.RegisterLocalCache(DefaultPoolCode, 0)
 
 	registry.RegisterEntity(entities...)
