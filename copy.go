@@ -6,7 +6,7 @@ import (
 
 func Copy[E any](ctx Context, source E) E {
 	schema := ctx.Engine().Registry().EntitySchema(source).(*entitySchema)
-	insertable := newEntityInsertable(ctx, schema)
+	insertable := newEntityInsertable(ctx, schema, 0)
 	copyEntity(reflect.ValueOf(source).Elem(), insertable.value.Elem(), schema.fields, false)
 	return insertable.entity.(E)
 }

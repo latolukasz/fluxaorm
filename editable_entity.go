@@ -236,7 +236,11 @@ func NewEntity[E any](ctx Context) *E {
 	return newEntity(ctx, getEntitySchema[E](ctx)).(*E)
 }
 
-func newEntityInsertable(ctx Context, schema *entitySchema) *insertableEntity {
+func NewEntityWithID[E any, I ID](ctx Context, id I) *E {
+	return newEntityInsertable(ctx, getEntitySchema[E](ctx), uint64(id)).entity.(*E)
+}
+
+func newEntityInsertable(ctx Context, schema *entitySchema, id uint64) *insertableEntity {
 	entity := &insertableEntity{}
 	entity.ctx = ctx
 	entity.schema = schema
@@ -244,7 +248,9 @@ func newEntityInsertable(ctx Context, schema *entitySchema) *insertableEntity {
 	elem := value.Elem()
 	initNewEntity(elem, schema.fields)
 	entity.entity = value.Interface()
-	id := schema.uuid(ctx)
+	if id == 0 {
+		id = schema.uuid(ctx)
+	}
 	entity.id = id
 	elem.Field(0).SetUint(id)
 	entity.value = value
@@ -253,7 +259,7 @@ func newEntityInsertable(ctx Context, schema *entitySchema) *insertableEntity {
 }
 
 func newEntity(ctx Context, schema *entitySchema) any {
-	return newEntityInsertable(ctx, schema).entity
+	return newEntityInsertable(ctx, schema, 0).entity
 }
 
 func DeleteEntity[E any](ctx Context, source E) {

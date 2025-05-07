@@ -619,7 +619,7 @@ func (e *entitySchema) IsDirty(ctx Context, id uint64) (oldValues, newValues Bin
 
 func (e *entitySchema) Copy(ctx Context, source any) any {
 	schema := ctx.Engine().Registry().EntitySchema(e.t).(*entitySchema)
-	insertable := newEntityInsertable(ctx, schema)
+	insertable := newEntityInsertable(ctx, schema, 0)
 	copyEntity(reflect.ValueOf(source).Elem(), insertable.value.Elem(), schema.fields, false)
 	return insertable.entity
 }
