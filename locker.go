@@ -74,6 +74,14 @@ func (l *Locker) Obtain(ctx Context, key string, ttl time.Duration, waitTimeout 
 	return lock, true
 }
 
+func (l *Locker) MustObtain(ctx Context, key string, ttl time.Duration, waitTimeout time.Duration) *Lock {
+	lock, obtained := l.Obtain(ctx, key, ttl, waitTimeout)
+	if !obtained {
+		panic(errors.New("can't obtain lock"))
+	}
+	return lock
+}
+
 type Lock struct {
 	lock   *redislock.Lock
 	key    string
