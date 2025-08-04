@@ -8,14 +8,12 @@ services:
     environment:
       MYSQL_ROOT_PASSWORD: root
       MYSQL_ROOT_HOST: "%"
-  dragonfly:
-    image: docker.dragonflydb.io/dragonflydb/dragonfly
-    ulimits:
-      memlock: -1
+  redis:
+    image: redis:8
     ports:
-      - ${LOCAL_IP}:${DRAGONFLY_PORT}:6379
+      - ${LOCAL_IP}:${REDIS_PORT}:6379
     volumes:
-      - orm_volume_dragonfly:/data
+      - orm_volume_redis:/data
 volumes:
   orm_volume_mysql: {}
-  orm_volume_dragonfly: {}
+  orm_volume_redis: {}

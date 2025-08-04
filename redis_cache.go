@@ -88,6 +88,8 @@ type RedisCache interface {
 	GetLocker() *Locker
 	Process(ctx Context, cmd redis.Cmder) error
 	GetCode() string
+	FTList(ctx Context) []string
+	FTCreate(ctx Context, index string, options *redis.FTCreateOptions, schema ...*redis.FieldSchema)
 }
 
 type redisCache struct {
@@ -1030,6 +1032,26 @@ func (r *redisCache) XAck(ctx Context, stream, group string, ids ...string) int6
 	}
 	checkError(err)
 	return res
+}
+
+func (r *redisCache) FTList(ctx Context) []string {
+	hasLogger, _ := ctx.getRedisLoggers()
+	start := getNow(hasLogger)
+	res, err := r.client.FT_List(ctx.Context()).Result()
+	if hasLogger {
+		r.fillLogFields(ctx, "FT_LIST", "FT_LIST", start, false, err)
+	}
+	return res
+}
+
+func (r *redisCache) FTCreate(ctx Context, index string, options *redis.FTCreateOptions, schema ...*redis.FieldSchema) {
+	hasLogger, _ := ctx.getRedisLoggers()
+	start := getNow(hasLogger)
+	_, err := r.client.FTCreate(ctx.Context(), index, options, schema...).Result()
+	if hasLogger {
+		message := fmt.Sprintf("FT_CREATE %s %v %v", index, options, schema)
+		r.fillLogFields(ctx, "FT_CREATE", message, start, false, err)
+	}
 }
 
 func (r *redisCache) FlushAll(ctx Context) {

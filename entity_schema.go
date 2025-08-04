@@ -108,6 +108,9 @@ type entitySchema struct {
 	indexes                   map[string]indexDefinition
 	cachedIndexes             map[string]indexDefinition
 	options                   map[string]any
+	redisSearchIndexName      string
+	redisSearchIndexPrefix    string
+	redisSearchFields         map[string]redisSearchIndexDefinition
 	cacheAll                  bool
 	hasLocalCache             bool
 	localCache                *localCache
@@ -287,6 +290,7 @@ func (e *entitySchema) init(registry *registry, entityType reflect.Type) error {
 	e.cachedReferences = make(map[string]referenceDefinition)
 	e.indexes = make(map[string]indexDefinition)
 	e.cachedIndexes = make(map[string]indexDefinition)
+	e.redisSearchFields = make(map[string]redisSearchIndexDefinition)
 	e.mapBindToScanPointer = mapBindToScanPointer{}
 	e.mapPointerToValue = mapPointerToValue{}
 	e.mysqlPoolCode = e.getTag("mysql", "default", DefaultPoolCode)
@@ -418,6 +422,74 @@ func (e *entitySchema) init(registry *registry, entityType reflect.Type) error {
 			e.cachedIndexes[indexName] = definition
 		}
 	}
+
+	for columnName, def := range e.fieldDefinitions {
+		redisSearch := def.Tags["redis_search"]
+		if redisSearch == "true" {
+			if e.redisSearchIndexName == "" {
+				e.redisSearchIndexName = "index_" + e.tableName
+				e.redisSearchIndexPrefix = e.redisSearchIndexName + ":"
+			}
+			definition := redisSearchIndexDefinition{}
+			fieldDef := e.fieldDefinitions[columnName]
+			userType, hasUserType := def.Tags["rs_type"]
+			if hasUserType {
+				userType = strings.ToUpper(userType)
+				switch userType {
+				case "TEXT", "TAG", "NUMERIC":
+				default:
+					return fmt.Errorf("invalid redis search type '%s' for field '%s'", userType, columnName)
+				}
+				definition.FieldType = userType
+			} else {
+				autoType := ""
+				switch fieldDef.TypeName {
+				case "string", "*string":
+					autoType = "TEXT"
+					definition.IndexEmpty = strings.HasPrefix(fieldDef.TypeName, "*")
+					break
+				case "int", "*int", "int8", "*int8", "int16", "*int16", "int32", "*int32", "int64", "*int64",
+					"uint", "*uint", "uint8", "*uint8", "uint16", "*uint16", "uint32", "*uint32", "uint64", "*uint64",
+					"float32", "*float32", "float64", "*float64":
+					autoType = "NUMERIC"
+					definition.IndexEmpty = strings.HasPrefix(fieldDef.TypeName, "*")
+					break
+				case "bool", "*bool":
+					autoType = "TAG"
+					definition.IndexEmpty = strings.HasPrefix(fieldDef.TypeName, "*")
+					break
+				case "time.Time", "*time.Time":
+					autoType = "NUMERIC"
+					definition.IndexEmpty = strings.HasPrefix(fieldDef.TypeName, "*")
+					break
+				default:
+					if fieldDef.Field.Type.Implements(reflect.TypeOf((*EnumValues)(nil)).Elem()) {
+						autoType = "TAG"
+						break
+					}
+					if fieldDef.Field.Type.Kind().String() == "slice" && fieldDef.Field.Type.Elem().Implements(reflect.TypeOf((*EnumValues)(nil)).Elem()) {
+						autoType = "TAG"
+						break
+					}
+					if fieldDef.Field.Type.Implements(reflect.TypeOf((*ReferenceInterface)(nil)).Elem()) {
+						autoType = "NUMERIC"
+						break
+					}
+					return fmt.Errorf("unsopported redis search type for field '%s'", columnName)
+				}
+				definition.FieldType = autoType
+			}
+
+			if def.Tags["rs_sortable"] == "true" {
+				definition.Sortable = true
+			}
+			if definition.FieldType == "TEXT" && def.Tags["rs_no-steam"] == "true" {
+				definition.NoSteam = true
+			}
+			e.redisSearchFields[columnName] = definition
+		}
+	}
+
 	err := e.validateIndexes(uniqueIndices, indices)
 	if err != nil {
 		return err

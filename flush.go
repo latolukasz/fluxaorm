@@ -323,11 +323,7 @@ func (orm *ormImplementation) handleInserts(async bool, schema *entitySchema, op
 		if !async {
 			args = append(args, bind["ID"])
 		} else {
-			if async {
-				asyncData[1] = strconv.FormatUint(bind["ID"].(uint64), 10)
-			} else {
-				asyncData[1] = bind["ID"]
-			}
+			asyncData[1] = strconv.FormatUint(bind["ID"].(uint64), 10)
 		}
 		for j, column := range columns[1:] {
 			v := bind[column]
