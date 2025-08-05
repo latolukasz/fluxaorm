@@ -75,6 +75,7 @@ type EntitySchema interface {
 	getCacheKey() string
 	uuid(ctx Context) uint64
 	getForcedRedisCode() string
+	ReindexRedisIndex(ctx Context)
 }
 
 type columnAttrToStringSetter func(v any, fromBind bool) (string, error)
@@ -108,6 +109,7 @@ type entitySchema struct {
 	indexes                   map[string]indexDefinition
 	cachedIndexes             map[string]indexDefinition
 	options                   map[string]any
+	redisSearchIndexPoolCode  string
 	redisSearchIndexName      string
 	redisSearchIndexPrefix    string
 	redisSearchFields         map[string]redisSearchIndexDefinition
@@ -427,6 +429,17 @@ func (e *entitySchema) init(registry *registry, entityType reflect.Type) error {
 		if redisSearch == "true" {
 			if e.redisSearchIndexName == "" {
 				e.redisSearchIndexName = redisSearchIndexPrefix + e.tableName
+				redisCode := e.getTag("redis_search_pool", DefaultPoolCode, DefaultPoolCode)
+				if redisCode != "" {
+					_, has = registry.redisPools[redisCacheName]
+					if !has {
+						return fmt.Errorf("redis pool '%s' not found", redisCacheName)
+					}
+				}
+				if registry.redisPools[redisCode].GetDatabaseNumber() > 0 {
+					return fmt.Errorf("redis search pool '%s' must be in database 0", redisCode)
+				}
+				e.redisSearchIndexPoolCode = redisCode
 			}
 			definition := redisSearchIndexDefinition{}
 			fieldDef := e.fieldDefinitions[columnName]
@@ -439,38 +452,76 @@ func (e *entitySchema) init(registry *registry, entityType reflect.Type) error {
 					return fmt.Errorf("invalid redis search type '%s' for field '%s'", userType, columnName)
 				}
 				definition.FieldType = userType
+				definition.sqlFieldQuery = "IFNULL(`" + columnName + "`,'')"
 			} else {
 				autoType := ""
 				switch fieldDef.TypeName {
 				case "string":
 					autoType = "TEXT"
 					definition.IndexEmpty = fieldDef.Tags["required"] != "true"
+					if definition.IndexEmpty {
+						definition.sqlFieldQuery = "IFNULL(`" + columnName + "`,'')"
+					} else {
+						definition.sqlFieldQuery = "`" + columnName + "`"
+					}
 					break
 				case "int", "*int", "int8", "*int8", "int16", "*int16", "int32", "*int32", "int64", "*int64",
 					"uint", "*uint", "uint8", "*uint8", "uint16", "*uint16", "uint32", "*uint32", "uint64", "*uint64",
 					"float32", "*float32", "float64", "*float64":
 					autoType = "NUMERIC"
 					definition.IndexEmpty = strings.HasPrefix(fieldDef.TypeName, "*")
+					if definition.IndexEmpty {
+						definition.sqlFieldQuery = "IFNULL(`" + columnName + "`,0)"
+					} else {
+						definition.sqlFieldQuery = "`" + columnName + "`"
+					}
 					break
 				case "bool", "*bool":
 					autoType = "TAG"
 					definition.IndexEmpty = strings.HasPrefix(fieldDef.TypeName, "*")
+					if definition.IndexEmpty {
+						definition.sqlFieldQuery = "IFNULL(`" + columnName + "`,'')"
+					} else {
+						definition.sqlFieldQuery = "`" + columnName + "`"
+					}
 					break
 				case "time.Time", "*time.Time":
 					autoType = "NUMERIC"
 					definition.IndexEmpty = strings.HasPrefix(fieldDef.TypeName, "*")
+					if definition.IndexEmpty {
+						definition.sqlFieldQuery = "IFNULL(UNIX_TIMESTAMP(`" + columnName + "`),0)"
+					} else {
+						definition.sqlFieldQuery = "UNIX_TIMESTAMP(`" + columnName + "`)"
+					}
 					break
 				default:
 					if fieldDef.Field.Type.Implements(reflect.TypeOf((*EnumValues)(nil)).Elem()) {
 						autoType = "TAG"
+						definition.IndexEmpty = fieldDef.Tags["required"] != "true"
+						if definition.IndexEmpty {
+							definition.sqlFieldQuery = "IFNULL(`" + columnName + "`,'NULL')"
+						} else {
+							definition.sqlFieldQuery = "UNIX_TIMESTAMP(`" + columnName + "`)"
+						}
 						break
 					}
 					if fieldDef.Field.Type.Kind().String() == "slice" && fieldDef.Field.Type.Elem().Implements(reflect.TypeOf((*EnumValues)(nil)).Elem()) {
 						autoType = "TAG"
+						definition.IndexEmpty = fieldDef.Tags["required"] != "true"
+						if definition.IndexEmpty {
+							definition.sqlFieldQuery = "IFNULL(`" + columnName + "`,'NULL')"
+						} else {
+							definition.sqlFieldQuery = "UNIX_TIMESTAMP(`" + columnName + "`)"
+						}
 						break
 					}
 					if fieldDef.Field.Type.Implements(reflect.TypeOf((*ReferenceInterface)(nil)).Elem()) {
 						autoType = "NUMERIC"
+						if fieldDef.Tags["required"] != "true" {
+							definition.sqlFieldQuery = "IFNULL(`" + columnName + "`,0)"
+						} else {
+							definition.sqlFieldQuery = "`" + columnName + "`"
+						}
 						break
 					}
 					return fmt.Errorf("unsopported redis search type for field '%s'", columnName)

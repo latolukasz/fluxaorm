@@ -1045,6 +1045,7 @@ func (r *redisCache) FTList(ctx Context) []string {
 	if hasLogger {
 		r.fillLogFields(ctx, "FT_LIST", "FT_LIST", start, false, err)
 	}
+	checkError(err)
 	return res
 }
 
@@ -1056,12 +1057,14 @@ func (r *redisCache) FTDrop(ctx Context, index string, dropDocuments bool) {
 		if hasLogger {
 			r.fillLogFields(ctx, "FT.DROP", "FT.DROP DD "+index, start, false, err)
 		}
+		checkError(err)
 		return
 	}
 	_, err := r.client.FTDropIndex(ctx.Context(), index).Result()
 	if hasLogger {
 		r.fillLogFields(ctx, "FT.DROP", "FT.DROP "+index, start, false, err)
 	}
+	checkError(err)
 }
 
 func (r *redisCache) FTInfo(ctx Context, index string) (info *redis.FTInfoResult, found bool) {
@@ -1069,11 +1072,13 @@ func (r *redisCache) FTInfo(ctx Context, index string) (info *redis.FTInfoResult
 	start := getNow(hasLogger)
 	res, err := r.client.FTInfo(ctx.Context(), index).RawResult()
 	if res == nil {
+		err = nil
 		if hasLogger {
 			r.fillLogFields(ctx, "FT_INFO", "FT_INFO "+index, start, true, err)
 		}
 		return nil, false
 	}
+	checkError(err)
 	info = &redis.FTInfoResult{}
 	asMap := res.(map[any]any)
 	info.SortableValuesSizeMB = asMap["sortable_values_size_mb"].(float64)
@@ -1157,8 +1162,8 @@ func (r *redisCache) FTInfo(ctx Context, index string) (info *redis.FTInfoResult
 	indexDef := asMap["index_definition"].(map[any]any)
 	prefixes := indexDef["prefixes"].([]any)
 	prefixesAsStrings := make([]string, len(prefixes))
-	for _, v := range prefixes {
-		prefixesAsStrings = append(prefixesAsStrings, v.(string))
+	for i, v := range prefixes {
+		prefixesAsStrings[i] = v.(string)
 	}
 	info.IndexDefinition = redis.IndexDefinition{
 		KeyType:      indexDef["key_type"].(string),
@@ -1201,9 +1206,10 @@ func (r *redisCache) FTCreate(ctx Context, index string, options *redis.FTCreate
 	start := getNow(hasLogger)
 	_, err := r.client.FTCreate(ctx.Context(), index, options, schema...).Result()
 	if hasLogger {
-		message := fmt.Sprintf("FT_CREATE %s %v %v", index, options, schema)
+		message := fmt.Sprintf("FT_CREATE %s", index)
 		r.fillLogFields(ctx, "FT_CREATE", message, start, false, err)
 	}
+	checkError(err)
 }
 
 func (r *redisCache) FlushAll(ctx Context) {

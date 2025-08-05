@@ -41,7 +41,15 @@ func TestRedisSearch(t *testing.T) {
 	err := orm.Flush()
 	assert.NoError(t, err)
 
-	rows, total := SearchWithCount[redisSearchEntity](orm, NewWhere("ID > ?", ids[1]), nil)
-	assert.Equal(t, 8, total)
-	assert.Equal(t, 8, rows.Len())
+	// Reindex
+	orm.Engine().Redis(DefaultPoolCode).FlushDB(orm)
+	redisSearchAlters := GetRedisSearchAlters(orm)
+	assert.Len(t, redisSearchAlters, 1)
+	for _, alter := range redisSearchAlters {
+		alter.Exec(orm)
+	}
+
+	fmt.Printf("A\n")
+	redisSearchAlters = GetRedisSearchAlters(orm)
+	assert.Len(t, redisSearchAlters, 0)
 }

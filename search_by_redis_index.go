@@ -3,15 +3,17 @@ package orm
 import (
 	"fmt"
 	"github.com/redis/go-redis/v9"
+	"sort"
 	"strconv"
 	"strings"
 )
 
 type redisSearchIndexDefinition struct {
-	FieldType  string
-	Sortable   bool
-	NoStem     bool
-	IndexEmpty bool
+	FieldType     string
+	Sortable      bool
+	NoStem        bool
+	IndexEmpty    bool
+	sqlFieldQuery string
 }
 
 type RedisSearchAlter struct {
@@ -22,35 +24,37 @@ type RedisSearchAlter struct {
 	IndexDefinition string
 	indexOptions    *redis.FTCreateOptions
 	indexSchema     []*redis.FieldSchema
+	schema          *entitySchema
 }
 
 func GetRedisSearchAlters(ctx Context) (alters []RedisSearchAlter) {
-	indicesInDB := make(map[string]map[string]bool)
+	indicesInRedis := make(map[string]map[string]bool)
 	indicesInEntities := make(map[string]map[string]bool)
 	for poolName, pool := range ctx.Engine().Registry().RedisPools() {
-		indicesInDB[poolName] = make(map[string]bool)
+		if pool.GetConfig().GetDatabaseNumber() > 0 {
+			continue
+		}
+		indicesInRedis[poolName] = make(map[string]bool)
 		indicesInEntities[poolName] = make(map[string]bool)
 		for _, index := range pool.FTList(ctx) {
-			indicesInDB[poolName][index] = true
+			indicesInRedis[poolName][index] = true
 		}
 	}
+	fmt.Printf("%v\n", indicesInRedis)
 	alters = make([]RedisSearchAlter, 0)
 	for _, schemaInterface := range ctx.Engine().Registry().Entities() {
 		schema := schemaInterface.(*entitySchema)
 		if schema.redisSearchIndexName == "" {
 			continue
 		}
-		redisPool, hasRedisCache := schema.GetRedisCache()
-		if !hasRedisCache {
-			redisPool = ctx.Engine().Redis(DefaultPoolCode)
-		}
-		indicesInEntities[redisPool.GetCode()][schema.GetTableName()] = true
+		redisPool := ctx.Engine().Redis(schema.redisSearchIndexPoolCode)
+		indicesInEntities[redisPool.GetCode()][schema.redisSearchIndexName] = true
 		alter, hasAlter := getRedisIndexAlter(ctx, schema, redisPool)
 		if hasAlter {
 			alters = append(alters, *alter)
 		}
 	}
-	for poolName, indices := range indicesInDB {
+	for poolName, indices := range indicesInRedis {
 		for indexName := range indices {
 			if !strings.HasPrefix(indexName, redisSearchIndexPrefix) {
 				continue
@@ -70,6 +74,12 @@ func GetRedisSearchAlters(ctx Context) (alters []RedisSearchAlter) {
 			}
 		}
 	}
+	sort.Slice(alters, func(i int, j int) bool {
+		if !alters[i].Drop && alters[j].Drop {
+			return true
+		}
+		return false
+	})
 	return alters
 }
 
@@ -79,8 +89,9 @@ func (a RedisSearchAlter) Exec(ctx Context) {
 		return
 	}
 	ctx.Engine().Redis(a.Pool).FTCreate(ctx, a.IndexName, a.indexOptions, a.indexSchema...)
-	// TODO recreate hashes and drop
-	ss
+	go func() {
+		a.schema.ReindexRedisIndex(ctx.Clone())
+	}()
 }
 
 func getRedisIndexAlter(ctx Context, schema *entitySchema, r RedisCache) (alter *RedisSearchAlter, has bool) {
@@ -120,6 +131,7 @@ func getRedisIndexAlter(ctx Context, schema *entitySchema, r RedisCache) (alter 
 			Pool:         r.GetCode(),
 			indexOptions: options,
 			indexSchema:  rsColumns,
+			schema:       schema,
 		}
 		has = true
 	}
@@ -172,4 +184,52 @@ func (e *entitySchema) createRedisSearchIndexDefinition(indexName string) string
 		}
 	}
 	return query
+}
+
+func (e *entitySchema) ReindexRedisIndex(ctx Context) {
+	if e.redisSearchIndexName == "" {
+		return
+	}
+	lastIDRedisKey := "lastID:" + e.redisSearchIndexName
+	r := ctx.Engine().Redis(e.redisSearchIndexPoolCode)
+	lastID := uint64(0)
+	lastIDInRedis, hasLastID := r.Get(ctx, lastIDRedisKey)
+	if hasLastID {
+		lastID, _ = strconv.ParseUint(lastIDInRedis, 10, 64)
+	} else {
+		r.Set(ctx, lastIDRedisKey, "0", 0)
+	}
+	where := "SELECT ID"
+	pointers := make([]any, len(e.redisSearchFields)+1)
+	var id uint64
+	pointers[0] = &id
+	i := 1
+	for _, def := range e.redisSearchFields {
+		where += ", " + def.sqlFieldQuery
+		var value string
+		pointers[i] = &value
+		i++
+	}
+	where += " FROM `" + e.GetTableName() + "` WHERE ID > ? ORDER BY ID LIMIT 0, 5000"
+	pStmt, pClose := e.GetDB().Prepare(ctx, where)
+	defer pClose()
+	for {
+		func() {
+			rows, cl := pStmt.Query(ctx, lastID)
+			defer cl()
+			i = 0
+			for rows.Next() {
+				rows.Scan(pointers...)
+				i++
+				lastID = *pointers[0].(*uint64)
+			}
+		}()
+		if i < 5000 {
+			r.Del(ctx, lastIDRedisKey)
+			break
+		} else {
+			r.Set(ctx, lastIDRedisKey, "0", 0)
+		}
+	}
+
 }
