@@ -3,7 +3,6 @@ package orm
 import (
 	"context"
 	"database/sql"
-	"fmt"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -48,10 +47,8 @@ func PrepareTables(t *testing.T, registry Registry, entities ...any) (orm Contex
 	}
 	redisSearchAlters := GetRedisSearchAlters(orm)
 	for _, alter := range redisSearchAlters {
-		fmt.Printf("%s\n", alter.IndexDefinition)
 		alter.Exec(orm)
 	}
-	GetRedisSearchAlters(orm)
 
 	for _, entity := range entities {
 		schema := orm.Engine().Registry().EntitySchema(entity)
