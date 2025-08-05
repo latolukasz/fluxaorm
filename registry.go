@@ -297,6 +297,7 @@ func (r *registry) RegisterRedis(address string, db int, poolCode string, option
 		Addr:            address,
 		DB:              db,
 		ConnMaxIdleTime: time.Minute * 2,
+		UnstableResp3:   true,
 	}
 	if options != nil {
 		redisOptions.Username = options.User

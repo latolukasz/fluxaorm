@@ -116,11 +116,11 @@ func getAlters(ctx Context) (preAlters, alters, postAlters []Alter) {
 
 	for poolName, pool := range ctx.Engine().Registry().DBPools() {
 		tablesInDB[poolName] = make(map[string]bool)
+		tablesInEntities[poolName] = make(map[string]bool)
 		tables := getAllTables(pool.GetDBClient())
 		for _, table := range tables {
 			tablesInDB[poolName][table] = true
 		}
-		tablesInEntities[poolName] = make(map[string]bool)
 	}
 	alters = make([]Alter, 0)
 	for _, schemaInterface := range ctx.Engine().Registry().Entities() {

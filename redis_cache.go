@@ -4,6 +4,8 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"slices"
+	"strconv"
 	"strings"
 	"time"
 
@@ -90,6 +92,7 @@ type RedisCache interface {
 	GetCode() string
 	FTList(ctx Context) []string
 	FTCreate(ctx Context, index string, options *redis.FTCreateOptions, schema ...*redis.FieldSchema)
+	FTInfo(ctx Context, index string) (info *redis.FTInfoResult, found bool)
 }
 
 type redisCache struct {
@@ -1042,6 +1045,138 @@ func (r *redisCache) FTList(ctx Context) []string {
 		r.fillLogFields(ctx, "FT_LIST", "FT_LIST", start, false, err)
 	}
 	return res
+}
+
+func (r *redisCache) FTInfo(ctx Context, index string) (info *redis.FTInfoResult, found bool) {
+	hasLogger, _ := ctx.getRedisLoggers()
+	start := getNow(hasLogger)
+	res, err := r.client.FTInfo(ctx.Context(), index).RawResult()
+	if res == nil {
+		if hasLogger {
+			r.fillLogFields(ctx, "FT_INFO", "FT_INFO "+index, start, true, err)
+		}
+		return nil, false
+	}
+	info = &redis.FTInfoResult{}
+	asMap := res.(map[any]any)
+	info.SortableValuesSizeMB = asMap["sortable_values_size_mb"].(float64)
+	info.TotalIndexMemorySzMB = asMap["total_index_memory_sz_mb"].(float64)
+	info.NumDocs = int(asMap["num_docs"].(int64))
+	info.InvertedSzMB = asMap["inverted_sz_mb"].(float64)
+	info.BytesPerRecordAvg = strconv.FormatFloat(asMap["bytes_per_record_avg"].(float64), 'f', 2, 64)
+	info.Indexing = int(asMap["indexing"].(int64))
+	info.SortableValuesSizeMB = asMap["sortable_values_size_mb"].(float64)
+	indexOptions := make([]string, len(asMap["index_options"].([]any)))
+	for i, v := range asMap["index_options"].([]any) {
+		indexOptions[i] = v.(string)
+	}
+	info.IndexOptions = indexOptions
+	info.DocTableSizeMB = asMap["doc_table_size_mb"].(float64)
+	info.OffsetVectorsSzMB = asMap["offset_vectors_sz_mb"].(float64)
+	info.GeoshapesSzMB = asMap["geoshapes_sz_mb"].(float64)
+	info.NumRecords = int(asMap["num_records"].(int64))
+	info.TotalIndexMemorySzMB = asMap["total_index_memory_sz_mb"].(float64)
+	info.PercentIndexed = asMap["percent_indexed"].(float64)
+	info.Cleaning = int(asMap["cleaning"].(int64))
+	info.IndexName = asMap["index_name"].(string)
+	info.TextOverheadSzMB = asMap["text_overhead_sz_mb"].(float64)
+	indexErrors := asMap["Index Errors"].(map[any]any)
+	info.IndexErrors = redis.IndexErrors{
+		IndexingFailures:     int(indexErrors["indexing failures"].(int64)),
+		LastIndexingError:    indexErrors["last indexing error"].(string),
+		LastIndexingErrorKey: indexErrors["last indexing error key"].(string),
+	}
+	info.NumTerms = int(asMap["num_terms"].(int64))
+	info.OffsetsPerTermAvg = strconv.FormatFloat(asMap["offsets_per_term_avg"].(float64), 'f', 2, 64)
+	info.KeyTableSizeMB = asMap["key_table_size_mb"].(float64)
+	info.TagOverheadSzMB = asMap["tag_overhead_sz_mb"].(float64)
+	info.VectorIndexSzMB = asMap["vector_index_sz_mb"].(float64)
+	info.MaxDocID = int(asMap["num_terms"].(int64))
+	info.TotalInvertedIndexBlocks = int(asMap["total_inverted_index_blocks"].(int64))
+	info.RecordsPerDocAvg = strconv.FormatFloat(asMap["records_per_doc_avg"].(float64), 'f', 2, 64)
+	info.OffsetBitsPerRecordAvg = strconv.FormatFloat(asMap["offset_bits_per_record_avg"].(float64), 'f', 2, 64)
+	info.HashIndexingFailures = int(asMap["hash_indexing_failures"].(int64))
+	info.NumberOfUses = int(asMap["number_of_uses"].(int64))
+	info.TotalIndexingTime = int(asMap["total_indexing_time"].(float64))
+	cursorStats := asMap["cursor_stats"].(map[any]any)
+	info.CursorStats = redis.CursorStats{
+		GlobalIdle:    int(cursorStats["global_idle"].(int64)),
+		GlobalTotal:   int(cursorStats["global_total"].(int64)),
+		IndexCapacity: int(cursorStats["index_capacity"].(int64)),
+		IndexTotal:    int(cursorStats["index_total"].(int64)),
+	}
+	dialectStats := asMap["dialect_stats"].(map[any]any)
+	info.DialectStats = map[string]int{
+		"dialect_1": int(dialectStats["dialect_1"].(int64)),
+		"dialect_2": int(dialectStats["dialect_2"].(int64)),
+		"dialect_3": int(dialectStats["dialect_3"].(int64)),
+		"dialect_4": int(dialectStats["dialect_4"].(int64)),
+	}
+	gcStats := asMap["gc_stats"].(map[any]any)
+	info.GCStats = redis.GCStats{
+		BytesCollected:       int(gcStats["bytes_collected"].(float64)),
+		TotalMsRun:           int(gcStats["total_ms_run"].(float64)),
+		TotalCycles:          int(gcStats["total_cycles"].(float64)),
+		AverageCycleTimeMs:   strconv.FormatFloat(gcStats["average_cycle_time_ms"].(float64), 'f', 2, 64),
+		LastRunTimeMs:        int(gcStats["last_run_time_ms"].(float64)),
+		GCNumericTreesMissed: int(gcStats["gc_numeric_trees_missed"].(float64)),
+		GCBlocksDenied:       int(gcStats["gc_blocks_denied"].(float64)),
+	}
+	fieldStatistics := asMap["field statistics"].([]any)
+	info.FieldStatistics = make([]redis.FieldStatistic, len(fieldStatistics))
+	for i, v := range fieldStatistics {
+		row := v.(map[any]any)
+		fieldErrors := row["Index Errors"].(map[any]any)
+		info.FieldStatistics[i] = redis.FieldStatistic{
+			Identifier: row["identifier"].(string),
+			Attribute:  row["attribute"].(string),
+			IndexErrors: redis.IndexErrors{
+				IndexingFailures:     int(fieldErrors["indexing failures"].(int64)),
+				LastIndexingError:    fieldErrors["last indexing error"].(string),
+				LastIndexingErrorKey: fieldErrors["last indexing error key"].(string),
+			},
+		}
+	}
+	indexDef := asMap["index_definition"].(map[any]any)
+	prefixes := indexDef["prefixes"].([]any)
+	prefixesAsStrings := make([]string, len(prefixes))
+	for _, v := range prefixes {
+		prefixesAsStrings = append(prefixesAsStrings, v.(string))
+	}
+	info.IndexDefinition = redis.IndexDefinition{
+		KeyType:      indexDef["key_type"].(string),
+		Prefixes:     prefixesAsStrings,
+		DefaultScore: indexDef["default_score"].(float64),
+	}
+	attributes := asMap["attributes"].([]any)
+	info.Attributes = make([]redis.FTAttribute, len(attributes))
+	for i, v := range attributes {
+		row := v.(map[any]any)
+		weight := float64(0)
+		rowWeight, has := row["WEIGHT"]
+		if has {
+			weight = rowWeight.(float64)
+		}
+		flags := row["flags"].([]any)
+		info.Attributes[i] = redis.FTAttribute{
+			Identifier:      row["identifier"].(string),
+			Attribute:       row["attribute"].(string),
+			Type:            row["type"].(string),
+			Weight:          weight,
+			Sortable:        slices.Contains(flags, "SORTABLE"),
+			NoStem:          slices.Contains(flags, "NOSTEM"),
+			NoIndex:         slices.Contains(flags, "NOINDEX"),
+			UNF:             slices.Contains(flags, "UNF"),
+			PhoneticMatcher: "",
+			CaseSensitive:   slices.Contains(flags, "CASESENSITIVE"),
+			WithSuffixtrie:  slices.Contains(flags, "WITHSUFFIXTRIE"),
+		}
+	}
+
+	if hasLogger {
+		r.fillLogFields(ctx, "FT_INFO", "FT_INFO "+index, start, false, err)
+	}
+	return info, true
 }
 
 func (r *redisCache) FTCreate(ctx Context, index string, options *redis.FTCreateOptions, schema ...*redis.FieldSchema) {

@@ -16,7 +16,7 @@ import (
 	"github.com/puzpuzpuz/xsync/v2"
 )
 
-var codeStartTime = uint64(time.Now().Unix())
+const redisSearchIndexPrefix = "orm:"
 
 func GetEntitySchema[E any](ctx Context) EntitySchema {
 	return getEntitySchema[E](ctx)
@@ -377,7 +377,6 @@ func (e *entitySchema) init(registry *registry, entityType reflect.Type) error {
 	cacheKey = cacheKey[0:5]
 	h := fnv.New32a()
 	_, _ = h.Write([]byte(cacheKey))
-
 	e.structureHash = strconv.FormatUint(uint64(h.Sum32()), 10)
 	e.columnMapping = columnMapping
 	localCacheLimit := e.getTag("localCache", "0", "")
@@ -427,8 +426,7 @@ func (e *entitySchema) init(registry *registry, entityType reflect.Type) error {
 		redisSearch := def.Tags["redis_search"]
 		if redisSearch == "true" {
 			if e.redisSearchIndexName == "" {
-				e.redisSearchIndexName = "index_" + e.tableName
-				e.redisSearchIndexPrefix = e.redisSearchIndexName + ":"
+				e.redisSearchIndexName = redisSearchIndexPrefix + e.tableName
 			}
 			definition := redisSearchIndexDefinition{}
 			fieldDef := e.fieldDefinitions[columnName]
@@ -444,9 +442,9 @@ func (e *entitySchema) init(registry *registry, entityType reflect.Type) error {
 			} else {
 				autoType := ""
 				switch fieldDef.TypeName {
-				case "string", "*string":
+				case "string":
 					autoType = "TEXT"
-					definition.IndexEmpty = strings.HasPrefix(fieldDef.TypeName, "*")
+					definition.IndexEmpty = fieldDef.Tags["required"] != "true"
 					break
 				case "int", "*int", "int8", "*int8", "int16", "*int16", "int32", "*int32", "int64", "*int64",
 					"uint", "*uint", "uint8", "*uint8", "uint16", "*uint16", "uint32", "*uint32", "uint64", "*uint64",
@@ -484,10 +482,15 @@ func (e *entitySchema) init(registry *registry, entityType reflect.Type) error {
 				definition.Sortable = true
 			}
 			if definition.FieldType == "TEXT" && def.Tags["rs_no-steam"] == "true" {
-				definition.NoSteam = true
+				definition.NoStem = true
 			}
 			e.redisSearchFields[columnName] = definition
 		}
+	}
+	if e.redisSearchIndexName != "" {
+		hash := hashString(e.createRedisSearchIndexDefinition(e.redisSearchIndexName))[0:5]
+		e.redisSearchIndexName += ":" + hash
+		e.redisSearchIndexPrefix = e.redisSearchIndexName + ":"
 	}
 
 	err := e.validateIndexes(uniqueIndices, indices)
