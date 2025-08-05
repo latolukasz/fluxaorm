@@ -91,6 +91,7 @@ type RedisCache interface {
 	Process(ctx Context, cmd redis.Cmder) error
 	GetCode() string
 	FTList(ctx Context) []string
+	FTDrop(ctx Context, index string, dropDocuments bool)
 	FTCreate(ctx Context, index string, options *redis.FTCreateOptions, schema ...*redis.FieldSchema)
 	FTInfo(ctx Context, index string) (info *redis.FTInfoResult, found bool)
 }
@@ -1045,6 +1046,22 @@ func (r *redisCache) FTList(ctx Context) []string {
 		r.fillLogFields(ctx, "FT_LIST", "FT_LIST", start, false, err)
 	}
 	return res
+}
+
+func (r *redisCache) FTDrop(ctx Context, index string, dropDocuments bool) {
+	hasLogger, _ := ctx.getRedisLoggers()
+	start := getNow(hasLogger)
+	if dropDocuments {
+		_, err := r.client.FTDropIndexWithArgs(ctx.Context(), index, &redis.FTDropIndexOptions{DeleteDocs: true}).Result()
+		if hasLogger {
+			r.fillLogFields(ctx, "FT.DROP", "FT.DROP DD "+index, start, false, err)
+		}
+		return
+	}
+	_, err := r.client.FTDropIndex(ctx.Context(), index).Result()
+	if hasLogger {
+		r.fillLogFields(ctx, "FT.DROP", "FT.DROP "+index, start, false, err)
+	}
 }
 
 func (r *redisCache) FTInfo(ctx Context, index string) (info *redis.FTInfoResult, found bool) {

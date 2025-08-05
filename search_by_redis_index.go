@@ -75,12 +75,12 @@ func GetRedisSearchAlters(ctx Context) (alters []RedisSearchAlter) {
 
 func (a RedisSearchAlter) Exec(ctx Context) {
 	if a.Drop {
-		// TODO
-		// TODO remove hashes
+		ctx.Engine().Redis(a.Pool).FTDrop(ctx, a.IndexName, true)
 		return
 	}
 	ctx.Engine().Redis(a.Pool).FTCreate(ctx, a.IndexName, a.indexOptions, a.indexSchema...)
-	// TODO recreate hashes
+	// TODO recreate hashes and drop
+	ss
 }
 
 func getRedisIndexAlter(ctx Context, schema *entitySchema, r RedisCache) (alter *RedisSearchAlter, has bool) {
