@@ -5,6 +5,7 @@ import (
 	"github.com/redis/go-redis/v9"
 	"github.com/stretchr/testify/assert"
 	"testing"
+	"time"
 )
 
 type redisSearchStructEntity struct {
@@ -21,6 +22,8 @@ type redisSearchEntity struct {
 	Sub         redisSearchStructEntity
 	Reference   Reference[redisSearchEntityReference] `orm:"redis_search"`
 	IntArray    [2]int                                `orm:"redis_search"`
+	Born        time.Time                             `orm:"redis_search;rs_sortable"`
+	Created     time.Time                             `orm:"time;redis_search;rs_sortable"`
 }
 
 type redisSearchEntityReference struct {
@@ -35,9 +38,14 @@ func TestRedisSearch(t *testing.T) {
 	r := orm.Engine().Redis(schema.GetRedisSearchPoolCode())
 
 	var ids []uint64
+	now := time.Now().UTC()
 	for i := 1; i <= 10; i++ {
 		entity = NewEntity[redisSearchEntity](orm)
 		entity.Name = fmt.Sprintf("name %d", entity.ID)
+		entity.Age = uint8(i)
+		entity.EnumNotNull = testEnumDefinition.A
+		entity.Born = now.AddDate(0, 0, i)
+		entity.Created = now.Add(time.Duration(i) * time.Hour * 6)
 		ids = append(ids, entity.ID)
 	}
 	err := orm.Flush()
@@ -56,7 +64,7 @@ func TestRedisSearch(t *testing.T) {
 	info, found := r.FTInfo(orm, schema.GetRedisSearchIndexName())
 	assert.True(t, found)
 	assert.Equal(t, 10, info.NumDocs)
-	assert.Len(t, info.FieldStatistics, 9)
+	assert.Len(t, info.FieldStatistics, 11)
 	assert.Equal(t, 0, info.IndexErrors.IndexingFailures)
 	for _, field := range info.FieldStatistics {
 		assert.Equal(t, 0, field.IndexErrors.IndexingFailures)
@@ -65,5 +73,95 @@ func TestRedisSearch(t *testing.T) {
 	res := r.FTSearch(orm, schema.GetRedisSearchIndexName(), "'*'", &redis.FTSearchOptions{NoContent: true})
 	assert.NotNil(t, res)
 	assert.Equal(t, 10, res.Total)
+
+	retIds, total := RedisSearchIDs[redisSearchEntity](orm, "*", nil)
+	assert.Equal(t, 10, total)
+	assert.Len(t, retIds, 10)
+	for i, id := range ids {
+		assert.Equal(t, id, retIds[i])
+	}
+
+	options := &RedisSearchOptions{
+		Pager: NewPager(1, 5),
+	}
+	retIds, total = RedisSearchIDs[redisSearchEntity](orm, "*", options)
+	assert.Equal(t, 10, total)
+	assert.Len(t, retIds, 5)
+	for i, id := range ids[0:5] {
+		assert.Equal(t, id, retIds[i])
+	}
+	options.Pager.IncrementPage()
+	retIds, total = RedisSearchIDs[redisSearchEntity](orm, "*", options)
+	assert.Equal(t, 10, total)
+	assert.Len(t, retIds, 5)
+	for i, id := range ids[5:] {
+		assert.Equal(t, id, retIds[i])
+	}
+
+	options = &RedisSearchOptions{}
+	options.AddSortBy("Age", false)
+	retIds, total = RedisSearchIDs[redisSearchEntity](orm, "*", options)
+	assert.Equal(t, 10, total)
+	assert.Len(t, retIds, 10)
+	for i, id := range ids {
+		assert.Equal(t, id, retIds[i])
+	}
+	options = &RedisSearchOptions{}
+	options.AddSortBy("Age", true)
+	retIds, total = RedisSearchIDs[redisSearchEntity](orm, "*", options)
+	assert.Equal(t, 10, total)
+	assert.Len(t, retIds, 10)
+	k := 0
+	for i := 9; i > 0; i-- {
+		assert.Equal(t, ids[i], retIds[k])
+		k++
+	}
+	options = &RedisSearchOptions{}
+	options.AddFilter("Age", 8, nil)
+	retIds, total = RedisSearchIDs[redisSearchEntity](orm, "*", options)
+	assert.Equal(t, 3, total)
+	assert.Len(t, retIds, 3)
+	k = 0
+	for i := 7; i < 10; i++ {
+		assert.Equal(t, ids[i], retIds[k])
+		k++
+	}
+	options = &RedisSearchOptions{}
+	options.AddFilter("Age", nil, 3)
+	retIds, total = RedisSearchIDs[redisSearchEntity](orm, "*", options)
+	assert.Equal(t, 3, total)
+	assert.Len(t, retIds, 3)
+	k = 0
+	for i := 0; i < 3; i++ {
+		assert.Equal(t, ids[i], retIds[k])
+		k++
+	}
+
+	options = &RedisSearchOptions{}
+	options.AddFilter("Age", 3, 5)
+	retIds, total = RedisSearchIDs[redisSearchEntity](orm, "*", options)
+	assert.Equal(t, 3, total)
+	assert.Len(t, retIds, 3)
+	k = 0
+	for i := 2; i < 5; i++ {
+		assert.Equal(t, ids[i], retIds[k])
+		k++
+	}
+
+	options = &RedisSearchOptions{}
+	retIds, total = RedisSearchIDs[redisSearchEntity](orm, "name 10", options)
+	assert.Equal(t, 1, total)
+	assert.Len(t, retIds, 1)
+	assert.Equal(t, ids[7], retIds[0])
+
+	// TODO filtrowanie po time, referencji, enum i set
+
+	// TODO nullable
+
+	//  TODO RedisSearch(), RedisSearchOne(), RedisSearchCount()
+
+	assert.PanicsWithError(t, "entity redisSearchEntityReference is not searchable by Redis Search", func() {
+		RedisSearchIDs[redisSearchEntityReference](orm, "*", nil)
+	})
 
 }

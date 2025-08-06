@@ -1078,7 +1078,7 @@ func (r *redisCache) FTSearch(ctx Context, index string, query string, options *
 	req := r.client.FTSearchWithArgs(ctx.Context(), index, query, options)
 	rawRes, err := req.RawResult()
 	if hasLogger {
-		r.fillLogFields(ctx, "FT.SEARCH", req.String(), start, false, err)
+		r.fillLogFields(ctx, "FT.SEARCH", req.String()[:strings.LastIndex(req.String(), ":")], start, false, err)
 	}
 	checkError(err)
 	res := redis.FTSearchResult{}

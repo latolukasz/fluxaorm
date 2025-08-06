@@ -183,6 +183,35 @@ func (e *entitySchema) createRedisSearchIndexDefinition(indexName string) string
 	return query
 }
 
+type RedisSearchOptions struct {
+	Pager   *Pager
+	SortBy  []RedisSearchSortBy
+	Filters []RedisSearchFilter
+}
+
+func (s *RedisSearchOptions) AddSortBy(fieldName string, desc bool) {
+	s.SortBy = append(s.SortBy, RedisSearchSortBy{fieldName, desc})
+}
+
+func (s *RedisSearchOptions) AddFilter(fieldName string, min, max any) {
+	s.Filters = append(s.Filters, RedisSearchFilter{fieldName, min, max})
+}
+
+type RedisSearchSortBy struct {
+	FieldName string
+	Desc      bool
+}
+
+type RedisSearchFilter struct {
+	FieldName string
+	Min       any
+	Max       any
+}
+
+func RedisSearchIDs[E any](ctx Context, query string, options *RedisSearchOptions) (results []uint64, totalRows int) {
+	return redisSearchIDs(ctx, GetEntitySchema[E](ctx), query, options)
+}
+
 func (e *entitySchema) ReindexRedisIndex(ctx Context) {
 	if e.redisSearchIndexName == "" {
 		return
@@ -220,7 +249,6 @@ func (e *entitySchema) ReindexRedisIndex(ctx Context) {
 				rows.Scan(pointers...)
 				lastID = id
 				i++
-				//fmt.Printf("ID %s\n", id)
 				values := make([]any, len(e.redisSearchFields)*2)
 				k := 0
 				for j, columnName := range columns {
@@ -228,7 +256,6 @@ func (e *entitySchema) ReindexRedisIndex(ctx Context) {
 					values[k+1] = *pointers[j+1].(*string)
 					k += 2
 				}
-				//fmt.Printf("VALUES %v\n", values)
 				p.HSet(e.redisSearchIndexPrefix+id, values...)
 			}
 		}()
@@ -241,5 +268,60 @@ func (e *entitySchema) ReindexRedisIndex(ctx Context) {
 			p.Exec(ctx)
 		}
 	}
+}
 
+func redisSearchIDs(ctx Context, schema EntitySchema, query string, options *RedisSearchOptions) (ids []uint64, total int) {
+	indexName := schema.GetRedisSearchIndexName()
+	if indexName == "" {
+		panic(fmt.Errorf("entity %s is not searchable by Redis Search", schema.GetType().Name()))
+	}
+	r := ctx.Engine().Redis(schema.GetRedisSearchPoolCode())
+	searchOptions := &redis.FTSearchOptions{
+		NoContent: true,
+	}
+	if options != nil {
+		if options.Pager != nil {
+			searchOptions.LimitOffset = (options.Pager.GetCurrentPage() - 1) * options.Pager.GetPageSize()
+			searchOptions.Limit = options.Pager.GetPageSize()
+		}
+		for _, sortOption := range options.SortBy {
+			sortBy := redis.FTSearchSortBy{FieldName: sortOption.FieldName}
+			if sortOption.Desc {
+				sortBy.Desc = true
+			} else {
+				sortBy.Asc = true
+			}
+			searchOptions.SortBy = append(searchOptions.SortBy, sortBy)
+		}
+		for _, filter := range options.Filters {
+			minV := filter.Min
+			if minV == nil {
+				minV = "-inf"
+			}
+			maxV := filter.Max
+			if maxV == nil {
+				maxV = "+inf"
+			}
+			searchOptions.Filters = append(searchOptions.Filters, redis.FTSearchFilter{
+				FieldName: filter.FieldName,
+				Min:       minV,
+				Max:       maxV,
+			})
+		}
+	}
+	res := r.FTSearch(ctx, indexName, query, searchOptions)
+	total = res.Total
+	if total == 0 {
+		return []uint64{}, total
+	}
+	ids = make([]uint64, len(res.Docs))
+	for i, doc := range res.Docs {
+		lastPart := doc.ID[strings.LastIndex(doc.ID, ":")+1:]
+		id, err := strconv.ParseUint(lastPart, 10, 64)
+		if err != nil {
+			panic(err)
+		}
+		ids[i] = id
+	}
+	return ids, total
 }
