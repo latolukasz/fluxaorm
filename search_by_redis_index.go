@@ -40,7 +40,6 @@ func GetRedisSearchAlters(ctx Context) (alters []RedisSearchAlter) {
 			indicesInRedis[poolName][index] = true
 		}
 	}
-	fmt.Printf("%v\n", indicesInRedis)
 	alters = make([]RedisSearchAlter, 0)
 	for _, schemaInterface := range ctx.Engine().Registry().Entities() {
 		schema := schemaInterface.(*entitySchema)
@@ -89,9 +88,7 @@ func (a RedisSearchAlter) Exec(ctx Context) {
 		return
 	}
 	ctx.Engine().Redis(a.Pool).FTCreate(ctx, a.IndexName, a.indexOptions, a.indexSchema...)
-	go func() {
-		a.schema.ReindexRedisIndex(ctx.Clone())
-	}()
+	a.schema.ReindexRedisIndex(ctx)
 }
 
 func getRedisIndexAlter(ctx Context, schema *entitySchema, r RedisCache) (alter *RedisSearchAlter, has bool) {
@@ -192,43 +189,56 @@ func (e *entitySchema) ReindexRedisIndex(ctx Context) {
 	}
 	lastIDRedisKey := "lastID:" + e.redisSearchIndexName
 	r := ctx.Engine().Redis(e.redisSearchIndexPoolCode)
-	lastID := uint64(0)
-	lastIDInRedis, hasLastID := r.Get(ctx, lastIDRedisKey)
-	if hasLastID {
-		lastID, _ = strconv.ParseUint(lastIDInRedis, 10, 64)
-	} else {
-		r.Set(ctx, lastIDRedisKey, "0", 0)
+	lastID, hasLastID := r.Get(ctx, lastIDRedisKey)
+	if !hasLastID {
+		lastID = "0"
+		r.Set(ctx, lastIDRedisKey, lastID, 0)
 	}
 	where := "SELECT ID"
 	pointers := make([]any, len(e.redisSearchFields)+1)
-	var id uint64
+	var id string
 	pointers[0] = &id
 	i := 1
-	for _, def := range e.redisSearchFields {
+	columns := make([]string, len(e.redisSearchFields))
+	for columnName, def := range e.redisSearchFields {
 		where += ", " + def.sqlFieldQuery
 		var value string
 		pointers[i] = &value
+		columns[i-1] = columnName
 		i++
 	}
-	where += " FROM `" + e.GetTableName() + "` WHERE ID > ? ORDER BY ID LIMIT 0, 5000"
+	where += " FROM `" + e.GetTableName() + "` WHERE ID > ? ORDER BY ID LIMIT 0, 3000"
 	pStmt, pClose := e.GetDB().Prepare(ctx, where)
 	defer pClose()
 	for {
+		p := ctx.RedisPipeLine(r.GetConfig().GetCode())
 		func() {
 			rows, cl := pStmt.Query(ctx, lastID)
 			defer cl()
 			i = 0
 			for rows.Next() {
 				rows.Scan(pointers...)
+				lastID = id
 				i++
-				lastID = *pointers[0].(*uint64)
+				//fmt.Printf("ID %s\n", id)
+				values := make([]any, len(e.redisSearchFields)*2)
+				k := 0
+				for j, columnName := range columns {
+					values[k] = columnName
+					values[k+1] = *pointers[j+1].(*string)
+					k += 2
+				}
+				//fmt.Printf("VALUES %v\n", values)
+				p.HSet(e.redisSearchIndexPrefix+id, values...)
 			}
 		}()
-		if i < 5000 {
-			r.Del(ctx, lastIDRedisKey)
+		if i < 3000 {
+			p.Del(lastIDRedisKey)
+			p.Exec(ctx)
 			break
 		} else {
-			r.Set(ctx, lastIDRedisKey, "0", 0)
+			p.Set(lastIDRedisKey, "0", 0)
+			p.Exec(ctx)
 		}
 	}
 

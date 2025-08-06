@@ -51,6 +51,8 @@ type EntitySchemaShared interface {
 	GetDB() DB
 	GetLocalCache() (cache LocalCache, has bool)
 	GetRedisCache() (cache RedisCache, has bool)
+	GetRedisSearchPoolCode() string
+	GetRedisSearchIndexName() string
 }
 
 type EntitySchema interface {
@@ -265,6 +267,14 @@ func (e *entitySchema) GetRedisCache() (cache RedisCache, has bool) {
 		return nil, false
 	}
 	return e.redisCache, true
+}
+
+func (e *entitySchema) GetRedisSearchPoolCode() string {
+	return e.redisSearchIndexPoolCode
+}
+
+func (e *entitySchema) GetRedisSearchIndexName() string {
+	return e.redisSearchIndexName
 }
 
 func (e *entitySchema) GetColumns() []string {
@@ -501,7 +511,7 @@ func (e *entitySchema) init(registry *registry, entityType reflect.Type) error {
 						if definition.IndexEmpty {
 							definition.sqlFieldQuery = "IFNULL(`" + columnName + "`,'NULL')"
 						} else {
-							definition.sqlFieldQuery = "UNIX_TIMESTAMP(`" + columnName + "`)"
+							definition.sqlFieldQuery = "`" + columnName + "`"
 						}
 						break
 					}
@@ -511,7 +521,7 @@ func (e *entitySchema) init(registry *registry, entityType reflect.Type) error {
 						if definition.IndexEmpty {
 							definition.sqlFieldQuery = "IFNULL(`" + columnName + "`,'NULL')"
 						} else {
-							definition.sqlFieldQuery = "UNIX_TIMESTAMP(`" + columnName + "`)"
+							definition.sqlFieldQuery = "`" + columnName + "`"
 						}
 						break
 					}

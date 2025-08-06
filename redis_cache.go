@@ -92,6 +92,7 @@ type RedisCache interface {
 	GetCode() string
 	FTList(ctx Context) []string
 	FTDrop(ctx Context, index string, dropDocuments bool)
+	FTSearch(ctx Context, index string, query string, options *redis.FTSearchOptions) redis.FTSearchResult
 	FTCreate(ctx Context, index string, options *redis.FTCreateOptions, schema ...*redis.FieldSchema)
 	FTInfo(ctx Context, index string) (info *redis.FTInfoResult, found bool)
 }
@@ -1065,6 +1066,54 @@ func (r *redisCache) FTDrop(ctx Context, index string, dropDocuments bool) {
 		r.fillLogFields(ctx, "FT.DROP", "FT.DROP "+index, start, false, err)
 	}
 	checkError(err)
+}
+
+func (r *redisCache) FTSearch(ctx Context, index string, query string, options *redis.FTSearchOptions) redis.FTSearchResult {
+	hasLogger, _ := ctx.getRedisLoggers()
+	start := getNow(hasLogger)
+	if options == nil {
+		options = &redis.FTSearchOptions{}
+	}
+	options.DialectVersion = 1
+	req := r.client.FTSearchWithArgs(ctx.Context(), index, query, options)
+	rawRes, err := req.RawResult()
+	if hasLogger {
+		r.fillLogFields(ctx, "FT.SEARCH", req.String(), start, false, err)
+	}
+	checkError(err)
+	res := redis.FTSearchResult{}
+	asMap := rawRes.(map[any]any)
+	res.Total = int(asMap["total_results"].(int64))
+	results := asMap["results"].([]any)
+	res.Docs = make([]redis.Document, len(results))
+	for i, result := range results {
+		doc := result.(map[any]any)
+		res.Docs[i].ID = doc["id"].(string)
+		fields, hasFields := doc["extra_attributes"]
+		if hasFields {
+			fieldsAsMap := fields.(map[any]any)
+			res.Docs[i].Fields = make(map[string]string, len(fieldsAsMap))
+			for k, v := range fieldsAsMap {
+				res.Docs[i].Fields[k.(string)] = v.(string)
+			}
+		}
+		score, hasScore := doc["score"]
+		if hasScore {
+			scoreF := score.(float64)
+			res.Docs[i].Score = &scoreF
+		}
+		payload, hasPayload := doc["payload"]
+		if hasPayload && payload != nil {
+			payloadS := payload.(string)
+			res.Docs[i].Payload = &payloadS
+		}
+		sortkey, hasSortkey := doc["payload"]
+		if hasSortkey && sortkey != nil {
+			sortkeyS := sortkey.(string)
+			res.Docs[i].SortKey = &sortkeyS
+		}
+	}
+	return res
 }
 
 func (r *redisCache) FTInfo(ctx Context, index string) (info *redis.FTInfoResult, found bool) {

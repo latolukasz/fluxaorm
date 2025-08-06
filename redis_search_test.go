@@ -2,6 +2,7 @@ package orm
 
 import (
 	"fmt"
+	"github.com/redis/go-redis/v9"
 	"github.com/stretchr/testify/assert"
 	"testing"
 )
@@ -30,7 +31,8 @@ type redisSearchEntityReference struct {
 func TestRedisSearch(t *testing.T) {
 	var entity *redisSearchEntity
 	orm := PrepareTables(t, NewRegistry(), entity, redisSearchEntityReference{})
-	_ = GetEntitySchema[redisSearchEntity](orm)
+	schema := GetEntitySchema[redisSearchEntity](orm)
+	r := orm.Engine().Redis(schema.GetRedisSearchPoolCode())
 
 	var ids []uint64
 	for i := 1; i <= 10; i++ {
@@ -48,8 +50,20 @@ func TestRedisSearch(t *testing.T) {
 	for _, alter := range redisSearchAlters {
 		alter.Exec(orm)
 	}
-
-	fmt.Printf("A\n")
 	redisSearchAlters = GetRedisSearchAlters(orm)
 	assert.Len(t, redisSearchAlters, 0)
+
+	info, found := r.FTInfo(orm, schema.GetRedisSearchIndexName())
+	assert.True(t, found)
+	assert.Equal(t, 10, info.NumDocs)
+	assert.Len(t, info.FieldStatistics, 9)
+	assert.Equal(t, 0, info.IndexErrors.IndexingFailures)
+	for _, field := range info.FieldStatistics {
+		assert.Equal(t, 0, field.IndexErrors.IndexingFailures)
+	}
+	orm.EnableQueryDebug()
+	res := r.FTSearch(orm, schema.GetRedisSearchIndexName(), "'*'", &redis.FTSearchOptions{NoContent: true})
+	assert.NotNil(t, res)
+	assert.Equal(t, 10, res.Total)
+
 }
