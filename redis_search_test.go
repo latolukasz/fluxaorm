@@ -14,20 +14,21 @@ type redisSearchStructEntity struct {
 }
 
 type redisSearchEntity struct {
-	ID          uint64     `orm:"localCache;redisCache"`
-	Age         uint8      `orm:"redis_search;rs_sortable"`
-	Name        string     `orm:"redis_search"`
-	NameAsTag   string     `orm:"redis_search;rs_tag"`
-	Active      bool       `orm:"redis_search"`
-	ActiveNull  *bool      `orm:"redis_search"`
-	EnumNotNull testEnum   `orm:"required;redis_search"`
-	EnumNull    testEnum   `orm:"redis_search"`
-	EnumSet     []testEnum `orm:"required;redis_search"`
-	Sub         redisSearchStructEntity
-	Reference   Reference[redisSearchEntityReference] `orm:"redis_search;required"`
-	IntArray    [2]int                                `orm:"redis_search"`
-	Born        time.Time                             `orm:"redis_search;rs_sortable"`
-	Created     time.Time                             `orm:"time;redis_search;rs_sortable"`
+	ID            uint64     `orm:"localCache;redisCache"`
+	Age           uint8      `orm:"redis_search;rs_sortable"`
+	Name          string     `orm:"redis_search"`
+	NameAsTag     string     `orm:"redis_search;rs_tag"`
+	Active        bool       `orm:"redis_search"`
+	ActiveNull    *bool      `orm:"redis_search"`
+	EnumNotNull   testEnum   `orm:"required;redis_search"`
+	EnumNull      testEnum   `orm:"redis_search"`
+	EnumSet       []testEnum `orm:"required;redis_search"`
+	Sub           redisSearchStructEntity
+	Reference     Reference[redisSearchEntityReference] `orm:"redis_search;required"`
+	ReferenceNull Reference[redisSearchEntityReference] `orm:"redis_search"`
+	IntArray      [2]int                                `orm:"redis_search"`
+	Born          time.Time                             `orm:"redis_search;rs_sortable"`
+	Created       time.Time                             `orm:"time;redis_search;rs_sortable"`
 }
 
 type redisSearchEntityReference struct {
@@ -61,6 +62,7 @@ func TestRedisSearch(t *testing.T) {
 			entity.NameAsTag = "tag1"
 			tr := true
 			entity.ActiveNull = &tr
+			entity.ReferenceNull = Reference[redisSearchEntityReference](reference.ID)
 		} else {
 			entity.EnumNotNull = testEnumDefinition.C
 			entity.EnumSet = []testEnum{testEnumDefinition.B, testEnumDefinition.C}
@@ -323,7 +325,22 @@ func TestRedisSearch(t *testing.T) {
 		assert.Equal(t, ids[i], retIds[k])
 		k++
 	}
-	// TODO nullable reference, nullable number
+
+	options = &RedisSearchOptions{}
+	options.AddSortBy("Age", false)
+	options.AddFilter("ReferenceNull", 0, 0)
+	retIds, total = RedisSearchIDs[redisSearchEntity](orm, "*", options)
+	assert.Equal(t, 6, total)
+	assert.Len(t, retIds, 6)
+	k = 0
+	for i := 0; i < 3; i++ {
+		assert.Equal(t, ids[i], retIds[k])
+		k++
+	}
+	for i := 7; i < 10; i++ {
+		assert.Equal(t, ids[i], retIds[k])
+		k++
+	}
 
 	//  TODO RedisSearch(), RedisSearchOne(), RedisSearchCount()
 
