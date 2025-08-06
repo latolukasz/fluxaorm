@@ -6,6 +6,7 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"time"
 )
 
 type redisSearchIndexDefinition struct {
@@ -294,13 +295,37 @@ func redisSearchIDs(ctx Context, schema EntitySchema, query string, options *Red
 			searchOptions.SortBy = append(searchOptions.SortBy, sortBy)
 		}
 		for _, filter := range options.Filters {
+			fieldDef, valid := schema.(*entitySchema).fieldDefinitions[filter.FieldName]
+			if !valid {
+				panic(fmt.Errorf("field %s is not searchable by Redis Search", filter.FieldName))
+			}
 			minV := filter.Min
 			if minV == nil {
 				minV = "-inf"
+			} else {
+				asTime, isTime := minV.(time.Time)
+				if isTime {
+					minV = asTime.UTC().Unix()
+					if fieldDef.Tags["time"] == "true" {
+						minV = asTime.UTC().Unix()
+					} else {
+						minV = asTime.UTC().Truncate(24 * time.Hour).Unix()
+					}
+				}
 			}
 			maxV := filter.Max
 			if maxV == nil {
 				maxV = "+inf"
+			} else {
+				asTime, isTime := maxV.(time.Time)
+				if isTime {
+					maxV = asTime.UTC().Unix()
+					if fieldDef.Tags["time"] == "true" {
+						maxV = asTime.UTC().Unix()
+					} else {
+						maxV = asTime.UTC().Truncate(24 * time.Hour).Unix()
+					}
+				}
 			}
 			searchOptions.Filters = append(searchOptions.Filters, redis.FTSearchFilter{
 				FieldName: filter.FieldName,
