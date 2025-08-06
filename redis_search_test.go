@@ -19,7 +19,9 @@ type redisSearchEntity struct {
 	Name        string     `orm:"redis_search"`
 	NameAsTag   string     `orm:"redis_search;rs_tag"`
 	Active      bool       `orm:"redis_search"`
+	ActiveNull  *bool      `orm:"redis_search"`
 	EnumNotNull testEnum   `orm:"required;redis_search"`
+	EnumNull    testEnum   `orm:"redis_search"`
 	EnumSet     []testEnum `orm:"required;redis_search"`
 	Sub         redisSearchStructEntity
 	Reference   Reference[redisSearchEntityReference] `orm:"redis_search;required"`
@@ -54,8 +56,11 @@ func TestRedisSearch(t *testing.T) {
 		} else if i <= 7 {
 			entity.Active = true
 			entity.EnumNotNull = testEnumDefinition.B
+			entity.EnumNull = testEnumDefinition.B
 			entity.EnumSet = []testEnum{testEnumDefinition.A, testEnumDefinition.C}
 			entity.NameAsTag = "tag1"
+			tr := true
+			entity.ActiveNull = &tr
 		} else {
 			entity.EnumNotNull = testEnumDefinition.C
 			entity.EnumSet = []testEnum{testEnumDefinition.B, testEnumDefinition.C}
@@ -289,7 +294,36 @@ func TestRedisSearch(t *testing.T) {
 		k++
 	}
 
-	// TODO nullable enum, nullable set, nullable bool, nullable reference, nullable number
+	options = &RedisSearchOptions{}
+	options.AddSortBy("Age", false)
+	retIds, total = RedisSearchIDs[redisSearchEntity](orm, "@EnumNull:{NULL}", options)
+	assert.Equal(t, 6, total)
+	assert.Len(t, retIds, 6)
+	k = 0
+	for i := 0; i < 3; i++ {
+		assert.Equal(t, ids[i], retIds[k])
+		k++
+	}
+	for i := 7; i < 10; i++ {
+		assert.Equal(t, ids[i], retIds[k])
+		k++
+	}
+
+	options = &RedisSearchOptions{}
+	options.AddSortBy("Age", false)
+	retIds, total = RedisSearchIDs[redisSearchEntity](orm, "@ActiveNull:{NULL}", options)
+	assert.Equal(t, 6, total)
+	assert.Len(t, retIds, 6)
+	k = 0
+	for i := 0; i < 3; i++ {
+		assert.Equal(t, ids[i], retIds[k])
+		k++
+	}
+	for i := 7; i < 10; i++ {
+		assert.Equal(t, ids[i], retIds[k])
+		k++
+	}
+	// TODO nullable reference, nullable number
 
 	//  TODO RedisSearch(), RedisSearchOne(), RedisSearchCount()
 
