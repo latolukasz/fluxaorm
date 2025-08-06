@@ -289,7 +289,7 @@ func TestRedisSearch(t *testing.T) {
 		k++
 	}
 
-	// TODO nullable
+	// TODO nullable enum, nullable set, nullable bool, nullable reference, nullable number
 
 	//  TODO RedisSearch(), RedisSearchOne(), RedisSearchCount()
 
