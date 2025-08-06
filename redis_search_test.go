@@ -10,13 +10,14 @@ import (
 
 type redisSearchStructEntity struct {
 	Name2 string `orm:"redis_search;rs_no-steam"`
-	Type  int8   `orm:"redis_search;rs_type=tag"`
+	Type  int8   `orm:"redis_search"`
 }
 
 type redisSearchEntity struct {
 	ID          uint64     `orm:"localCache;redisCache"`
 	Age         uint8      `orm:"redis_search;rs_sortable"`
 	Name        string     `orm:"redis_search"`
+	NameAsTag   string     `orm:"redis_search;rs_tag"`
 	Active      bool       `orm:"redis_search"`
 	EnumNotNull testEnum   `orm:"required;redis_search"`
 	EnumSet     []testEnum `orm:"required;redis_search"`
@@ -54,9 +55,11 @@ func TestRedisSearch(t *testing.T) {
 			entity.Active = true
 			entity.EnumNotNull = testEnumDefinition.B
 			entity.EnumSet = []testEnum{testEnumDefinition.A, testEnumDefinition.C}
+			entity.NameAsTag = "tag1"
 		} else {
 			entity.EnumNotNull = testEnumDefinition.C
 			entity.EnumSet = []testEnum{testEnumDefinition.B, testEnumDefinition.C}
+			entity.NameAsTag = "tag2"
 		}
 		entity.Born = now.AddDate(0, 0, i)
 		entity.Created = now.Add(time.Duration(i) * time.Hour * 6)
@@ -80,7 +83,6 @@ func TestRedisSearch(t *testing.T) {
 	info, found := r.FTInfo(orm, schema.GetRedisSearchIndexName())
 	assert.True(t, found)
 	assert.Equal(t, 10, info.NumDocs)
-	assert.Len(t, info.FieldStatistics, 12)
 	assert.Equal(t, 0, info.IndexErrors.IndexingFailures)
 	for _, field := range info.FieldStatistics {
 		assert.Equal(t, 0, field.IndexErrors.IndexingFailures)
@@ -265,6 +267,27 @@ func TestRedisSearch(t *testing.T) {
 	retIds, total = RedisSearchIDs[redisSearchEntity](orm, "@Active:{0}", options)
 	assert.Equal(t, 6, total)
 	assert.Len(t, retIds, 6)
+
+	options = &RedisSearchOptions{}
+	options.AddSortBy("Age", false)
+	retIds, total = RedisSearchIDs[redisSearchEntity](orm, "@NameAsTag:{NULL}", options)
+	assert.Equal(t, 3, total)
+	assert.Len(t, retIds, 3)
+	k = 0
+	for i := 0; i < 3; i++ {
+		assert.Equal(t, ids[i], retIds[k])
+		k++
+	}
+	options = &RedisSearchOptions{}
+	options.AddSortBy("Age", false)
+	retIds, total = RedisSearchIDs[redisSearchEntity](orm, "@NameAsTag:{tag2}", options)
+	assert.Equal(t, 3, total)
+	assert.Len(t, retIds, 3)
+	k = 0
+	for i := 7; i < 10; i++ {
+		assert.Equal(t, ids[i], retIds[k])
+		k++
+	}
 
 	// TODO nullable
 

@@ -453,24 +453,17 @@ func (e *entitySchema) init(registry *registry, entityType reflect.Type) error {
 			}
 			definition := redisSearchIndexDefinition{}
 			fieldDef := e.fieldDefinitions[columnName]
-			userType, hasUserType := def.Tags["rs_type"]
-			if hasUserType {
-				userType = strings.ToUpper(userType)
-				switch userType {
-				case "TEXT", "TAG", "NUMERIC":
-				default:
-					return fmt.Errorf("invalid redis search type '%s' for field '%s'", userType, columnName)
-				}
-				definition.FieldType = userType
-				definition.sqlFieldQuery = "IFNULL(`" + columnName + "`,'')"
+			autoType := ""
+			if def.Tags["rs_tag"] == "true" {
+				autoType = "TAG"
+				definition.sqlFieldQuery = "IFNULL(`" + columnName + "`,'NULL')"
 			} else {
-				autoType := ""
 				switch fieldDef.TypeName {
 				case "string":
 					autoType = "TEXT"
 					definition.IndexEmpty = fieldDef.Tags["required"] != "true"
 					if definition.IndexEmpty {
-						definition.sqlFieldQuery = "IFNULL(`" + columnName + "`,'')"
+						definition.sqlFieldQuery = "IFNULL(`" + columnName + "`,'NULL')"
 					} else {
 						definition.sqlFieldQuery = "`" + columnName + "`"
 					}
@@ -490,7 +483,7 @@ func (e *entitySchema) init(registry *registry, entityType reflect.Type) error {
 					autoType = "TAG"
 					definition.IndexEmpty = strings.HasPrefix(fieldDef.TypeName, "*")
 					if definition.IndexEmpty {
-						definition.sqlFieldQuery = "IFNULL(`" + columnName + "`,'')"
+						definition.sqlFieldQuery = "IFNULL(`" + columnName + "`,'NULL')"
 					} else {
 						definition.sqlFieldQuery = "`" + columnName + "`"
 					}
@@ -536,8 +529,9 @@ func (e *entitySchema) init(registry *registry, entityType reflect.Type) error {
 					}
 					return fmt.Errorf("unsopported redis search type for field '%s'", columnName)
 				}
-				definition.FieldType = autoType
 			}
+
+			definition.FieldType = autoType
 
 			if def.Tags["rs_sortable"] == "true" {
 				definition.Sortable = true
