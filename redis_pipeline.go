@@ -116,7 +116,7 @@ func (rp *RedisPipeLine) ExecNoPanic(ctx Context) (response []redis.Cmder, first
 				query += "\n"
 			}
 			query += "\u001B[38;2;255;255;155m"
-			query += v.String()
+			query += formatRedisCommandLog(v)
 			if v.Err() != nil {
 				query += " " + fmt.Sprintf(strings.TrimRight(errorTemplate, "\n"), v.Err())
 			}
