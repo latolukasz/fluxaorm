@@ -453,85 +453,138 @@ func (e *entitySchema) init(registry *registry, entityType reflect.Type) error {
 			}
 			definition := redisSearchIndexDefinition{}
 			fieldDef := e.fieldDefinitions[columnName]
-			autoType := ""
-			if def.Tags["rs_tag"] == "true" {
-				autoType = "TAG"
-				definition.sqlFieldQuery = "IFNULL(`" + columnName + "`,'NULL')"
-			} else {
-				switch fieldDef.TypeName {
-				case "string":
-					autoType = "TEXT"
-					definition.IndexEmpty = fieldDef.Tags["required"] != "true"
-					if definition.IndexEmpty {
-						definition.sqlFieldQuery = "IFNULL(`" + columnName + "`,'NULL')"
-					} else {
-						definition.sqlFieldQuery = "`" + columnName + "`"
-					}
-					break
-				case "int", "*int", "int8", "*int8", "int16", "*int16", "int32", "*int32", "int64", "*int64",
-					"uint", "*uint", "uint8", "*uint8", "uint16", "*uint16", "uint32", "*uint32", "uint64", "*uint64",
-					"float32", "*float32", "float64", "*float64":
-					autoType = "NUMERIC"
-					definition.IndexEmpty = strings.HasPrefix(fieldDef.TypeName, "*")
-					if definition.IndexEmpty {
-						definition.sqlFieldQuery = "IFNULL(`" + columnName + "`,0)"
-					} else {
-						definition.sqlFieldQuery = "`" + columnName + "`"
-					}
-					break
-				case "bool", "*bool":
-					autoType = "TAG"
-					definition.IndexEmpty = strings.HasPrefix(fieldDef.TypeName, "*")
-					if definition.IndexEmpty {
-						definition.sqlFieldQuery = "IFNULL(`" + columnName + "`,'NULL')"
-					} else {
-						definition.sqlFieldQuery = "`" + columnName + "`"
-					}
-					break
-				case "time.Time", "*time.Time":
-					autoType = "NUMERIC"
-					definition.IndexEmpty = strings.HasPrefix(fieldDef.TypeName, "*")
-					if definition.IndexEmpty {
-						definition.sqlFieldQuery = "IFNULL(UNIX_TIMESTAMP(`" + columnName + "`),0)"
-					} else {
-						definition.sqlFieldQuery = "UNIX_TIMESTAMP(`" + columnName + "`)"
-					}
-					break
-				default:
-					if fieldDef.Field.Type.Implements(reflect.TypeOf((*EnumValues)(nil)).Elem()) {
-						autoType = "TAG"
-						definition.IndexEmpty = fieldDef.Tags["required"] != "true"
-						if definition.IndexEmpty {
-							definition.sqlFieldQuery = "IFNULL(`" + columnName + "`,'NULL')"
-						} else {
-							definition.sqlFieldQuery = "`" + columnName + "`"
-						}
-						break
-					}
-					if fieldDef.Field.Type.Kind().String() == "slice" && fieldDef.Field.Type.Elem().Implements(reflect.TypeOf((*EnumValues)(nil)).Elem()) {
-						autoType = "TAG"
-						definition.IndexEmpty = fieldDef.Tags["required"] != "true"
-						if definition.IndexEmpty {
-							definition.sqlFieldQuery = "IFNULL(`" + columnName + "`,'NULL')"
-						} else {
-							definition.sqlFieldQuery = "`" + columnName + "`"
-						}
-						break
-					}
-					if fieldDef.Field.Type.Implements(reflect.TypeOf((*ReferenceInterface)(nil)).Elem()) {
-						autoType = "NUMERIC"
-						if fieldDef.Tags["required"] != "true" {
-							definition.sqlFieldQuery = "IFNULL(`" + columnName + "`,0)"
-						} else {
-							definition.sqlFieldQuery = "`" + columnName + "`"
-						}
-						break
-					}
-					return fmt.Errorf("unsopported redis search type for field '%s'", columnName)
+			fieldType := ""
+			switch fieldDef.TypeName {
+			case "string":
+				fieldType = "TEXT"
+				if def.Tags["rs_tag"] == "true" {
+					fieldType = "TAG"
 				}
+				if fieldDef.Tags["required"] != "true" {
+					definition.sqlFieldQuery = "IFNULL(`" + columnName + "`,'NULL')"
+					definition.convertBindToHashValue = defaultConvertBindToHashValueNullable
+				} else {
+					definition.sqlFieldQuery = "`" + columnName + "`"
+					definition.convertBindToHashValue = defaultConvertBindToHashValueNotNullable
+				}
+				break
+			case "int", "int8", "int16", "int32", "int64",
+				"uint", "uint8", "uint16", "uint32", "uint64",
+				"float32", "float64":
+				fieldType = "NUMERIC"
+				if def.Tags["rs_tag"] == "true" {
+					fieldType = "TAG"
+				}
+				definition.sqlFieldQuery = "`" + columnName + "`"
+				definition.convertBindToHashValue = defaultConvertBindToHashValueNotNullable
+				break
+			case "*int", "*int8", "*int16", "*int32", "*int64",
+				"*uint", "*uint8", "*uint16", "*uint32", "*uint64",
+				"*float32", "*float64":
+				fieldType = "NUMERIC"
+				definition.sqlFieldQuery = "IFNULL(`" + columnName + "`,0)"
+				definition.convertBindToHashValue = func(a any) any {
+					if a == nil {
+						return 0
+					}
+					return a
+				}
+				break
+			case "bool":
+				fieldType = "TAG"
+				definition.sqlFieldQuery = "`" + columnName + "`"
+				definition.convertBindToHashValue = func(a any) any {
+					if a.(bool) {
+						return 1
+					}
+					return 0
+				}
+				break
+			case "*bool":
+				fieldType = "TAG"
+				definition.sqlFieldQuery = "IFNULL(`" + columnName + "`,'NULL')"
+				definition.convertBindToHashValue = func(a any) any {
+					if a == nil {
+						return nullRedisValue
+					}
+					if a.(bool) {
+						return 1
+					}
+					return 0
+				}
+				break
+			case "time.Time":
+				fieldType = "NUMERIC"
+				definition.sqlFieldQuery = "UNIX_TIMESTAMP(`" + columnName + "`)"
+				definition.convertBindToHashValue = func(a any) any {
+					asS := a.(string)
+					if len(asS) == 19 {
+						t, _ := time.ParseInLocation(time.DateTime, asS, time.UTC)
+						return t.Unix()
+					}
+					t, _ := time.ParseInLocation(time.DateOnly, asS, time.UTC)
+					return t.Unix()
+				}
+				break
+			case "*time.Time":
+				fieldType = "NUMERIC"
+				definition.sqlFieldQuery = "IFNULL(UNIX_TIMESTAMP(`" + columnName + "`),0)"
+				definition.convertBindToHashValue = func(a any) any {
+					if a == nil {
+						return 0
+					}
+					asS := a.(string)
+					if len(asS) == 10 {
+						t, _ := time.ParseInLocation(time.DateTime, asS, time.UTC)
+						return t.Unix()
+					}
+					t, _ := time.ParseInLocation(time.DateOnly, asS, time.UTC)
+					return t.Unix()
+				}
+				break
+			default:
+				if fieldDef.Field.Type.Implements(reflect.TypeOf((*EnumValues)(nil)).Elem()) {
+					fieldType = "TAG"
+					if fieldDef.Tags["required"] != "true" {
+						definition.sqlFieldQuery = "IFNULL(`" + columnName + "`,'NULL')"
+						definition.convertBindToHashValue = defaultConvertBindToHashValueNullable
+					} else {
+						definition.sqlFieldQuery = "`" + columnName + "`"
+						definition.convertBindToHashValue = defaultConvertBindToHashValueNotNullable
+					}
+					break
+				}
+				if fieldDef.Field.Type.Kind().String() == "slice" && fieldDef.Field.Type.Elem().Implements(reflect.TypeOf((*EnumValues)(nil)).Elem()) {
+					fieldType = "TAG"
+					if fieldDef.Tags["required"] != "true" {
+						definition.sqlFieldQuery = "IFNULL(`" + columnName + "`,'NULL')"
+						definition.convertBindToHashValue = defaultConvertBindToHashValueNullable
+					} else {
+						definition.sqlFieldQuery = "`" + columnName + "`"
+						definition.convertBindToHashValue = defaultConvertBindToHashValueNotNullable
+					}
+					break
+				}
+				if fieldDef.Field.Type.Implements(reflect.TypeOf((*ReferenceInterface)(nil)).Elem()) {
+					fieldType = "NUMERIC"
+					if fieldDef.Tags["required"] != "true" {
+						definition.sqlFieldQuery = "IFNULL(`" + columnName + "`,0)"
+						definition.convertBindToHashValue = func(a any) any {
+							if a == nil {
+								return 0
+							}
+							return a
+						}
+					} else {
+						definition.sqlFieldQuery = "`" + columnName + "`"
+						definition.convertBindToHashValue = defaultConvertBindToHashValueNotNullable
+					}
+					break
+				}
+				return fmt.Errorf("unsopported redis search type for field '%s'", columnName)
 			}
 
-			definition.FieldType = autoType
+			definition.FieldType = fieldType
 
 			if def.Tags["rs_sortable"] == "true" {
 				definition.Sortable = true

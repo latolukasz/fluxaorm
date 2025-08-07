@@ -10,11 +10,12 @@ import (
 )
 
 type redisSearchIndexDefinition struct {
-	FieldType     string
-	Sortable      bool
-	NoStem        bool
-	IndexEmpty    bool
-	sqlFieldQuery string
+	FieldType              string
+	Sortable               bool
+	NoStem                 bool
+	IndexEmpty             bool
+	sqlFieldQuery          string
+	convertBindToHashValue func(any) any
 }
 
 type RedisSearchAlter struct {
@@ -377,4 +378,15 @@ func redisSearchIDs(ctx Context, schema EntitySchema, query string, options *Red
 		ids[i] = id
 	}
 	return ids, total
+}
+
+func defaultConvertBindToHashValueNotNullable(a any) any {
+	return a
+}
+
+func defaultConvertBindToHashValueNullable(a any) any {
+	if a == nil {
+		return nullRedisValue
+	}
+	return a
 }

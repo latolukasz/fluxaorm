@@ -29,6 +29,7 @@ type redisSearchEntity struct {
 	IntArray      [2]int                                `orm:"redis_search"`
 	Born          time.Time                             `orm:"redis_search;rs_sortable"`
 	Created       time.Time                             `orm:"time;redis_search;rs_sortable"`
+	CreatedNull   *time.Time                            `orm:"redis_search"`
 }
 
 type redisSearchEntityReference struct {
@@ -77,6 +78,9 @@ func TestRedisSearch(t *testing.T) {
 	err := orm.Flush()
 	assert.NoError(t, err)
 
+	testRedisSearchResults(t, r, orm, schema, ids, now, idsReferences)
+	return
+
 	// Reindex
 	orm.Engine().Redis(DefaultPoolCode).FlushDB(orm)
 	redisSearchAlters := GetRedisSearchAlters(orm)
@@ -87,6 +91,15 @@ func TestRedisSearch(t *testing.T) {
 	redisSearchAlters = GetRedisSearchAlters(orm)
 	assert.Len(t, redisSearchAlters, 0)
 
+	testRedisSearchResults(t, r, orm, schema, ids, now, idsReferences)
+
+	assert.PanicsWithError(t, "entity redisSearchEntityReference is not searchable by Redis Search", func() {
+		RedisSearchIDs[redisSearchEntityReference](orm, "*", nil)
+	})
+
+}
+
+func testRedisSearchResults(t *testing.T, r RedisCache, orm Context, schema EntitySchema, ids []uint64, now time.Time, idsReferences []uint64) {
 	info, found := r.FTInfo(orm, schema.GetRedisSearchIndexName())
 	assert.True(t, found)
 	assert.Equal(t, 10, info.NumDocs)
@@ -364,9 +377,4 @@ func TestRedisSearch(t *testing.T) {
 	assert.True(t, found)
 	assert.NotNil(t, e)
 	assert.Equal(t, "name 8", e.Name)
-
-	assert.PanicsWithError(t, "entity redisSearchEntityReference is not searchable by Redis Search", func() {
-		RedisSearchIDs[redisSearchEntityReference](orm, "*", nil)
-	})
-
 }

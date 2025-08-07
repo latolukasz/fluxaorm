@@ -45,10 +45,6 @@ func PrepareTables(t *testing.T, registry Registry, entities ...any) (orm Contex
 	for _, alter := range alters {
 		alter.Exec(orm)
 	}
-	redisSearchAlters := GetRedisSearchAlters(orm)
-	for _, alter := range redisSearchAlters {
-		alter.Exec(orm)
-	}
 
 	for _, entity := range entities {
 		schema := orm.Engine().Registry().EntitySchema(entity)
@@ -58,6 +54,10 @@ func PrepareTables(t *testing.T, registry Registry, entities ...any) (orm Contex
 		if has {
 			cacheLocal.Clear(orm)
 		}
+	}
+	redisSearchAlters := GetRedisSearchAlters(orm)
+	for _, alter := range redisSearchAlters {
+		alter.Exec(orm)
 	}
 	return orm
 }

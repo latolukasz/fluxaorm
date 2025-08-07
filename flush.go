@@ -409,9 +409,26 @@ func (orm *ormImplementation) handleInserts(async bool, schema *entitySchema, op
 			redisSetKey := schema.cacheKey + ":" + key + ":" + strconv.FormatUint(id, 10)
 			orm.RedisPipeLine(schema.getForcedRedisCode()).SAdd(redisSetKey, strconv.FormatUint(insert.ID(), 10))
 		}
+		var idAsString string
 		if hasRedisCache {
-			idAsString := strconv.FormatUint(bind["ID"].(uint64), 10)
+			idAsString = strconv.FormatUint(bind["ID"].(uint64), 10)
 			orm.RedisPipeLine(rc.GetCode()).RPush(schema.getCacheKey()+":"+idAsString, convertBindToRedisValue(bind, schema)...)
+		}
+		rsPoolCode := schema.redisSearchIndexPoolCode
+		if rsPoolCode != "" {
+			rsPool := orm.RedisPipeLine(rsPoolCode)
+			if idAsString == "" {
+				idAsString = strconv.FormatUint(bind["ID"].(uint64), 10)
+			}
+			values := make([]any, len(schema.redisSearchFields)*2)
+			k := 0
+			for column, def := range schema.redisSearchFields {
+				values[k] = column
+				values[k+1] = def.convertBindToHashValue(bind[column])
+				fmt.Printf("column: %s: %v\n", column, values[k+1])
+				k += 2
+			}
+			rsPool.HSet(schema.redisSearchIndexPrefix+idAsString, values...)
 		}
 	}
 	if !async {
