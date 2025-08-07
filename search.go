@@ -280,7 +280,6 @@ func searchRow[E any](ctx Context, where Where) (entity *E, found bool) {
 
 func search[E any](ctx Context, where Where, pager *Pager, withCount bool) (results EntityIterator[E], totalRows int) {
 	schema := getEntitySchema[E](ctx)
-	entities := make([]*E, 0)
 	if schema.hasLocalCache {
 		ids, total := SearchIDsWithCount[E](ctx, where, pager)
 		if total == 0 {
@@ -288,6 +287,7 @@ func search[E any](ctx Context, where Where, pager *Pager, withCount bool) (resu
 		}
 		return &localCacheIDsIterator[E]{orm: ctx.(*ormImplementation), schema: schema, ids: ids, index: -1}, total
 	}
+	entities := make([]*E, 0)
 	whereQuery := where.String()
 	query := "SELECT " + schema.fieldsQuery + " FROM `" + schema.GetTableName() + "` WHERE " + whereQuery
 	if pager != nil {

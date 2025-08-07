@@ -213,6 +213,34 @@ func RedisSearchIDs[E any](ctx Context, query string, options *RedisSearchOption
 	return redisSearchIDs(ctx, GetEntitySchema[E](ctx), query, options)
 }
 
+func RedisSearch[E any](ctx Context, query string, options *RedisSearchOptions) (results EntityIterator[E], totalRows int) {
+	ids, totalRows := redisSearchIDs(ctx, GetEntitySchema[E](ctx), query, options)
+	schema := getEntitySchema[E](ctx)
+	if schema.hasLocalCache {
+		if totalRows == 0 {
+			return &emptyResultsIterator[E]{}, 0
+		}
+		return &localCacheIDsIterator[E]{orm: ctx.(*ormImplementation), schema: schema, ids: ids, index: -1}, totalRows
+	}
+	return GetByIDs[E](ctx, ids...), totalRows
+}
+
+func RedisSearchOne[E any](ctx Context, query string, options *RedisSearchOptions) (entity *E, found bool) {
+	if options == nil {
+		options = &RedisSearchOptions{}
+	}
+	options.Pager = NewPager(1, 1)
+	ids, total := RedisSearchIDs[E](ctx, query, options)
+	if total == 0 {
+		return nil, false
+	}
+	e, found := GetByID[E](ctx, ids[0])
+	if !found {
+		return nil, false
+	}
+	return e, true
+}
+
 func (e *entitySchema) ReindexRedisIndex(ctx Context) {
 	if e.redisSearchIndexName == "" {
 		return

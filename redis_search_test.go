@@ -342,7 +342,28 @@ func TestRedisSearch(t *testing.T) {
 		k++
 	}
 
-	//  TODO RedisSearch(), RedisSearchOne(), RedisSearchCount()
+	iterator, total := RedisSearch[redisSearchEntity](orm, "*", options)
+	assert.Equal(t, 6, total)
+	assert.Len(t, retIds, iterator.Len())
+	k = 0
+	i := 0
+	for iterator.Next() {
+		row := iterator.Entity()
+		assert.Equal(t, ids[i], retIds[k])
+		assert.Equal(t, fmt.Sprintf("name %d", ids[i]), row.Name)
+		k++
+		i++
+		if i == 3 {
+			i = 7
+		}
+	}
+
+	options = &RedisSearchOptions{}
+	options.AddFilter("Reference", 8, 8)
+	e, found := RedisSearchOne[redisSearchEntity](orm, "*", options)
+	assert.True(t, found)
+	assert.NotNil(t, e)
+	assert.Equal(t, "name 8", e.Name)
 
 	assert.PanicsWithError(t, "entity redisSearchEntityReference is not searchable by Redis Search", func() {
 		RedisSearchIDs[redisSearchEntityReference](orm, "*", nil)
