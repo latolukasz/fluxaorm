@@ -110,6 +110,9 @@ func TestRedisSearch(t *testing.T) {
 	retIds, total := RedisSearchIDs[redisSearchEntity](orm, "*", options)
 	assert.Equal(t, 9, total)
 	assert.Len(t, retIds, 9)
+	for i := 1; i < 10; i++ {
+		assert.Equal(t, ids[i], retIds[i-1])
+	}
 
 	assert.PanicsWithError(t, "entity redisSearchEntityReference is not searchable by Redis Search", func() {
 		RedisSearchIDs[redisSearchEntityReference](orm, "*", nil)
