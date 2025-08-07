@@ -224,6 +224,12 @@ func (orm *ormImplementation) handleDeletes(async bool, schema *entitySchema, op
 			redisSetKey := schema.cacheKey + ":" + key + ":" + idAsString
 			orm.RedisPipeLine(schema.getForcedRedisCode()).SRem(redisSetKey, strconv.FormatUint(deleteFlush.ID(), 10))
 		}
+		rsPoolCode := schema.redisSearchIndexPoolCode
+		if rsPoolCode != "" {
+			rsPool := orm.RedisPipeLine(rsPoolCode)
+			rsPool.Del(schema.redisSearchIndexPrefix + strconv.FormatUint(deleteFlush.ID(), 10))
+		}
+
 		logTableSchema, hasLogTable := orm.engine.registry.entityLogSchemas[schema.t]
 		if hasLogTable {
 			data := make([]any, 6)
@@ -425,7 +431,6 @@ func (orm *ormImplementation) handleInserts(async bool, schema *entitySchema, op
 			for column, def := range schema.redisSearchFields {
 				values[k] = column
 				values[k+1] = def.convertBindToHashValue(bind[column])
-				fmt.Printf("column: %s: %v\n", column, values[k+1])
 				k += 2
 			}
 			rsPool.HSet(schema.redisSearchIndexPrefix+idAsString, values...)

@@ -79,7 +79,6 @@ func TestRedisSearch(t *testing.T) {
 	assert.NoError(t, err)
 
 	testRedisSearchResults(t, r, orm, schema, ids, now, idsReferences)
-	return
 
 	// Reindex
 	orm.Engine().Redis(DefaultPoolCode).FlushDB(orm)
@@ -92,6 +91,25 @@ func TestRedisSearch(t *testing.T) {
 	assert.Len(t, redisSearchAlters, 0)
 
 	testRedisSearchResults(t, r, orm, schema, ids, now, idsReferences)
+
+	e, _ := GetByID[redisSearchEntity](orm, ids[0])
+	DeleteEntity(orm, e)
+	assert.NoError(t, orm.Flush())
+
+	res := r.FTSearch(orm, schema.GetRedisSearchIndexName(), "'*'", &redis.FTSearchOptions{NoContent: true})
+	assert.NotNil(t, res)
+	assert.Equal(t, 9, res.Total)
+
+	options := &RedisSearchOptions{}
+	options.AddFilter("Age", 1, 1)
+	_, found := RedisSearchOne[redisSearchEntity](orm, "*", options)
+	assert.False(t, found)
+
+	options = &RedisSearchOptions{}
+	options.AddSortBy("Age", false)
+	retIds, total := RedisSearchIDs[redisSearchEntity](orm, "*", options)
+	assert.Equal(t, 9, total)
+	assert.Len(t, retIds, 9)
 
 	assert.PanicsWithError(t, "entity redisSearchEntityReference is not searchable by Redis Search", func() {
 		RedisSearchIDs[redisSearchEntityReference](orm, "*", nil)
