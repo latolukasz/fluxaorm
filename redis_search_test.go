@@ -114,7 +114,6 @@ func TestRedisSearch(t *testing.T) {
 		assert.Equal(t, ids[i], retIds[i-1])
 	}
 
-	orm.EnableQueryDebug()
 	e, _ = GetByID[redisSearchEntity](orm, ids[1])
 	e = EditEntity(orm, e)
 	e.Age = 100
