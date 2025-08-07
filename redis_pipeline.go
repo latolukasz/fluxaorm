@@ -156,24 +156,40 @@ func (rp *RedisPipeLine) XAdd(stream string, values []string) *PipeLineString {
 	return &PipeLineString{p: rp, cmd: rp.pipeLine.XAdd(rp.ctx.Context(), &redis.XAddArgs{Stream: stream, Values: values})}
 }
 
-func (rp *RedisPipeLine) Exec(ctx Context) {
+func (rp *RedisPipeLine) Exec(ctx Context) []redis.Cmder {
+	res, err := rp.ExecNoPanic(ctx)
+	checkError(err)
+	return res
+}
+
+func (rp *RedisPipeLine) ExecNoPanic(ctx Context) (response []redis.Cmder, firstErr error) {
 	if rp.commands == 0 {
-		return
+		return make([]redis.Cmder, 0), nil
 	}
 	hasLog, loggers := rp.ctx.getRedisLoggers()
 	start := getNow(hasLog)
-	_, err := rp.pipeLine.Exec(rp.ctx.Context())
+	res, err := rp.pipeLine.Exec(rp.ctx.Context())
 	rp.pipeLine = rp.r.client.Pipeline()
 	if err != nil && err == redis.Nil {
 		err = nil
 	}
 	if hasLog {
-		query := strings.Join(rp.log, "\n\u001B[38;2;255;255;155m")
-		fillLogFields(ctx, loggers, rp.pool, sourceRedis, "PIPELINE EXEC", query, start, false, err)
+		query := ""
+		for i, v := range res {
+			if i > 0 {
+				query += "\n"
+			}
+			query += "\u001B[38;2;255;255;155m"
+			query += v.String()
+			if v.Err() != nil {
+				query += " " + fmt.Sprintf(strings.TrimRight(errorTemplate, "\n"), v.Err())
+			}
+		}
+		fillLogFields(ctx, loggers, rp.pool, sourceRedis, "PIPELINE EXEC", query, start, false, nil)
 	}
 	rp.log = nil
 	rp.commands = 0
-	checkError(err)
+	return res, err
 }
 
 type PipeLineGet struct {

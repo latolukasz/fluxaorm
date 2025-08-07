@@ -114,6 +114,18 @@ func TestRedisSearch(t *testing.T) {
 		assert.Equal(t, ids[i], retIds[i-1])
 	}
 
+	orm.EnableQueryDebug()
+	e, _ = GetByID[redisSearchEntity](orm, ids[1])
+	e = EditEntity(orm, e)
+	e.Age = 100
+	assert.NoError(t, orm.Flush())
+
+	options = &RedisSearchOptions{}
+	options.AddFilter("Age", 100, 100)
+	e, found = RedisSearchOne[redisSearchEntity](orm, "*", options)
+	assert.True(t, found)
+	assert.Equal(t, fmt.Sprintf("name %d", ids[1]), e.Name)
+
 	assert.PanicsWithError(t, "entity redisSearchEntityReference is not searchable by Redis Search", func() {
 		RedisSearchIDs[redisSearchEntityReference](orm, "*", nil)
 	})

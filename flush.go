@@ -92,7 +92,19 @@ func (orm *ormImplementation) flush(async bool) error {
 		}()
 	}
 	for _, pipeline := range orm.redisPipeLines {
-		pipeline.Exec(orm)
+		results, pipelineErr := pipeline.ExecNoPanic(orm)
+		if pipelineErr != nil {
+			for _, result := range results {
+				if result.Err() == nil {
+					continue
+				}
+				if result.Name() == "lset" && result.Err().Error() == "ERR no such key" {
+					// entity update on key that does not exists
+					continue
+				}
+				return pipelineErr
+			}
+		}
 	}
 	for _, action := range orm.flushPostActions {
 		action(orm)
@@ -582,14 +594,35 @@ func (orm *ormImplementation) handleUpdates(async bool, schema *entitySchema, op
 			})
 		}
 
+		var idAsString string
 		if schema.hasRedisCache {
 			p := orm.RedisPipeLine(schema.redisCache.GetCode())
-			rKey := schema.getCacheKey() + ":" + strconv.FormatUint(update.ID(), 10)
+			idAsString = strconv.FormatUint(update.ID(), 10)
+			rKey := schema.getCacheKey() + ":" + idAsString
 			for column, val := range newBind {
 				index := int64(schema.columnMapping[column] + 1)
 				p.LSet(rKey, index, convertBindValueToRedisValue(val))
 			}
 		}
+		rsPoolCode := schema.redisSearchIndexPoolCode
+		if rsPoolCode != "" {
+			rsPool := orm.RedisPipeLine(rsPoolCode)
+			values := make([]any, 0)
+			for column, def := range schema.redisSearchFields {
+				_, has := newBind[column]
+				if has {
+					values = append(values, column)
+					values = append(values, def.convertBindToHashValue(newBind[column]))
+				}
+			}
+			if len(values) > 0 {
+				if idAsString == "" {
+					idAsString = strconv.FormatUint(update.ID(), 10)
+				}
+				rsPool.HSet(schema.redisSearchIndexPrefix+idAsString, values...)
+			}
+		}
+
 		for columnName := range schema.cachedReferences {
 			id, has := newBind[columnName]
 			if !has {
