@@ -1,4 +1,4 @@
-package orm
+package fluxaorm
 
 import (
 	"github.com/stretchr/testify/assert"

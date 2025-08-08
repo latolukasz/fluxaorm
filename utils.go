@@ -1,4 +1,4 @@
-package orm
+package fluxaorm
 
 import (
 	"crypto/sha256"

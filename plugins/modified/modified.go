@@ -2,7 +2,7 @@ package modified
 
 import (
 	"fmt"
-	"github.com/latolukasz/orm"
+	"github.com/latolukasz/fluxaorm"
 	"reflect"
 	"strings"
 	"time"
@@ -10,7 +10,7 @@ import (
 	"github.com/pkg/errors"
 )
 
-const optionKey = "_github.com/latolukasz/orm/plugins/modified/AddedField"
+const optionKey = "_github.com/latolukasz/fluxaorm/plugins/modified/AddedField"
 const emptyTime = "0001-01-01 00:00:00"
 const emptyDate = "0001-01-01"
 
@@ -48,7 +48,7 @@ type plugin struct {
 	modifiedAtField string
 }
 
-func (p *plugin) ValidateEntitySchema(schema orm.EntitySchemaSetter) error {
+func (p *plugin) ValidateEntitySchema(schema fluxaorm.EntitySchemaSetter) error {
 	fields := make([]string, 0)
 	if p.addedAtField != "" {
 		fields = append(fields, p.addedAtField)
@@ -91,7 +91,7 @@ func (p *plugin) ValidateEntitySchema(schema orm.EntitySchemaSetter) error {
 	return nil
 }
 
-func (p *plugin) EntityFlush(schema orm.EntitySchema, entity reflect.Value, before, after orm.Bind, _ orm.Engine) (orm.PostFlushAction, error) {
+func (p *plugin) EntityFlush(schema fluxaorm.EntitySchema, entity reflect.Value, before, after fluxaorm.Bind, _ fluxaorm.Engine) (fluxaorm.PostFlushAction, error) {
 	if after == nil && before != nil {
 		return nil, nil
 	}
@@ -113,7 +113,7 @@ func (p *plugin) EntityFlush(schema orm.EntitySchema, entity reflect.Value, befo
 	return nil, nil
 }
 
-func setDate(now time.Time, bind orm.Bind, entity reflect.Value, field string, withTime, optional bool) {
+func setDate(now time.Time, bind fluxaorm.Bind, entity reflect.Value, field string, withTime, optional bool) {
 	before, hasBefore := bind[field]
 	if hasBefore {
 		if optional {

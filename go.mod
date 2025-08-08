@@ -1,4 +1,4 @@
-module github.com/latolukasz/orm
+module github.com/latolukasz/fluxaorm
 
 go 1.23
 
