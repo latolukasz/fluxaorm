@@ -14,7 +14,7 @@ type QueryLoggerSource int
 const sourceMySQL = "mysql"
 const sourceRedis = "redis"
 const sourceLocalCache = "local_cache"
-const ormLogo = "\u001B[1m\x1b[38;2;0;0;0;48;2;255;255;255mBee\u001B[38;2;254;147;51mORM \u001B[0m\x1b[0m\u001B[0m"
+const ormLogo = "\u001B[1m\x1b[38;2;0;0;0;48;2;255;255;255mFluxa\u001B[38;2;254;147;51mORM \u001B[0m\x1b[0m\u001B[0m"
 const mysqlLogo = "\x1b[38;2;2;117;143;48;2;255;255;255mMy\u001B[38;2;242;145;17mSQL \u001B[0m\x1b[0m\u001B[0m"
 const redisLogo = "\u001B[1m\x1b[38;2;191;56;42;48;2;255;255;255mredis \u001B[0m\x1b[0m\u001B[0m"
 const localCacheLogo = "\u001B[1m\x1b[38;2;254;147;51;48;2;255;255;255mlocal \u001B[0m\x1b[0m\u001B[0m"

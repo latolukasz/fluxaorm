@@ -482,6 +482,9 @@ func (e *entitySchema) init(registry *registry, entityType reflect.Type) error {
 				"*uint", "*uint8", "*uint16", "*uint32", "*uint64",
 				"*float32", "*float64":
 				fieldType = "NUMERIC"
+				if def.Tags["rs_tag"] == "true" {
+					fieldType = "TAG"
+				}
 				definition.sqlFieldQuery = "IFNULL(`" + columnName + "`,0)"
 				definition.convertBindToHashValue = func(a any) any {
 					if a == nil {
