@@ -14,7 +14,7 @@ type redisSearchStructEntity struct {
 }
 
 type redisSearchEntity struct {
-	ID            uint64     `orm:"localCache;redisCache"`
+	ID            uint64     `orm:"localCache"`
 	Age           uint8      `orm:"redis_search;rs_sortable"`
 	Name          string     `orm:"redis_search"`
 	NameAsTag     string     `orm:"redis_search;rs_tag"`
@@ -33,7 +33,7 @@ type redisSearchEntity struct {
 }
 
 type redisSearchEntityReference struct {
-	ID   uint64 `orm:"localCache;redisCache"`
+	ID   uint64 `orm:"localCache"`
 	Name string `orm:"required"`
 }
 

@@ -441,9 +441,9 @@ func (e *entitySchema) init(registry *registry, entityType reflect.Type) error {
 				e.redisSearchIndexName = redisSearchIndexPrefix + e.tableName
 				redisCode := e.getTag("redis_search_pool", DefaultPoolCode, DefaultPoolCode)
 				if redisCode != "" {
-					_, has = registry.redisPools[redisCacheName]
+					_, has = registry.redisPools[redisCode]
 					if !has {
-						return fmt.Errorf("redis pool '%s' not found", redisCacheName)
+						return fmt.Errorf("redis pool '%s' not found", redisCode)
 					}
 				}
 				if registry.redisPools[redisCode].GetDatabaseNumber() > 0 {
