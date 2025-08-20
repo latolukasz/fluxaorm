@@ -35,12 +35,6 @@ func getCachedByReference[E any](ctx Context, key string, id uint64, schema *ent
 			if fromCache == cacheNilValue {
 				return &emptyResultsIterator[E]{}
 			}
-
-			if schema.hasLocalCache {
-				results := &entityIterator[E]{index: -1}
-				results.rows = fromCache.([]*E)
-				return results
-			}
 			return GetByIDs[E](ctx, fromCache.([]uint64)...)
 		}
 	}
@@ -79,11 +73,7 @@ func getCachedByReference[E any](ctx Context, key string, id uint64, schema *ent
 				if values.Len() == 0 {
 					schema.localCache.setList(ctx, key, id, cacheNilValue)
 				} else {
-					if schema.hasLocalCache {
-						schema.localCache.setList(ctx, key, id, values.All())
-					} else {
-						schema.localCache.setList(ctx, key, id, ids)
-					}
+					schema.localCache.setList(ctx, key, id, ids)
 				}
 			}
 			return values
@@ -112,11 +102,7 @@ func getCachedByReference[E any](ctx Context, key string, id uint64, schema *ent
 		p.SAdd(redisSetKey, idsForRedis...)
 		p.Exec(ctx)
 		values := GetByIDs[E](ctx, ids...)
-		if schema.hasLocalCache {
-			schema.localCache.setList(ctx, key, id, values.All())
-		} else {
-			schema.localCache.setList(ctx, key, id, ids)
-		}
+		schema.localCache.setList(ctx, key, id, ids)
 		return values
 	}
 	var where Where
