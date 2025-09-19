@@ -77,12 +77,6 @@ func getCachedByColumns[E any](ctx Context, indexName string, index indexDefinit
 			if fromCache == cacheNilValue {
 				return &emptyResultsIterator[E]{}
 			}
-
-			if schema.hasLocalCache {
-				results := &entityIterator[E]{index: -1}
-				results.rows = fromCache.([]*E)
-				return results
-			}
 			return GetByIDs[E](ctx, fromCache.([]uint64)...)
 		}
 	}
@@ -117,11 +111,7 @@ func getCachedByColumns[E any](ctx Context, indexName string, index indexDefinit
 				if values.Len() == 0 {
 					schema.localCache.setList(ctx, indexName, bindID, cacheNilValue)
 				} else {
-					if schema.hasLocalCache {
-						schema.localCache.setList(ctx, indexName, bindID, values.All())
-					} else {
-						schema.localCache.setList(ctx, indexName, bindID, ids)
-					}
+					schema.localCache.setList(ctx, indexName, bindID, ids)
 				}
 			}
 			return values
@@ -144,11 +134,7 @@ func getCachedByColumns[E any](ctx Context, indexName string, index indexDefinit
 		p.SAdd(redisSetKey, idsForRedis...)
 		p.Exec(ctx)
 		values := GetByIDs[E](ctx, ids...)
-		if schema.hasLocalCache {
-			schema.localCache.setList(ctx, indexName, bindID, values.All())
-		} else {
-			schema.localCache.setList(ctx, indexName, bindID, ids)
-		}
+		schema.localCache.setList(ctx, indexName, bindID, ids)
 		return values
 	}
 	values := Search[E](ctx, index.CreteWhere(hasNil, attributes), nil)
