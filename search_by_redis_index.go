@@ -248,6 +248,20 @@ func (e *entitySchema) ReindexRedisIndex(ctx Context) {
 	}
 	lastIDRedisKey := "lastID:" + e.redisSearchIndexName
 	r := ctx.Engine().Redis(e.redisSearchIndexPoolCode)
+	scanCursor := uint64(0)
+	keysPattern := e.redisSearchIndexPrefix + "*"
+	for {
+		keys, newCursor := r.Scan(ctx, scanCursor, keysPattern, 1000)
+		if len(keys) > 0 {
+			p := ctx.RedisPipeLine(r.GetConfig().GetCode())
+			p.Del(keys...)
+			p.Exec(ctx)
+		}
+		if len(keys) < 1000 {
+			break
+		}
+		scanCursor = newCursor
+	}
 	lastID, hasLastID := r.Get(ctx, lastIDRedisKey)
 	if !hasLastID {
 		lastID = "0"

@@ -87,6 +87,7 @@ type RedisCache interface {
 	XAck(ctx Context, stream, group string, ids ...string) int64
 	FlushAll(ctx Context)
 	FlushDB(ctx Context)
+	Scan(ctx Context, cursor uint64, match string, count int64) (keys []string, cursorNext uint64)
 	GetLocker() *Locker
 	Process(ctx Context, cmd redis.Cmder) error
 	GetCode() string
@@ -1272,6 +1273,18 @@ func (r *redisCache) FlushDB(ctx Context) {
 		r.fillLogFields(ctx, req, start, false, err)
 	}
 	checkError(err)
+}
+
+func (r *redisCache) Scan(ctx Context, cursor uint64, match string, count int64) (keys []string, cursorNext uint64) {
+	hasLogger, _ := ctx.getRedisLoggers()
+	start := getNow(hasLogger)
+	req := r.client.Scan(ctx.Context(), cursor, match, count)
+	keys, cursorNext, err := req.Result()
+	if hasLogger {
+		r.fillLogFields(ctx, req, start, false, err)
+	}
+	checkError(err)
+	return keys, cursorNext
 }
 
 func (r *redisCache) Process(ctx Context, cmd redis.Cmder) error {
