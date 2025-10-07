@@ -236,6 +236,26 @@ func NewEntity[E any](ctx Context) *E {
 	return newEntity(ctx, getEntitySchema[E](ctx)).(*E)
 }
 
+func NewEntityFromSource(ctx Context, entity any) {
+	schema := getEntitySchemaFromSource(ctx, entity)
+	insertable := &insertableEntity{}
+	insertable.ctx = ctx
+	insertable.schema = schema
+	value := reflect.ValueOf(entity)
+	elem := value.Elem()
+	initNewEntity(elem, schema.fields)
+	insertable.entity = value.Interface()
+	f := elem.Field(0)
+	id := f.Uint()
+	if id == 0 {
+		id = schema.uuid(ctx)
+	}
+	insertable.id = id
+	f.SetUint(id)
+	insertable.value = value
+	ctx.trackEntity(insertable)
+}
+
 func NewEntityWithID[E any, I ID](ctx Context, id I) *E {
 	return newEntityInsertable(ctx, getEntitySchema[E](ctx), uint64(id)).entity.(*E)
 }

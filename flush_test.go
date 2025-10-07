@@ -485,7 +485,8 @@ func testFlushInsert(t *testing.T, async, local, redis bool) {
 	}
 
 	// rounding dates
-	newEntity = NewEntity[flushEntity](orm)
+	newEntity = &flushEntity{}
+	NewEntityFromSource(orm, newEntity)
 	newEntity.ReferenceRequired = Reference[flushEntityReference](reference.ID)
 	newEntity.Name = "rounding dates"
 	newEntity.City = "rounding dates"
