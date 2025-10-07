@@ -153,4 +153,12 @@ func TestLogTable(t *testing.T) {
 	assert.NoError(t, err)
 	assert.Len(t, bind, 1)
 	assert.Equal(t, float64(42), bind["Age"])
+
+	orm.Engine().Registry().DisableLogTables()
+	entity = NewEntity[logTableEntity](orm)
+	entity.Name = "Tom2"
+	entity.Age = 42
+	assert.NoError(t, orm.Flush())
+	logs = Search[LogEntity[logTableEntity]](orm, NewWhere("EntityID = ?", entity.ID), nil)
+	assert.Equal(t, 0, logs.Len())
 }

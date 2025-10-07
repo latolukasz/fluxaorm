@@ -17,6 +17,7 @@ type EngineRegistry interface {
 	Entities() []EntitySchema
 	Option(key string) any
 	Enums() map[string][]string
+	DisableLogTables()
 	getDefaultQueryLogger() LogHandler
 	getDBTables() map[string]map[string]bool
 }
@@ -46,6 +47,7 @@ type engineRegistryImplementation struct {
 	options                map[string]any
 	enums                  map[string][]string
 	asyncConsumerBlockTime time.Duration
+	disableLogTables       bool
 }
 
 type engineImplementation struct {
@@ -139,4 +141,8 @@ func (er *engineRegistryImplementation) Enums() map[string][]string {
 
 func (er *engineRegistryImplementation) getDefaultQueryLogger() LogHandler {
 	return er.defaultQueryLogger
+}
+
+func (er *engineRegistryImplementation) DisableLogTables() {
+	er.disableLogTables = true
 }
