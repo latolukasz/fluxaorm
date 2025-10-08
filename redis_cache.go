@@ -57,6 +57,7 @@ type RedisCache interface {
 	ZRevRange(ctx Context, key string, start, stop int64) []string
 	ZRevRangeWithScores(ctx Context, key string, start, stop int64) []redis.Z
 	ZRangeWithScores(ctx Context, key string, start, stop int64) []redis.Z
+	ZRangeArgsWithScores(ctx Context, z redis.ZRangeArgs) []redis.Z
 	ZCard(ctx Context, key string) int64
 	ZCount(ctx Context, key string, min, max string) int64
 	ZScore(ctx Context, key, member string) float64
@@ -610,6 +611,18 @@ func (r *redisCache) ZRangeWithScores(ctx Context, key string, start, stop int64
 	hasLogger, _ := ctx.getRedisLoggers()
 	startTime := getNow(hasLogger)
 	req := r.client.ZRangeWithScores(ctx.Context(), key, start, stop)
+	val, err := req.Result()
+	if hasLogger {
+		r.fillLogFields(ctx, req, startTime, false, err)
+	}
+	checkError(err)
+	return val
+}
+
+func (r *redisCache) ZRangeArgsWithScores(ctx Context, z redis.ZRangeArgs) []redis.Z {
+	hasLogger, _ := ctx.getRedisLoggers()
+	startTime := getNow(hasLogger)
+	req := r.client.ZRangeArgsWithScores(ctx.Context(), z)
 	val, err := req.Result()
 	if hasLogger {
 		r.fillLogFields(ctx, req, startTime, false, err)
