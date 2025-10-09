@@ -648,7 +648,10 @@ func testFlushInsert(t *testing.T, async, local, redis bool) {
 		newEntity.Name = "Name"
 		newEntity.ReferenceRequired = Reference[flushEntityReference](reference.ID)
 		err = testFlush(orm, async)
-		assert.EqualError(t, err, "Error 1062 (23000): Duplicate entry 'Name' for key 'flushEntity.name'")
+		duplicateKeyError, isDuplicateKeyError := err.(*DuplicateKeyError)
+		assert.EqualError(t, err, "Duplicate entry 'Name' for key 'flushEntity.name'")
+		assert.True(t, isDuplicateKeyError)
+		assert.Equal(t, "name", duplicateKeyError.Index)
 		orm.ClearFlush()
 
 		orm.Engine().Redis(DefaultPoolCode).FlushDB(orm)
@@ -656,7 +659,7 @@ func testFlushInsert(t *testing.T, async, local, redis bool) {
 		newEntity.Name = "Name"
 		newEntity.ReferenceRequired = Reference[flushEntityReference](reference.ID)
 		err = testFlush(orm, async)
-		assert.EqualError(t, err, "Error 1062 (23000): Duplicate entry 'Name' for key 'flushEntity.name'")
+		assert.EqualError(t, err, "Duplicate entry 'Name' for key 'flushEntity.name'")
 		orm.ClearFlush()
 	}
 }

@@ -2,6 +2,7 @@ package fluxaorm
 
 import (
 	"fmt"
+	"github.com/go-sql-driver/mysql"
 	"strconv"
 	"strings"
 	"time"
@@ -16,6 +17,15 @@ type schemaSQLOperations map[*entitySchema]entitySQLOperations
 type sqlOperations map[DB]schemaSQLOperations
 type dbAction func(db DBBase)
 type PostFlushAction func(ctx Context)
+
+type DuplicateKeyError struct {
+	Message string
+	Index   string
+}
+
+func (e *DuplicateKeyError) Error() string {
+	return e.Message
+}
 
 func (orm *ormImplementation) Flush() {
 	err := orm.flush(false)
@@ -75,6 +85,12 @@ func (orm *ormImplementation) flush(async bool) error {
 				if rec := recover(); rec != nil {
 					asErr, isErr := rec.(error)
 					if isErr {
+						mysqlErr, isMysqlErr := asErr.(*mysql.MySQLError)
+						if isMysqlErr && mysqlErr.Number == 1062 {
+							parts := strings.Split(mysqlErr.Message, ".")
+							key := strings.Trim(parts[len(parts)-1], "'")
+							asErr = &DuplicateKeyError{Message: mysqlErr.Message, Index: key}
+						}
 						err = asErr
 						return
 					}
