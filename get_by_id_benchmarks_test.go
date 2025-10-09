@@ -40,7 +40,7 @@ func benchmarkGetByIDCache(b *testing.B, local, redis bool) {
 
 	entity = NewEntity[getByIDBenchmarkEntity](orm)
 	entity.Name = "Name"
-	err := orm.Flush()
+	err := orm.FlushWithCheck()
 	assert.NoError(b, err)
 
 	GetByID[getByIDBenchmarkEntity](orm, entity.ID)
@@ -58,7 +58,7 @@ func benchmarkGetByIDLocalCacheLimit(b *testing.B) {
 
 	entity = NewEntity[getByIDBenchmarkEntityLimit](orm)
 	entity.Name = "Name"
-	err := orm.Flush()
+	err := orm.FlushWithCheck()
 	assert.NoError(b, err)
 
 	GetByID[getByIDBenchmarkEntityLimit](orm, entity.ID)

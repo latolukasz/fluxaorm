@@ -108,7 +108,7 @@ func testUpdateFieldExecute(t *testing.T, async, local, redis bool) {
 		entity.Level1.Set = []testEnum{testEnumDefinition.A}
 		ids = append(ids, uint64(entity.ID))
 	}
-	err := orm.Flush()
+	err := orm.FlushWithCheck()
 	assert.NoError(t, err)
 
 	/* string */
@@ -523,5 +523,5 @@ func runEditEntityField(ctx Context, entity *updateEntity, field string, value a
 		stop()
 		return ConsumeAsyncFlushEvents(ctx, false)
 	}
-	return ctx.Flush()
+	return ctx.FlushWithCheck()
 }

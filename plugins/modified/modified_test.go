@@ -33,7 +33,7 @@ func TestPlugin(t *testing.T) {
 
 	entity := fluxaorm.NewEntity[testPluginModifiedEntity](engine)
 	entity.Name = "a"
-	assert.NoError(t, engine.Flush())
+	assert.NoError(t, engine.FlushWithCheck())
 	assert.NotNil(t, entity.AddedAtDate)
 	assert.Equal(t, entity.AddedAtDate.Format(time.DateOnly), now.Format(time.DateOnly))
 	assert.Equal(t, "0001-01-01", entity.ModifiedAtDate.Format(time.DateOnly))
@@ -44,7 +44,7 @@ func TestPlugin(t *testing.T) {
 	entity = fluxaorm.NewEntity[testPluginModifiedEntity](engine)
 	entity.Name = "a1"
 	entity.AddedAtDate = dateManual
-	assert.NoError(t, engine.Flush())
+	assert.NoError(t, engine.FlushWithCheck())
 	assert.Equal(t, "2022-02-03", entity.AddedAtDate.Format(time.DateOnly))
 	entity, _ = fluxaorm.GetByID[testPluginModifiedEntity](engine, entity.ID)
 	assert.Equal(t, "2022-02-03", entity.AddedAtDate.Format(time.DateOnly))
@@ -55,7 +55,7 @@ func TestPlugin(t *testing.T) {
 	now = time.Now().UTC()
 	entity = fluxaorm.NewEntity[testPluginModifiedEntity](engine)
 	entity.Name = "b"
-	assert.NoError(t, engine.Flush())
+	assert.NoError(t, engine.FlushWithCheck())
 	assert.NotNil(t, entity.AddedAtTime)
 	assert.Equal(t, entity.AddedAtTime.Format(time.DateTime), now.Format(time.DateTime))
 	assert.Equal(t, "0001-01-01 00:00:00", entity.ModifiedAtTime.Format(time.DateTime))
@@ -66,7 +66,7 @@ func TestPlugin(t *testing.T) {
 	entity = fluxaorm.NewEntity[testPluginModifiedEntity](engine)
 	entity.Name = "b1"
 	entity.AddedAtTime = timeManual
-	assert.NoError(t, engine.Flush())
+	assert.NoError(t, engine.FlushWithCheck())
 	assert.Equal(t, "2022-02-03 04:05:06", entity.AddedAtTime.Format(time.DateTime))
 	entity, _ = fluxaorm.GetByID[testPluginModifiedEntity](engine, entity.ID)
 	assert.Equal(t, "2022-02-03 04:05:06", entity.AddedAtTime.Format(time.DateTime))
@@ -77,7 +77,7 @@ func TestPlugin(t *testing.T) {
 	now = time.Now().UTC()
 	entity = fluxaorm.NewEntity[testPluginModifiedEntity](engine)
 	entity.Name = "d"
-	assert.NoError(t, engine.Flush())
+	assert.NoError(t, engine.FlushWithCheck())
 	assert.NotNil(t, entity.AddedAtTimeOptional)
 	assert.Equal(t, entity.AddedAtTimeOptional.Format(time.DateTime), now.Format(time.DateTime))
 	assert.Nil(t, entity.ModifiedAtTimeOptional)
@@ -88,7 +88,7 @@ func TestPlugin(t *testing.T) {
 	entity = fluxaorm.NewEntity[testPluginModifiedEntity](engine)
 	entity.Name = "d1"
 	entity.AddedAtTimeOptional = &timeManual
-	assert.NoError(t, engine.Flush())
+	assert.NoError(t, engine.FlushWithCheck())
 	assert.Equal(t, "2022-02-03 04:05:06", entity.AddedAtTimeOptional.Format(time.DateTime))
 	entity, _ = fluxaorm.GetByID[testPluginModifiedEntity](engine, entity.ID)
 	assert.Equal(t, "2022-02-03 04:05:06", entity.AddedAtTimeOptional.Format(time.DateTime))
@@ -99,7 +99,7 @@ func TestPlugin(t *testing.T) {
 	now = time.Now().UTC()
 	entity = fluxaorm.NewEntity[testPluginModifiedEntity](engine)
 	entity.Name = "d"
-	assert.NoError(t, engine.Flush())
+	assert.NoError(t, engine.FlushWithCheck())
 	assert.NotNil(t, entity.AddedAtDateOptional)
 	assert.Equal(t, entity.AddedAtDateOptional.Format(time.DateOnly), now.Format(time.DateOnly))
 	assert.Nil(t, entity.ModifiedAtDateOptional)
@@ -113,11 +113,11 @@ func TestPlugin(t *testing.T) {
 	now = time.Now().UTC()
 	entity = fluxaorm.NewEntity[testPluginModifiedEntity](engine)
 	entity.Name = "D"
-	assert.NoError(t, engine.Flush())
+	assert.NoError(t, engine.FlushWithCheck())
 	entity = fluxaorm.EditEntity(engine, entity)
 	entity.Name = "D1"
 	time.Sleep(time.Second)
-	assert.NoError(t, engine.Flush())
+	assert.NoError(t, engine.FlushWithCheck())
 	later := now.Add(time.Second)
 	assert.Equal(t, entity.AddedAtTimeOptional.Format(time.DateTime), now.Format(time.DateTime))
 	assert.NotNil(t, entity.ModifiedAtTimeOptional)
@@ -130,7 +130,7 @@ func TestPlugin(t *testing.T) {
 	now = time.Now().UTC()
 	time.Sleep(time.Second)
 	assert.NoError(t, fluxaorm.EditEntityField(engine, entity, "Name", "g2"))
-	assert.NoError(t, engine.Flush())
+	assert.NoError(t, engine.FlushWithCheck())
 	later = now.Add(time.Second)
 	assert.Equal(t, entity.ModifiedAtTimeOptional.Format(time.DateTime), later.Format(time.DateTime))
 
@@ -140,7 +140,7 @@ func TestPlugin(t *testing.T) {
 	now = time.Now().UTC()
 	entity = fluxaorm.NewEntity[testPluginModifiedEntity](engine)
 	entity.Name = "e"
-	assert.NoError(t, engine.Flush())
+	assert.NoError(t, engine.FlushWithCheck())
 	entity, _ = fluxaorm.GetByID[testPluginModifiedEntity](engine, entity.ID)
 	assert.Equal(t, "e", entity.Name)
 
@@ -150,7 +150,7 @@ func TestPlugin(t *testing.T) {
 	now = time.Now().UTC()
 	entity = fluxaorm.NewEntity[testPluginModifiedEntity](engine)
 	entity.Name = "f"
-	assert.NoError(t, engine.Flush())
+	assert.NoError(t, engine.FlushWithCheck())
 	entity, _ = fluxaorm.GetByID[testPluginModifiedEntity](engine, entity.ID)
 	assert.Equal(t, "f", entity.Name)
 
@@ -160,12 +160,12 @@ func TestPlugin(t *testing.T) {
 	now = time.Now().UTC()
 	entity = fluxaorm.NewEntity[testPluginModifiedEntity](engine)
 	entity.Name = "g"
-	assert.NoError(t, engine.Flush())
+	assert.NoError(t, engine.FlushWithCheck())
 	entity, _ = fluxaorm.GetByID[testPluginModifiedEntity](engine, entity.ID)
 	assert.Equal(t, "g", entity.Name)
 
 	fluxaorm.DeleteEntity(engine, entity)
-	assert.NoError(t, engine.Flush())
+	assert.NoError(t, engine.FlushWithCheck())
 
 	assert.PanicsWithError(t, "at least one column name must be defined", func() {
 		New("", "")

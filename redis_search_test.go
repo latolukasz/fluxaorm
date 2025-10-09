@@ -75,7 +75,7 @@ func TestRedisSearch(t *testing.T) {
 		ids = append(ids, entity.ID)
 		idsReferences = append(idsReferences, reference.ID)
 	}
-	err := orm.Flush()
+	err := orm.FlushWithCheck()
 	assert.NoError(t, err)
 
 	testRedisSearchResults(t, r, orm, schema, ids, now, idsReferences)
@@ -94,7 +94,7 @@ func TestRedisSearch(t *testing.T) {
 
 	e, _ := GetByID[redisSearchEntity](orm, ids[0])
 	DeleteEntity(orm, e)
-	assert.NoError(t, orm.Flush())
+	assert.NoError(t, orm.FlushWithCheck())
 
 	res := r.FTSearch(orm, schema.GetRedisSearchIndexName(), "'*'", &redis.FTSearchOptions{NoContent: true})
 	assert.NotNil(t, res)
@@ -117,7 +117,7 @@ func TestRedisSearch(t *testing.T) {
 	e, _ = GetByID[redisSearchEntity](orm, ids[1])
 	e = EditEntity(orm, e)
 	e.Age = 100
-	assert.NoError(t, orm.Flush())
+	assert.NoError(t, orm.FlushWithCheck())
 
 	options = &RedisSearchOptions{}
 	options.AddFilter("Age", 100, 100)

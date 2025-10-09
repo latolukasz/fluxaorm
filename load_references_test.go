@@ -75,7 +75,7 @@ func testLoadReferences(t *testing.T, local, redis bool) {
 			ref1.SubRef2 = Reference[loadSubReferenceEntity2](sub2.ID)
 		}
 	}
-	err := orm.Flush()
+	err := orm.FlushWithCheck()
 	assert.NoError(t, err)
 
 	iterator := Search[loadReferenceEntity](orm, NewWhere("1"), nil)

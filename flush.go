@@ -17,7 +17,14 @@ type sqlOperations map[DB]schemaSQLOperations
 type dbAction func(db DBBase)
 type PostFlushAction func(ctx Context)
 
-func (orm *ormImplementation) Flush() error {
+func (orm *ormImplementation) Flush() {
+	err := orm.flush(false)
+	if err != nil {
+		panic(err)
+	}
+}
+
+func (orm *ormImplementation) FlushWithCheck() error {
 	return orm.flush(false)
 }
 

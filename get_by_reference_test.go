@@ -76,7 +76,7 @@ func testGetByReference(t *testing.T, local, redis bool) {
 		entity.RefCachedNoCache = Reference[getByReferenceReferenceNoCache](refNoCache.ID)
 		entities = append(entities, entity)
 	}
-	err := orm.Flush()
+	err := orm.FlushWithCheck()
 	assert.NoError(t, err)
 
 	loggerDB.Clear()
@@ -131,7 +131,7 @@ func testGetByReference(t *testing.T, local, redis bool) {
 	entity.Ref = 0
 	entity.RefCached = 0
 	entity.RefCachedNoCache = 0
-	err = orm.Flush()
+	err = orm.FlushWithCheck()
 	assert.NoError(t, err)
 	loggerDB.Clear()
 
@@ -162,7 +162,7 @@ func testGetByReference(t *testing.T, local, redis bool) {
 	entity.Ref = Reference[getByReferenceReference](ref2.ID)
 	entity.RefCached = Reference[getByReferenceReference](ref2.ID)
 	entity.RefCachedNoCache = Reference[getByReferenceReferenceNoCache](refNoCache2.ID)
-	err = orm.Flush()
+	err = orm.FlushWithCheck()
 	assert.NoError(t, err)
 	loggerDB.Clear()
 
@@ -187,7 +187,7 @@ func testGetByReference(t *testing.T, local, redis bool) {
 	assert.Equal(t, "Name 3", e.Name)
 
 	DeleteEntity(orm, entities[7])
-	err = orm.Flush()
+	err = orm.FlushWithCheck()
 	assert.NoError(t, err)
 	loggerDB.Clear()
 	rows = GetByReference[getByReferenceEntity](orm, "RefCached", ref.ID)
@@ -205,14 +205,14 @@ func testGetByReference(t *testing.T, local, redis bool) {
 
 	err = EditEntityField(orm, entities[0], "RefCached", ref2)
 	assert.NoError(t, err)
-	assert.NoError(t, orm.Flush())
+	assert.NoError(t, orm.FlushWithCheck())
 	rows = GetByReference[getByReferenceEntity](orm, "RefCached", ref2.ID)
 	assert.Equal(t, 2, rows.Len())
 	rows = GetByReference[getByReferenceEntity](orm, "RefCached", ref.ID)
 	assert.Equal(t, 7, rows.Len())
 	err = EditEntityField(orm, entities[0], "RefCached", ref)
 	assert.NoError(t, err)
-	assert.NoError(t, orm.Flush())
+	assert.NoError(t, orm.FlushWithCheck())
 	rows = GetByReference[getByReferenceEntity](orm, "RefCached", ref2.ID)
 	assert.Equal(t, 1, rows.Len())
 	rows = GetByReference[getByReferenceEntity](orm, "RefCached", ref.ID)

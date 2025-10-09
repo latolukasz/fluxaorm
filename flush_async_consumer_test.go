@@ -155,7 +155,7 @@ func TestAsyncConsumer(t *testing.T) {
 	e3 := NewEntity[flushEntity](orm)
 	e3.Name = "Valid name 3"
 	e3.ReferenceRequired = Reference[flushEntityReference](reference.ID)
-	err = orm.Flush()
+	err = orm.FlushWithCheck()
 	assert.NoError(t, err)
 	orm.Engine().Redis(DefaultPoolCode).FlushDB(orm) // clearing duplicated key data
 	e1 = NewEntity[flushEntity](orm)

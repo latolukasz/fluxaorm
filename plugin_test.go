@@ -107,7 +107,7 @@ func TestPlugin(t *testing.T) {
 	orm = PrepareTables(t, registry, testPluginEntity{})
 	entity := NewEntity[testPluginEntity](orm)
 	entity.Name = "a"
-	err = orm.Flush()
+	err = orm.FlushWithCheck()
 	assert.NoError(t, err)
 	values := p.lastValue.([]any)
 	assert.Len(t, values, 5)
@@ -135,7 +135,7 @@ func TestPlugin(t *testing.T) {
 	p.option = 4
 	entity = NewEntity[testPluginEntity](orm)
 	entity.Name = "a"
-	err = orm.Flush()
+	err = orm.FlushWithCheck()
 	assert.EqualError(t, err, "error 4")
 
 	registry = NewRegistry()
@@ -144,10 +144,10 @@ func TestPlugin(t *testing.T) {
 	orm = PrepareTables(t, registry, testPluginEntity{})
 	entity = NewEntity[testPluginEntity](orm)
 	entity.Name = "a"
-	err = orm.Flush()
+	err = orm.FlushWithCheck()
 	entity = EditEntity(orm, entity)
 	entity.Name = "b"
-	err = orm.Flush()
+	err = orm.FlushWithCheck()
 	assert.NoError(t, err)
 	values = p.lastValue.([]any)
 	assert.Len(t, values, 5)
@@ -177,7 +177,7 @@ func TestPlugin(t *testing.T) {
 	p.option = 0
 	err = EditEntityField(orm, entity, "Name", "c2")
 	assert.NoError(t, err)
-	assert.NoError(t, orm.Flush())
+	assert.NoError(t, orm.FlushWithCheck())
 	values = p.lastValue.([]any)
 	assert.Len(t, values[2], 1)
 	assert.Len(t, values[3], 1)
@@ -187,13 +187,13 @@ func TestPlugin(t *testing.T) {
 	p.option = 4
 	entity = EditEntity(orm, entity)
 	entity.Name = "d"
-	err = orm.Flush()
+	err = orm.FlushWithCheck()
 	assert.EqualError(t, err, "error 4")
 
 	p.option = 4
 	entity = NewEntity[testPluginEntity](orm)
 	entity.Name = "a"
-	err = orm.Flush()
+	err = orm.FlushWithCheck()
 	assert.EqualError(t, err, "error 4")
 
 	registry = NewRegistry()
@@ -202,9 +202,9 @@ func TestPlugin(t *testing.T) {
 	orm = PrepareTables(t, registry, testPluginEntity{})
 	entity = NewEntity[testPluginEntity](orm)
 	entity.Name = "a"
-	err = orm.Flush()
+	err = orm.FlushWithCheck()
 	DeleteEntity(orm, entity)
-	err = orm.Flush()
+	err = orm.FlushWithCheck()
 	assert.NoError(t, err)
 	values = p.lastValue.([]any)
 	assert.Len(t, values, 5)
@@ -218,9 +218,9 @@ func TestPlugin(t *testing.T) {
 
 	entity = NewEntity[testPluginEntity](orm)
 	entity.Name = "a"
-	_ = orm.Flush()
+	_ = orm.FlushWithCheck()
 	p.option = 4
 	DeleteEntity(orm, entity)
-	err = orm.Flush()
+	err = orm.FlushWithCheck()
 	assert.EqualError(t, err, "error 4")
 }

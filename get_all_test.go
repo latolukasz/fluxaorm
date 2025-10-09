@@ -66,7 +66,7 @@ func testGetAll(t *testing.T, local, redis bool) {
 		entityNotCached.Name = fmt.Sprintf("Name %d", i)
 		entitiesNoCache = append(entitiesNoCache, entityNotCached)
 	}
-	err := orm.Flush()
+	err := orm.FlushWithCheck()
 	assert.NoError(t, err)
 
 	loggerDB.Clear()
@@ -99,7 +99,7 @@ func testGetAll(t *testing.T, local, redis bool) {
 
 	DeleteEntity(orm, entities[7])
 	DeleteEntity(orm, entitiesNoCache[7])
-	err = orm.Flush()
+	err = orm.FlushWithCheck()
 	assert.NoError(t, err)
 	loggerDB.Clear()
 	rows = GetAll[getByAllCachedEntity](orm)

@@ -1022,7 +1022,7 @@ func testFlushUpdate(t *testing.T, async, local, redis bool) {
 	assert.Equal(t, copiedEntity.Name, editedEntity.Name)
 	copiedEntity.City = "Copy"
 	copiedEntity.Name = "Copy"
-	assert.NoError(t, orm.Flush())
+	assert.NoError(t, orm.FlushWithCheck())
 	copiedEntity, found := GetByID[flushEntity](orm, uint64(copiedEntity.ID))
 	assert.True(t, found)
 	assert.NotNil(t, copiedEntity)
@@ -1212,5 +1212,5 @@ func testFlush(ctx Context, async bool) error {
 	if async {
 		return ctx.FlushAsync()
 	}
-	return ctx.Flush()
+	return ctx.FlushWithCheck()
 }

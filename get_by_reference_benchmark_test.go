@@ -27,7 +27,7 @@ func benchmarkGetByReference(b *testing.B, local, redis bool) {
 		entity.RefCached = Reference[getByReferenceReference](ref.ID)
 		entities = append(entities, entity)
 	}
-	err := orm.Flush()
+	err := orm.FlushWithCheck()
 	assert.NoError(b, err)
 
 	rows := GetByReference[getByReferenceEntity](orm, "RefCached", ref.ID)

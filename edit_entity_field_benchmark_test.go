@@ -17,7 +17,7 @@ func BenchmarkEditByFieldAsync(b *testing.B) {
 	orm := PrepareTables(nil, NewRegistry(), entity)
 	entity = NewEntity[editByFieldAsyncBenchmarkEntity](orm)
 	entity.Age = 0
-	assert.NoError(b, orm.Flush())
+	assert.NoError(b, orm.FlushWithCheck())
 
 	GetByID[editByFieldAsyncBenchmarkEntity](orm, entity.ID)
 	field := "Age"
@@ -48,7 +48,7 @@ func BenchmarkEditByFieldAsyncWithRedis(b *testing.B) {
 	orm := PrepareTables(nil, NewRegistry(), entity)
 	entity = NewEntity[editByFieldAsyncBenchmarkEntity](orm)
 	entity.Age = 0
-	assert.NoError(b, orm.Flush())
+	assert.NoError(b, orm.FlushWithCheck())
 
 	GetByID[editByFieldAsyncBenchmarkEntity](orm, entity.ID)
 	field := "Age"

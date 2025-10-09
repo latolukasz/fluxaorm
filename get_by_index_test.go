@@ -67,7 +67,7 @@ func testGetByIndex(t *testing.T, local, redis bool) {
 		}
 		entities = append(entities, entity)
 	}
-	assert.NoError(t, orm.Flush())
+	assert.NoError(t, orm.FlushWithCheck())
 
 	rows = GetByIndex[getByIndexEntity](orm, "Name", nil)
 	assert.Equal(t, 5, rows.Len())
@@ -109,7 +109,7 @@ func testGetByIndex(t *testing.T, local, redis bool) {
 
 	entity = NewEntity[getByIndexEntity](orm)
 	entity.Age = 10
-	assert.NoError(t, orm.Flush())
+	assert.NoError(t, orm.FlushWithCheck())
 	entities = append(entities, entity)
 
 	loggerDB.Clear()
@@ -122,7 +122,7 @@ func testGetByIndex(t *testing.T, local, redis bool) {
 	}
 
 	DeleteEntity(orm, entities[0])
-	assert.NoError(t, orm.Flush())
+	assert.NoError(t, orm.FlushWithCheck())
 
 	loggerDB.Clear()
 	rows = GetByIndex[getByIndexEntity](orm, "Age", 10, nil)
@@ -136,7 +136,7 @@ func testGetByIndex(t *testing.T, local, redis bool) {
 	entity = EditEntity(orm, entities[6])
 	entity.Name = ""
 	entity.Age = 40
-	assert.NoError(t, orm.Flush())
+	assert.NoError(t, orm.FlushWithCheck())
 
 	loggerDB.Clear()
 	rows = GetByIndex[getByIndexEntity](orm, "Name", nil)
@@ -173,7 +173,7 @@ func testGetByIndex(t *testing.T, local, redis bool) {
 	}
 
 	assert.NoError(t, EditEntityField(orm, entity, "Age", 18))
-	assert.NoError(t, orm.Flush())
+	assert.NoError(t, orm.FlushWithCheck())
 
 	loggerDB.Clear()
 	rows = GetByIndex[getByIndexEntity](orm, "Age", 18, now)

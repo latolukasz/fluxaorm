@@ -31,7 +31,7 @@ func benchmarkGetByIDsCache(b *testing.B, local, redis bool) {
 		entity.Name = "Name"
 		ids[i] = entity.ID
 	}
-	err := orm.Flush()
+	err := orm.FlushWithCheck()
 	assert.NoError(b, err)
 	_ = GetByIDs[getByIdsEntity](orm, ids...)
 	b.ResetTimer()

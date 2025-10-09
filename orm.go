@@ -24,7 +24,8 @@ type Context interface {
 	Clone() Context
 	CloneWithContext(context context.Context) Context
 	Engine() Engine
-	Flush() error
+	Flush()
+	FlushWithCheck() error
 	FlushAsync() error
 	ClearFlush()
 	RedisPipeLine(pool string) *RedisPipeLine
