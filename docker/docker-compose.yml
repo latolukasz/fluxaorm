@@ -14,6 +14,15 @@ services:
       - ${LOCAL_IP}:${REDIS_PORT}:6379
     volumes:
       - orm_volume_redis:/data
+  dragonfly:
+    image: ghcr.io/dragonflydb/dragonfly:v1.34.1
+    ulimits:
+      memlock: -1
+    ports:
+      - ${LOCAL_IP}:${DRAGONFLY_PORT}:6379
+    volumes:
+      - orm_volume_dragonfly:/data
 volumes:
   orm_volume_mysql: {}
   orm_volume_redis: {}
+  orm_volume_dragonfly: {}
