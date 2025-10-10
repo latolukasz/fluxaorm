@@ -282,7 +282,7 @@ func newEntity(ctx Context, schema *entitySchema) any {
 	return newEntityInsertable(ctx, schema, 0).entity
 }
 
-func DeleteEntity[E any](ctx Context, source E) {
+func DeleteEntity[E any](ctx Context, source *E) {
 	toRemove := &removableEntity{}
 	toRemove.ctx = ctx
 	toRemove.source = source
@@ -293,12 +293,12 @@ func DeleteEntity[E any](ctx Context, source E) {
 	ctx.trackEntity(toRemove)
 }
 
-func EditEntity[E any](ctx Context, source E) E {
+func EditEntity[E any](ctx Context, source *E) *E {
 	writable := copyToEdit(ctx, source)
 	writable.id = writable.value.Elem().Field(0).Uint()
 	writable.source = source
 	ctx.trackEntity(writable)
-	return writable.entity.(E)
+	return writable.entity.(*E)
 }
 
 func initNewEntity(elem reflect.Value, fields *tableFields) {
