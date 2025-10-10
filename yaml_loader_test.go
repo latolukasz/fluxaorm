@@ -22,7 +22,7 @@ func TestYamlLoader(t *testing.T) {
 	invalidYaml := make(map[string]any)
 	invalidYaml["test"] = "invalid"
 	err = NewRegistry().InitByYaml(invalidYaml)
-	assert.EqualError(t, err, "orm yaml key orm is not valid")
+	assert.EqualError(t, err, "orm yaml key test is not valid")
 
 	invalidYaml = make(map[string]any)
 	invalidYaml[DefaultPoolCode] = map[string]any{"mysql": []string{}}
