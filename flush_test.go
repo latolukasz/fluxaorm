@@ -1156,7 +1156,7 @@ func testFlushUpdate(t *testing.T, async, local, redis bool) {
 		editedEntity = EditEntity(orm, editedEntity)
 		editedEntity.Name = "Name 2"
 		err = testFlush(orm, async)
-		assert.EqualError(t, err, "Error 1062 (23000): Duplicate entry 'Name 2' for key 'flushEntity.name'")
+		assert.EqualError(t, err, "Duplicate entry 'Name 2' for key 'flushEntity.name'")
 		orm.ClearFlush()
 	}
 

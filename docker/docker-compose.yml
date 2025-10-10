@@ -15,7 +15,7 @@ services:
     volumes:
       - orm_volume_redis:/data
   dragonfly:
-    image: ghcr.io/dragonflydb/dragonfly:v1.34.1
+    image: docker.dragonflydb.io/dragonflydb/dragonfly:v1.34.1
     ulimits:
       memlock: -1
     ports:
