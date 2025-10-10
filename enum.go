@@ -31,14 +31,23 @@ func (d *enumDefinition) Index(value string) int {
 
 func initEnumDefinition(name string, def any, required bool) *enumDefinition {
 	enum := &enumDefinition{required: required}
-	e := reflect.ValueOf(def)
 	enum.mapping = make(map[string]int)
 	enum.name = name
 	enum.fields = make([]string, 0)
+	asSlice, isSlice := def.([]string)
+	if isSlice {
+		for i, eName := range asSlice {
+			enum.fields = append(enum.fields, eName)
+			enum.mapping[eName] = i + 1
+		}
+		enum.defaultValue = enum.fields[0]
+		return enum
+	}
+	e := reflect.ValueOf(def)
 	for i := 0; i < e.Type().NumField(); i++ {
-		name := e.Field(i).String()
-		enum.fields = append(enum.fields, name)
-		enum.mapping[name] = i + 1
+		eName := e.Field(i).String()
+		enum.fields = append(enum.fields, eName)
+		enum.mapping[eName] = i + 1
 	}
 	enum.defaultValue = enum.fields[0]
 	return enum
