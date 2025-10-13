@@ -86,6 +86,7 @@ type RedisCache interface {
 	XClaim(ctx Context, a *redis.XClaimArgs) []redis.XMessage
 	XClaimJustID(ctx Context, a *redis.XClaimArgs) []string
 	XAck(ctx Context, stream, group string, ids ...string) int64
+	xAdd(ctx Context, stream string, values interface{}) (id string)
 	FlushAll(ctx Context)
 	FlushDB(ctx Context)
 	Scan(ctx Context, cursor uint64, match string, count int64) (keys []string, cursorNext uint64)
@@ -956,7 +957,8 @@ func (r *redisCache) XReadGroup(ctx Context, a *redis.XReadGroupArgs) (streams [
 			break
 		}
 	} else {
-		streams, err = r.client.XReadGroup(ctx.Context(), a).Result()
+		req := r.client.XReadGroup(ctx.Context(), a)
+		streams, err = req.Result()
 	}
 
 	if errors.Is(err, redis.Nil) {
@@ -1039,6 +1041,19 @@ func (r *redisCache) XAck(ctx Context, stream, group string, ids ...string) int6
 	}
 	checkError(err)
 	return res
+}
+
+func (r *redisCache) xAdd(ctx Context, stream string, values interface{}) (id string) {
+	a := &redis.XAddArgs{Stream: stream, ID: "*", Values: values}
+	hasLogger, _ := ctx.getRedisLoggers()
+	start := getNow(hasLogger)
+	req := r.client.XAdd(context.Background(), a)
+	id, err := req.Result()
+	if hasLogger {
+		r.fillLogFields(ctx, req, start, false, err)
+	}
+	checkError(err)
+	return id
 }
 
 func (r *redisCache) FTList(ctx Context) []string {

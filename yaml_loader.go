@@ -43,6 +43,11 @@ func (r *registry) InitByYaml(yaml any) error {
 					return err
 				}
 				r.RegisterLocalCache(key, limit)
+			case "streams":
+				err = validateStreams(r, value, key)
+				if err != nil {
+					return err
+				}
 			}
 		}
 	}
@@ -191,6 +196,25 @@ func validateSentinel(registry *registry, value any, key string) error {
 			}
 		}
 		registry.RegisterRedis("", db, key, options)
+	}
+	return nil
+}
+
+func validateStreams(registry *registry, value interface{}, key string) error {
+	def, err := fixYamlMap(value, key)
+	if err != nil {
+		return err
+	}
+	for name, groups := range def {
+		asSlice, ok := groups.([]interface{})
+		if !ok {
+			panic(fmt.Errorf("streams '%v' is not valid", groups))
+		}
+		asString := make([]string, len(asSlice))
+		for i, val := range asSlice {
+			asString[i] = fmt.Sprintf("%v", val)
+		}
+		registry.RegisterRedisStream(name, key, asString)
 	}
 	return nil
 }

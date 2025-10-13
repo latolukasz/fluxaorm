@@ -27,15 +27,18 @@ type Registry interface {
 	RegisterRedis(address string, db int, poolCode string, options *RedisOptions)
 	InitByYaml(yaml any) error
 	SetOption(key string, value any)
+	RegisterRedisStream(name string, redisPool string, groups []string)
 }
 
 type registry struct {
-	mysqlPools  map[string]MySQLConfig
-	localCaches map[string]LocalCache
-	redisPools  map[string]RedisPoolConfig
-	entities    map[string]reflect.Type
-	plugins     []any
-	options     map[string]any
+	mysqlPools        map[string]MySQLConfig
+	localCaches       map[string]LocalCache
+	redisPools        map[string]RedisPoolConfig
+	entities          map[string]reflect.Type
+	plugins           []any
+	options           map[string]any
+	redisStreamGroups map[string]map[string]map[string]bool
+	redisStreamPools  map[string]string
 }
 
 func NewRegistry() Registry {
@@ -211,7 +214,36 @@ func (r *registry) Validate() (Engine, error) {
 	for key, value := range r.options {
 		e.registry.options[key] = value
 	}
+	if len(r.redisStreamGroups) > 0 {
+		_, has := r.redisStreamPools[RedisStreamGarbageCollectorChannelName]
+		if !has {
+			r.RegisterRedisStream(RedisStreamGarbageCollectorChannelName, "default", []string{BackgroundConsumerGroupName})
+		}
+	}
+	e.registry.redisStreamGroups = r.redisStreamGroups
+	e.registry.redisStreamPools = r.redisStreamPools
+
 	return e, nil
+}
+
+func (r *registry) RegisterRedisStream(name string, redisPool string, groups []string) {
+	if r.redisStreamGroups == nil {
+		r.redisStreamGroups = make(map[string]map[string]map[string]bool)
+		r.redisStreamPools = make(map[string]string)
+	}
+	_, has := r.redisStreamPools[name]
+	if has {
+		panic(fmt.Errorf("stream with name %s already exists", name))
+	}
+	r.redisStreamPools[name] = redisPool
+	if r.redisStreamGroups[redisPool] == nil {
+		r.redisStreamGroups[redisPool] = make(map[string]map[string]bool)
+	}
+	groupsMap := make(map[string]bool, len(groups))
+	for _, group := range groups {
+		groupsMap[group] = true
+	}
+	r.redisStreamGroups[redisPool][name] = groupsMap
 }
 
 func (r *registry) SetOption(key string, value any) {

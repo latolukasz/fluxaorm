@@ -41,6 +41,7 @@ type Context interface {
 	getLocalCacheLoggers() (bool, []LogHandler)
 	getRedisLoggers() (bool, []LogHandler)
 	trackEntity(e EntityFlush)
+	GetEventBroker() EventBroker
 }
 
 type ormImplementation struct {
@@ -61,6 +62,7 @@ type ormImplementation struct {
 	flushPostActions       []func(ctx Context)
 	mutexFlush             sync.Mutex
 	mutexData              sync.Mutex
+	eventBroker            *eventBroker
 }
 
 func (orm *ormImplementation) Context() context.Context {

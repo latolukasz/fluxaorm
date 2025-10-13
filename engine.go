@@ -33,6 +33,7 @@ type Engine interface {
 	Redis(code string) RedisCache
 	Registry() EngineRegistry
 	Option(key string) any
+	GetRedisStreams() map[string]map[string][]string
 }
 
 type engineRegistryImplementation struct {
@@ -46,6 +47,8 @@ type engineRegistryImplementation struct {
 	dbTables               map[string]map[string]bool
 	options                map[string]any
 	enums                  map[string][]string
+	redisStreamGroups      map[string]map[string]map[string]bool
+	redisStreamPools       map[string]string
 	asyncConsumerBlockTime time.Duration
 	disableLogTables       bool
 }
@@ -86,6 +89,22 @@ func (e *engineImplementation) LocalCache(code string) LocalCache {
 
 func (e *engineImplementation) Redis(code string) RedisCache {
 	return e.redisServers[code]
+}
+
+func (e *engineImplementation) GetRedisStreams() map[string]map[string][]string {
+	res := make(map[string]map[string][]string)
+	for redisPool, row := range e.registry.redisStreamGroups {
+		res[redisPool] = make(map[string][]string)
+		for stream, groups := range row {
+			res[redisPool][stream] = make([]string, len(groups))
+			i := 0
+			for group := range groups {
+				res[redisPool][stream][i] = group
+				i++
+			}
+		}
+	}
+	return res
 }
 
 func (er *engineRegistryImplementation) RedisPools() map[string]RedisCache {
@@ -145,4 +164,17 @@ func (er *engineRegistryImplementation) getDefaultQueryLogger() LogHandler {
 
 func (er *engineRegistryImplementation) DisableLogTables() {
 	er.disableLogTables = true
+}
+
+func (er *engineRegistryImplementation) getRedisStreamsForGroup(group string) []string {
+	streams := make([]string, 0)
+	for _, row := range er.redisStreamGroups {
+		for stream, groups := range row {
+			_, has := groups[group]
+			if has {
+				streams = append(streams, stream)
+			}
+		}
+	}
+	return streams
 }
