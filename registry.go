@@ -1,6 +1,7 @@
 package fluxaorm
 
 import (
+	"context"
 	"database/sql"
 	"fmt"
 	"log"
@@ -125,7 +126,14 @@ func (r *registry) Validate() (Engine, error) {
 	}
 	for k, v := range r.redisPools {
 		client := v.getClient()
-		e.redisServers[k] = &redisCache{config: v, client: client}
+		server := &redisCache{config: v, client: client}
+
+		info, err := client.Info(context.Background(), "server").Result()
+		if err != nil {
+			return nil, err
+		}
+		server.dragonfly = strings.Contains(info, "dragonfly_version")
+		e.redisServers[k] = server
 		if len(k) > maxPoolLen {
 			maxPoolLen = len(k)
 		}

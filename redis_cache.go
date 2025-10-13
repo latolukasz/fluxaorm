@@ -100,9 +100,10 @@ type RedisCache interface {
 }
 
 type redisCache struct {
-	client *redis.Client
-	locker *Locker
-	config RedisPoolConfig
+	client    *redis.Client
+	dragonfly bool
+	locker    *Locker
+	config    RedisPoolConfig
 }
 
 func (r *redisCache) GetSet(ctx Context, key string, expiration time.Duration, provider func() any) any {
@@ -1078,7 +1079,9 @@ func (r *redisCache) FTSearch(ctx Context, index string, query string, options *
 	if options == nil {
 		options = &redis.FTSearchOptions{}
 	}
-	options.DialectVersion = 1
+	if !r.dragonfly {
+		options.DialectVersion = 1
+	}
 	req := r.client.FTSearchWithArgs(ctx.Context(), index, query, options)
 	rawRes, err := req.RawResult()
 	if hasLogger {
@@ -1086,6 +1089,18 @@ func (r *redisCache) FTSearch(ctx Context, index string, query string, options *
 	}
 	checkError(err)
 	res := redis.FTSearchResult{}
+	if r.dragonfly && options.NoContent {
+		asSlice := rawRes.([]any)
+		res.Total = int(asSlice[0].(int64))
+		res.Docs = make([]redis.Document, len(asSlice)-1)
+		if len(asSlice)-1 > 0 {
+			for i, id := range asSlice[1:] {
+				res.Docs[i].ID = id.(string)
+			}
+		}
+		return res
+	}
+
 	asMap := rawRes.(map[any]any)
 	res.Total = int(asMap["total_results"].(int64))
 	results := asMap["results"].([]any)
@@ -1135,6 +1150,46 @@ func (r *redisCache) FTInfo(ctx Context, index string) (info *redis.FTInfoResult
 	checkError(err)
 	info = &redis.FTInfoResult{}
 	asMap := res.(map[any]any)
+	if r.dragonfly {
+		info.IndexName = asMap["index_name"].(string)
+		info.NumDocs = int(asMap["num_docs"].(int64))
+		attributes := asMap["attributes"].([]any)
+		info.Attributes = make([]redis.FTAttribute, len(attributes))
+		for i, v := range attributes {
+			asSlice := v.([]any)
+			row := map[string]any{}
+			sortable := false
+			for k := 0; k < len(asSlice); k += 2 {
+				key := asSlice[k].(string)
+				if key == "SORTABLE" {
+					sortable = true
+					k++
+					key = asSlice[k].(string)
+					continue
+				}
+				row[key] = asSlice[k+1]
+			}
+			weight := float64(0)
+			rowWeight, has := row["WEIGHT"]
+			if has {
+				weight = rowWeight.(float64)
+			}
+			info.Attributes[i] = redis.FTAttribute{
+				Identifier:      row["identifier"].(string),
+				Attribute:       row["attribute"].(string),
+				Type:            row["type"].(string),
+				Weight:          weight,
+				Sortable:        sortable,
+				NoStem:          false,
+				NoIndex:         false,
+				UNF:             false,
+				PhoneticMatcher: "",
+				CaseSensitive:   false,
+				WithSuffixtrie:  false,
+			}
+		}
+		return info, true
+	}
 	info.SortableValuesSizeMB = asMap["sortable_values_size_mb"].(float64)
 	info.TotalIndexMemorySzMB = asMap["total_index_memory_sz_mb"].(float64)
 	info.NumDocs = int(asMap["num_docs"].(int64))

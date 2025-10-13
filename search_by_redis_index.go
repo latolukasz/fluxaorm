@@ -320,6 +320,7 @@ func redisSearchIDs(ctx Context, schema EntitySchema, query string, options *Red
 		panic(fmt.Errorf("entity %s is not searchable by Redis Search", schema.GetType().Name()))
 	}
 	r := ctx.Engine().Redis(schema.GetRedisSearchPoolCode())
+	isDragonFlyDB := r.(*redisCache).dragonfly
 	searchOptions := &redis.FTSearchOptions{
 		NoContent: true,
 	}
@@ -370,11 +371,21 @@ func redisSearchIDs(ctx Context, schema EntitySchema, query string, options *Red
 					}
 				}
 			}
-			searchOptions.Filters = append(searchOptions.Filters, redis.FTSearchFilter{
-				FieldName: filter.FieldName,
-				Min:       minV,
-				Max:       maxV,
-			})
+			if isDragonFlyDB {
+				if query == "*" {
+					query = ""
+				}
+				if query != "" {
+					query += " "
+				}
+				query += "@" + filter.FieldName + fmt.Sprintf(":[%v %v]", minV, maxV)
+			} else {
+				searchOptions.Filters = append(searchOptions.Filters, redis.FTSearchFilter{
+					FieldName: filter.FieldName,
+					Min:       minV,
+					Max:       maxV,
+				})
+			}
 		}
 	}
 	res := r.FTSearch(ctx, indexName, query, searchOptions)
