@@ -503,7 +503,8 @@ func testFlushInsert(t *testing.T, async, local, redis bool) {
 	assert.Equal(t, time.Date(2023, 8, 16, 12, 23, 11, 0, time.UTC), *newEntity.TimeWithTimeNullable)
 
 	// rounding floats
-	newEntity = NewEntity[flushEntity](orm)
+	newEntity = &flushEntity{}
+	orm.NewEntity(newEntity)
 	newEntity.ReferenceRequired = Reference[flushEntityReference](reference.ID)
 	newEntity.Name = "rounding floats"
 	newEntity.City = "rounding floats"

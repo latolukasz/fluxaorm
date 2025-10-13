@@ -24,6 +24,9 @@ type Context interface {
 	Clone() Context
 	CloneWithContext(context context.Context) Context
 	Engine() Engine
+	NewEntity(entity any)
+	EditEntity(entity any) any
+	DeleteEntity(entity any)
 	Flush()
 	FlushWithCheck() error
 	FlushAsync() error

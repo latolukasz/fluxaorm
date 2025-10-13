@@ -236,6 +236,10 @@ func NewEntity[E any](ctx Context) *E {
 	return newEntity(ctx, getEntitySchema[E](ctx)).(*E)
 }
 
+func (orm *ormImplementation) NewEntity(entity any) {
+	NewEntityFromSource(orm, entity)
+}
+
 func NewEntityFromSource(ctx Context, entity any) {
 	schema := getEntitySchemaFromSource(ctx, entity)
 	insertable := &insertableEntity{}
@@ -293,12 +297,31 @@ func DeleteEntity[E any](ctx Context, source *E) {
 	ctx.trackEntity(toRemove)
 }
 
+func (orm *ormImplementation) DeleteEntity(entity any) {
+	toRemove := &removableEntity{}
+	toRemove.ctx = orm
+	toRemove.source = entity
+	toRemove.value = reflect.ValueOf(entity).Elem()
+	toRemove.id = toRemove.value.Field(0).Uint()
+	schema := getEntitySchemaFromSource(orm, entity)
+	toRemove.schema = schema
+	orm.trackEntity(toRemove)
+}
+
 func EditEntity[E any](ctx Context, source *E) *E {
 	writable := copyToEdit(ctx, source)
 	writable.id = writable.value.Elem().Field(0).Uint()
 	writable.source = source
 	ctx.trackEntity(writable)
 	return writable.entity.(*E)
+}
+
+func (orm *ormImplementation) EditEntity(entity any) any {
+	writable := copyToEdit(orm, entity)
+	writable.id = writable.value.Elem().Field(0).Uint()
+	writable.source = entity
+	orm.trackEntity(writable)
+	return writable.entity
 }
 
 func initNewEntity(elem reflect.Value, fields *tableFields) {
