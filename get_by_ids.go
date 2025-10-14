@@ -17,7 +17,7 @@ func getByIDs[E any](orm *ormImplementation, ids []uint64) EntityIterator[E] {
 	if schema.hasLocalCache {
 		return &localCacheIDsIterator[E]{orm: orm, schema: schema, ids: ids, index: -1}
 	}
-	results := &entityIterator[E]{index: -1}
+	results := &entityIterator[E]{index: -1, ids: ids}
 	results.rows = make([]*E, len(ids))
 	var missingKeys []int
 	cacheRedis, hasRedisCache := schema.GetRedisCache()

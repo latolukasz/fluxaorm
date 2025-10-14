@@ -3,6 +3,7 @@ package fluxaorm
 import (
 	"fmt"
 	"reflect"
+	"slices"
 	"strings"
 )
 
@@ -13,6 +14,7 @@ type EntityIterator[E any] interface {
 	Len() int
 	Entity() *E
 	All() []*E
+	AllIDs() []uint64
 	Reset()
 	LoadReference(columns ...string)
 }
@@ -76,6 +78,10 @@ func (lc *localCacheIDsIterator[E]) All() []*E {
 	lc.Reset()
 	lc.hasRows = true
 	return lc.rows
+}
+
+func (lc *localCacheIDsIterator[E]) AllIDs() []uint64 {
+	return lc.ids
 }
 
 func (lc *localCacheIDsIterator[E]) Entity() *E {
@@ -177,12 +183,17 @@ func (el *emptyResultsIterator[E]) All() []*E {
 	return nil
 }
 
+func (el *emptyResultsIterator[E]) AllIDs() []uint64 {
+	return []uint64{}
+}
+
 func (el *emptyResultsIterator[E]) LoadReference(_ ...string) {
 
 }
 
 type entityIterator[E any] struct {
 	index int
+	ids   []uint64
 	rows  []*E
 }
 
@@ -223,6 +234,17 @@ func (ei *entityIterator[E]) Reset() {
 
 func (ei *entityIterator[E]) All() []*E {
 	return ei.rows
+}
+
+func (ei *entityIterator[E]) AllIDs() []uint64 {
+	if ei.ids == nil {
+		ei.ids = make([]uint64, len(ei.rows))
+		for i, value := range ei.rows {
+			ei.ids[i] = reflect.ValueOf(value).Elem().FieldByName("ID").Uint()
+		}
+		slices.Sort(ei.ids)
+	}
+	return ei.ids
 }
 
 func (ei *entityIterator[E]) LoadReference(_ ...string) {

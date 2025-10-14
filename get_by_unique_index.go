@@ -41,6 +41,9 @@ func GetByUniqueIndex[E any](ctx Context, indexName string, attributes ...any) (
 		redisForCache = cache
 		previousID, inUse := cache.HGet(ctx, hSetKey, hField)
 		if inUse {
+			if previousID == "0" {
+				return nil, false
+			}
 			id, _ := strconv.ParseUint(previousID, 10, 64)
 			entity, found = GetByID[E](ctx, id)
 			if !found {
@@ -60,10 +63,14 @@ func GetByUniqueIndex[E any](ctx Context, indexName string, attributes ...any) (
 	}
 	entity, found = SearchOne[E](ctx, definition.CreteWhere(false, attributes))
 	if !found {
+		if definition.Cached {
+			redisForCache.HSet(ctx, hSetKey, hField, "0")
+		}
 		return nil, false
 	}
 	if definition.Cached {
-		redisForCache.HSet(ctx, hSetKey, hField, strconv.FormatUint(reflect.ValueOf(entity).Elem().FieldByName("ID").Uint(), 10))
+		id := strconv.FormatUint(reflect.ValueOf(entity).Elem().FieldByName("ID").Uint(), 10)
+		redisForCache.HSet(ctx, hSetKey, hField, id)
 	}
 	return entity, true
 }
