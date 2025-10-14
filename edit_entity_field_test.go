@@ -517,11 +517,7 @@ func runEditEntityField(ctx Context, entity *updateEntity, field string, value a
 		if err != nil {
 			return err
 		}
-		stop := ConsumeAsyncBuffer(ctx, func(err error) {
-			panic(err)
-		})
-		stop()
-		return ConsumeAsyncFlushEvents(ctx, false)
+		return runAsyncConsumer(ctx)
 	}
 	return ctx.FlushWithCheck()
 }

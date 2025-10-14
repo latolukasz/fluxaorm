@@ -50,7 +50,6 @@ func (r *registry) Validate() (Engine, error) {
 	e := &engineImplementation{}
 	e.registry = &engineRegistryImplementation{engine: e}
 	e.registry.options = make(map[string]any)
-	e.registry.asyncConsumerBlockTime = asyncConsumerBlockTime
 	l := len(r.entities)
 	e.registry.entitySchemas = make(map[reflect.Type]*entitySchema, l)
 	e.registry.entitySchemasQuickMap = make(map[reflect.Type]*entitySchema, l)
@@ -214,6 +213,15 @@ func (r *registry) Validate() (Engine, error) {
 	for key, value := range r.options {
 		e.registry.options[key] = value
 	}
+	_, has := r.redisStreamPools[LazyChannelName]
+	if !has {
+		r.RegisterRedisStream(LazyChannelName, "default", []string{BackgroundConsumerGroupName})
+	}
+	_, has = r.redisStreamPools[LazyErrorsChannelName]
+	if !has {
+		r.RegisterRedisStream(LazyErrorsChannelName, "default", []string{BackgroundConsumerGroupName})
+	}
+
 	if len(r.redisStreamGroups) > 0 {
 		_, has := r.redisStreamPools[RedisStreamGarbageCollectorChannelName]
 		if !has {

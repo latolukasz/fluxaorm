@@ -173,7 +173,7 @@ func (orm *ormImplementation) handleDeletes(async bool, schema *entitySchema, op
 			db.Exec(orm, sql, args...)
 		})
 	} else {
-		publishAsyncEvent(schema, []any{sql})
+		orm.RedisPipeLine(getRedisForStream(orm, LazyChannelName).GetCode()).XAdd(LazyChannelName, createEventSlice([]any{sql, schema.mysqlPoolCode}, nil))
 	}
 
 	lc, hasLocalCache := schema.GetLocalCache()
@@ -286,7 +286,7 @@ func (orm *ormImplementation) handleDeletes(async bool, schema *entitySchema, op
 			}
 			asJSON, _ := jsoniter.ConfigFastest.MarshalToString(bind)
 			data[5] = asJSON
-			publishAsyncEvent(logTableSchema, data)
+			orm.RedisPipeLine(getRedisForStream(orm, LogChannelName).GetCode()).XAdd(LogChannelName, createEventSlice(data, []string{logTableSchema.mysqlPoolCode}))
 		}
 		for _, p := range orm.engine.pluginFlush {
 			if bind == nil {
@@ -352,7 +352,7 @@ func (orm *ormImplementation) handleInserts(async bool, schema *entitySchema, op
 		}
 		var asyncData []any
 		if async {
-			asyncData = make([]any, len(columns)+1)
+			asyncData = make([]any, len(columns)+2)
 		}
 
 		if i > 0 && !async {
@@ -364,7 +364,7 @@ func (orm *ormImplementation) handleInserts(async bool, schema *entitySchema, op
 		if !async {
 			args = append(args, bind["ID"])
 		} else {
-			asyncData[1] = strconv.FormatUint(bind["ID"].(uint64), 10)
+			asyncData[2] = strconv.FormatUint(bind["ID"].(uint64), 10)
 		}
 		for j, column := range columns[1:] {
 			v := bind[column]
@@ -377,7 +377,7 @@ func (orm *ormImplementation) handleInserts(async bool, schema *entitySchema, op
 			if !async {
 				args = append(args, v)
 			} else {
-				asyncData[j+2] = v
+				asyncData[j+3] = v
 			}
 			if !async || i == 0 {
 				sql += ",?"
@@ -388,7 +388,8 @@ func (orm *ormImplementation) handleInserts(async bool, schema *entitySchema, op
 		}
 		if async {
 			asyncData[0] = sql
-			publishAsyncEvent(schema, asyncData)
+			asyncData[1] = schema.mysqlPoolCode
+			orm.RedisPipeLine(getRedisForStream(orm, LazyChannelName).GetCode()).XAdd(LazyChannelName, createEventSlice(asyncData, nil))
 		}
 		logTableSchema, hasLogTable := orm.engine.registry.entityLogSchemas[schema.t]
 		if hasLogTable && !orm.engine.registry.disableLogTables {
@@ -405,7 +406,7 @@ func (orm *ormImplementation) handleInserts(async bool, schema *entitySchema, op
 			}
 			asJSON, _ := jsoniter.ConfigFastest.MarshalToString(bind)
 			data[5] = asJSON
-			publishAsyncEvent(logTableSchema, data)
+			orm.RedisPipeLine(getRedisForStream(orm, LogChannelName).GetCode()).XAdd(LogChannelName, createEventSlice(data, []string{logTableSchema.mysqlPoolCode}))
 		}
 		if hasLocalCache {
 			orm.flushPostActions = append(orm.flushPostActions, func(_ Context) {
@@ -537,7 +538,7 @@ func (orm *ormImplementation) handleUpdates(async bool, schema *entitySchema, op
 		var args []any
 		var asyncArgs []any
 		if async {
-			asyncArgs = make([]any, len(newBind)+2)
+			asyncArgs = make([]any, len(newBind)+3)
 		} else {
 			args = make([]any, len(newBind)+1)
 		}
@@ -551,7 +552,7 @@ func (orm *ormImplementation) handleUpdates(async bool, schema *entitySchema, op
 				if isUint64 {
 					value = strconv.FormatUint(asUint64, 10)
 				}
-				asyncArgs[k+1] = value
+				asyncArgs[k+2] = value
 			} else {
 				args[k] = value
 			}
@@ -559,13 +560,14 @@ func (orm *ormImplementation) handleUpdates(async bool, schema *entitySchema, op
 		}
 		sql += " WHERE ID = ?"
 		if async {
-			asyncArgs[k+1] = strconv.FormatUint(update.ID(), 10)
+			asyncArgs[k+2] = strconv.FormatUint(update.ID(), 10)
 		} else {
 			args[k] = update.ID()
 		}
 		if async {
 			asyncArgs[0] = sql
-			publishAsyncEvent(schema, asyncArgs)
+			asyncArgs[1] = schema.mysqlPoolCode
+			orm.RedisPipeLine(getRedisForStream(orm, LazyChannelName).GetCode()).XAdd(LazyChannelName, createEventSlice(asyncArgs, nil))
 		} else {
 			orm.appendDBAction(schema, func(db DBBase) {
 				db.Exec(orm, sql, args...)
@@ -589,7 +591,7 @@ func (orm *ormImplementation) handleUpdates(async bool, schema *entitySchema, op
 			data[5] = asJSON
 			asJSON, _ = jsoniter.ConfigFastest.MarshalToString(newBind)
 			data[6] = asJSON
-			publishAsyncEvent(logTableSchema, data)
+			orm.RedisPipeLine(getRedisForStream(orm, LogChannelName).GetCode()).XAdd(LogChannelName, createEventSlice(data, []string{logTableSchema.mysqlPoolCode}))
 		}
 
 		if update.getEntity() == nil {

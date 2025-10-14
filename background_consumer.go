@@ -1,13 +1,34 @@
 package fluxaorm
 
 import (
+	"github.com/go-sql-driver/mysql"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
 )
 
+const LazyChannelName = "orm-lazy-channel"
+const LazyErrorsChannelName = "orm-lazy-errors-channel"
+const LogChannelName = "orm-log-channel"
 const RedisStreamGarbageCollectorChannelName = "orm-stream-garbage-collector"
 const BackgroundConsumerGroupName = "orm-async-consumer"
+
+var mySQLErrorCodesToSkip = []uint16{
+	1022, // Can't write; duplicate key in table '%s'
+	1048, // Column '%s' cannot be null
+	1049, // Unknown database '%s'
+	1051, // Unknown table '%s'
+	1054, // Unknown column '%s' in '%s'
+	1062, // Duplicate entry '%s' for key %d
+	1063, // Incorrect column specifier for column '%s'
+	1064, // Syntax error
+	1067, // Invalid default value for '%s'
+	1109, // Message: Unknown table '%s' in %s
+	1146, // Table '%s.%s' doesn't exist
+	1149, // You have an error in your SQL syntax; check the manual that corresponds to your MySQL server version for the right syntax to use
+	2032, // Data truncated
+}
 
 type LogQueueValue struct {
 	PoolName  string
@@ -44,11 +65,48 @@ func (r *BackgroundConsumer) Digest() bool {
 	return r.consumer.Consume(500, func(events []Event) {
 		for _, e := range events {
 			switch e.Stream() {
+			case LazyChannelName:
+				r.handleLazyFlush(e)
 			case RedisStreamGarbageCollectorChannelName:
 				r.handleRedisChannelGarbageCollector(e)
 			}
 		}
 	})
+}
+
+func (r *BackgroundConsumer) handleLazyFlush(event Event) {
+	defer func() {
+		if rec := recover(); rec != nil {
+			asMySQLError, isMySQLError := rec.(*mysql.MySQLError)
+			if isMySQLError && slices.Contains(mySQLErrorCodesToSkip, asMySQLError.Number) {
+				r.ctx.GetEventBroker().Publish(LazyErrorsChannelName, event)
+				return
+			}
+			panic(rec)
+		}
+	}()
+	var lazyEvent []any
+	event.Unserialize(&lazyEvent)
+	if lazyEvent == nil || len(lazyEvent) < 2 {
+		return
+	}
+	sql, valid := lazyEvent[0].(string)
+	if !valid {
+		event.delete()
+		return
+	}
+	dbCode, valid := lazyEvent[1].(string)
+	if !valid {
+		event.delete()
+		return
+	}
+	db := r.ctx.Engine().DB(dbCode)
+	if len(lazyEvent) > 2 {
+		db.Exec(r.ctx, sql, lazyEvent[2:]...)
+	} else {
+		db.Exec(r.ctx, sql)
+	}
+	event.Ack()
 }
 
 func (r *BackgroundConsumer) handleRedisChannelGarbageCollector(event Event) {

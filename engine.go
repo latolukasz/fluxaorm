@@ -4,7 +4,6 @@ import (
 	"context"
 	"reflect"
 	"strings"
-	"time"
 )
 
 const DefaultPoolCode = "default"
@@ -37,20 +36,19 @@ type Engine interface {
 }
 
 type engineRegistryImplementation struct {
-	engine                 *engineImplementation
-	entities               map[string]reflect.Type
-	entitySchemaList       []EntitySchema
-	entitySchemas          map[reflect.Type]*entitySchema
-	entitySchemasQuickMap  map[reflect.Type]*entitySchema
-	entityLogSchemas       map[reflect.Type]*entitySchema
-	defaultQueryLogger     *defaultLogLogger
-	dbTables               map[string]map[string]bool
-	options                map[string]any
-	enums                  map[string][]string
-	redisStreamGroups      map[string]map[string]map[string]bool
-	redisStreamPools       map[string]string
-	asyncConsumerBlockTime time.Duration
-	disableLogTables       bool
+	engine                *engineImplementation
+	entities              map[string]reflect.Type
+	entitySchemaList      []EntitySchema
+	entitySchemas         map[reflect.Type]*entitySchema
+	entitySchemasQuickMap map[reflect.Type]*entitySchema
+	entityLogSchemas      map[reflect.Type]*entitySchema
+	defaultQueryLogger    *defaultLogLogger
+	dbTables              map[string]map[string]bool
+	options               map[string]any
+	enums                 map[string][]string
+	redisStreamGroups     map[string]map[string]map[string]bool
+	redisStreamPools      map[string]string
+	disableLogTables      bool
 }
 
 type engineImplementation struct {

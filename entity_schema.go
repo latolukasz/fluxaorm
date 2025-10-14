@@ -12,8 +12,6 @@ import (
 	"time"
 
 	"github.com/pkg/errors"
-
-	"github.com/puzpuzpuz/xsync/v2"
 )
 
 const redisSearchIndexPrefix = "orm:"
@@ -125,11 +123,9 @@ type entitySchema struct {
 	cacheKey                  string
 	uuidCacheKey              string
 	uuidMutex                 sync.Mutex
-	asyncCacheKey             string
 	structureHash             string
 	mapBindToScanPointer      mapBindToScanPointer
 	mapPointerToValue         mapPointerToValue
-	asyncTemporaryQueue       *xsync.MPMCQueueOf[asyncTemporaryQueueEvent]
 }
 
 type mapBindToScanPointer map[string]func() any
@@ -403,14 +399,6 @@ func (e *entitySchema) init(registry *registry, entityType reflect.Type) error {
 	e.redisCacheName = redisCacheName
 	e.hasRedisCache = redisCacheName != ""
 	e.cacheKey = cacheKey
-	e.asyncCacheKey = flushAsyncEventsList
-	asyncGroup := e.getTag("split_async_flush", "true", "")
-	if asyncGroup == "true" {
-		e.asyncCacheKey += ":" + e.cacheKey
-	} else if asyncGroup != "" {
-		e.asyncCacheKey = asyncGroup
-	}
-	e.asyncTemporaryQueue = xsync.NewMPMCQueueOf[asyncTemporaryQueueEvent](10000)
 	e.uniqueIndexes = make(map[string]indexDefinition)
 	e.cachedIndexes = make(map[string]indexDefinition)
 	e.cachedUniqueIndexes = make(map[string]indexDefinition)

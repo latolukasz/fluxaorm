@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 )
@@ -123,4 +124,12 @@ func (m *MockDBClient) QueryContext(context context.Context, query string, args 
 		return m.QueryContextMock(context, query, args...)
 	}
 	return m.OriginDB.QueryContext(context, query, args...)
+}
+
+func runAsyncConsumer(ctx Context) error {
+	backgroundConsumer := NewBackgroundConsumer(ctx)
+	backgroundConsumer.DisableBlockMode()
+	backgroundConsumer.blockTime = time.Millisecond
+	backgroundConsumer.Digest()
+	return nil
 }

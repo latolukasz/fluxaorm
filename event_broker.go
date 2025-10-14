@@ -89,7 +89,7 @@ type eventBroker struct {
 	ctx *ormImplementation
 }
 
-func createEventSlice(body interface{}, meta []string) []string {
+func createEventSlice(body any, meta []string) []string {
 	if body == nil {
 		return meta
 	}
