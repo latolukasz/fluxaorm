@@ -189,14 +189,53 @@ type RedisSearchOptions struct {
 	Pager   *Pager
 	SortBy  []RedisSearchSortBy
 	Filters []RedisSearchFilter
+	Tags    string
 }
 
 func (s *RedisSearchOptions) AddSortBy(fieldName string, desc bool) {
 	s.SortBy = append(s.SortBy, RedisSearchSortBy{fieldName, desc})
 }
 
-func (s *RedisSearchOptions) AddFilter(fieldName string, min, max any) {
+func (s *RedisSearchOptions) AddFilterTag(fieldName string, tag ...string) {
+	if len(tag) == 0 {
+		return
+	}
+	if s.Tags != "" {
+		s.Tags += " "
+	}
+	s.Tags += "@" + fieldName + fmt.Sprintf(":{%s}", strings.Join(tag, "|"))
+}
+
+func (s *RedisSearchOptions) AddFilterBoolean(fieldName string, value bool) {
+	if value {
+		s.AddFilterTag(fieldName, "1")
+	} else {
+		s.AddFilterTag(fieldName, "0")
+	}
+}
+
+func (s *RedisSearchOptions) AddFilterNumberRange(fieldName string, min, max int64) {
 	s.Filters = append(s.Filters, RedisSearchFilter{fieldName, min, max})
+}
+
+func (s *RedisSearchOptions) AddFilterNumber(fieldName string, value int64) {
+	s.Filters = append(s.Filters, RedisSearchFilter{fieldName, value, value})
+}
+
+func (s *RedisSearchOptions) AddFilterNumberGreaterEqual(fieldName string, value int64) {
+	s.Filters = append(s.Filters, RedisSearchFilter{fieldName, value, nil})
+}
+
+func (s *RedisSearchOptions) AddFilterNumberLessEqual(fieldName string, value int64) {
+	s.Filters = append(s.Filters, RedisSearchFilter{fieldName, nil, value})
+}
+
+func (s *RedisSearchOptions) AddFilterDateRange(fieldName string, min, max time.Time) {
+	s.Filters = append(s.Filters, RedisSearchFilter{fieldName, min, max})
+}
+
+func (s *RedisSearchOptions) AddFilterDate(fieldName string, value time.Time) {
+	s.Filters = append(s.Filters, RedisSearchFilter{fieldName, value, value})
 }
 
 type RedisSearchSortBy struct {
@@ -387,7 +426,17 @@ func redisSearchIDs(ctx Context, schema EntitySchema, query string, options *Red
 				})
 			}
 		}
+		if options.Tags != "" {
+			if query == "*" {
+				query = ""
+			}
+			if query != "" {
+				query += " "
+			}
+			query += options.Tags
+		}
 	}
+
 	res := r.FTSearch(ctx, indexName, query, searchOptions)
 	total = res.Total
 	if total == 0 {
