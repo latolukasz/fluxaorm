@@ -67,6 +67,8 @@ func (r *BackgroundConsumer) Digest() bool {
 			switch e.Stream() {
 			case LazyChannelName:
 				r.handleLazyFlush(e)
+			case LogChannelName:
+				r.handleLogTable(e)
 			case RedisStreamGarbageCollectorChannelName:
 				r.handleRedisChannelGarbageCollector(e)
 			}
@@ -88,6 +90,7 @@ func (r *BackgroundConsumer) handleLazyFlush(event Event) {
 	var lazyEvent []any
 	event.Unserialize(&lazyEvent)
 	if lazyEvent == nil || len(lazyEvent) < 2 {
+		event.delete()
 		return
 	}
 	sql, valid := lazyEvent[0].(string)
@@ -101,11 +104,52 @@ func (r *BackgroundConsumer) handleLazyFlush(event Event) {
 		return
 	}
 	db := r.ctx.Engine().DB(dbCode)
+	if db == nil {
+		event.delete()
+		return
+	}
 	if len(lazyEvent) > 2 {
 		db.Exec(r.ctx, sql, lazyEvent[2:]...)
 	} else {
 		db.Exec(r.ctx, sql)
 	}
+	event.Ack()
+}
+
+func (r *BackgroundConsumer) handleLogTable(event Event) {
+	defer func() {
+		if rec := recover(); rec != nil {
+			asMySQLError, isMySQLError := rec.(*mysql.MySQLError)
+			if isMySQLError && slices.Contains(mySQLErrorCodesToSkip, asMySQLError.Number) {
+				return
+			}
+			panic(rec)
+		}
+	}()
+	var lazyEvent []any
+	event.Unserialize(&lazyEvent)
+	if lazyEvent == nil || len(lazyEvent) < 3 {
+		event.delete()
+		return
+	}
+	sql, valid := lazyEvent[0].(string)
+	if !valid {
+		event.delete()
+		return
+	}
+	dbCode, valid := lazyEvent[len(lazyEvent)-1].(string)
+	if !valid {
+		event.delete()
+		return
+	}
+	db := r.ctx.Engine().DB(dbCode)
+	if db == nil {
+		event.delete()
+		return
+	}
+	args := lazyEvent[1 : len(lazyEvent)-1]
+	db.Exec(r.ctx, sql, args...)
+	event.Ack()
 	event.Ack()
 }
 

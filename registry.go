@@ -161,6 +161,7 @@ func (r *registry) Validate() (Engine, error) {
 		}
 		extractEnums(schema.fields, e.registry)
 	}
+	hasLog := false
 	for _, entityType := range r.entities {
 		logEntity, isLogEntity := reflect.New(entityType).Interface().(logEntityInterface)
 		if isLogEntity {
@@ -173,6 +174,7 @@ func (r *registry) Validate() (Engine, error) {
 			}
 			logSchema.tableName = "_LogEntity_" + targetSchema.mysqlPoolCode + "_" + targetType.Name()
 			e.registry.entityLogSchemas[targetType] = logSchema
+			hasLog = true
 		}
 	}
 	for k, v := range r.localCaches {
@@ -220,6 +222,12 @@ func (r *registry) Validate() (Engine, error) {
 	_, has = r.redisStreamPools[LazyErrorsChannelName]
 	if !has {
 		r.RegisterRedisStream(LazyErrorsChannelName, "default", []string{BackgroundConsumerGroupName})
+	}
+	if hasLog {
+		_, has = r.redisStreamPools[LogChannelName]
+		if !has {
+			r.RegisterRedisStream(LogChannelName, "default", []string{BackgroundConsumerGroupName})
+		}
 	}
 
 	if len(r.redisStreamGroups) > 0 {

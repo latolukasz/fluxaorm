@@ -267,7 +267,7 @@ func (orm *ormImplementation) handleDeletes(async bool, schema *entitySchema, op
 
 		logTableSchema, hasLogTable := orm.engine.registry.entityLogSchemas[schema.t]
 		if hasLogTable && !orm.engine.registry.disableLogTables {
-			data := make([]any, 6)
+			data := make([]any, 7)
 			data[0] = "INSERT INTO `" + logTableSchema.tableName + "`(ID,EntityID,Date,Meta,`Before`) VALUES(?,?,?,?,?)"
 			data[1] = strconv.FormatUint(logTableSchema.uuid(orm), 10)
 			data[2] = strconv.FormatUint(operation.ID(), 10)
@@ -286,7 +286,8 @@ func (orm *ormImplementation) handleDeletes(async bool, schema *entitySchema, op
 			}
 			asJSON, _ := jsoniter.ConfigFastest.MarshalToString(bind)
 			data[5] = asJSON
-			orm.RedisPipeLine(getRedisForStream(orm, LogChannelName).GetCode()).XAdd(LogChannelName, createEventSlice(data, []string{logTableSchema.mysqlPoolCode}))
+			data[6] = logTableSchema.mysqlPoolCode
+			orm.RedisPipeLine(getRedisForStream(orm, LogChannelName).GetCode()).XAdd(LogChannelName, createEventSlice(data, nil))
 		}
 		for _, p := range orm.engine.pluginFlush {
 			if bind == nil {
@@ -393,7 +394,7 @@ func (orm *ormImplementation) handleInserts(async bool, schema *entitySchema, op
 		}
 		logTableSchema, hasLogTable := orm.engine.registry.entityLogSchemas[schema.t]
 		if hasLogTable && !orm.engine.registry.disableLogTables {
-			data := make([]any, 6)
+			data := make([]any, 7)
 			data[0] = "INSERT INTO `" + logTableSchema.tableName + "`(ID,EntityID,Date,Meta,`After`) VALUES(?,?,?,?,?)"
 			data[1] = strconv.FormatUint(logTableSchema.uuid(orm), 10)
 			data[2] = strconv.FormatUint(bind["ID"].(uint64), 10)
@@ -406,7 +407,8 @@ func (orm *ormImplementation) handleInserts(async bool, schema *entitySchema, op
 			}
 			asJSON, _ := jsoniter.ConfigFastest.MarshalToString(bind)
 			data[5] = asJSON
-			orm.RedisPipeLine(getRedisForStream(orm, LogChannelName).GetCode()).XAdd(LogChannelName, createEventSlice(data, []string{logTableSchema.mysqlPoolCode}))
+			data[6] = logTableSchema.mysqlPoolCode
+			orm.RedisPipeLine(getRedisForStream(orm, LogChannelName).GetCode()).XAdd(LogChannelName, createEventSlice(data, nil))
 		}
 		if hasLocalCache {
 			orm.flushPostActions = append(orm.flushPostActions, func(_ Context) {
@@ -576,7 +578,7 @@ func (orm *ormImplementation) handleUpdates(async bool, schema *entitySchema, op
 
 		logTableSchema, hasLogTable := orm.engine.registry.entityLogSchemas[schema.t]
 		if hasLogTable && !orm.engine.registry.disableLogTables {
-			data := make([]any, 7)
+			data := make([]any, 8)
 			data[0] = "INSERT INTO `" + logTableSchema.tableName + "`(ID,EntityID,Date,Meta,`Before`,`After`) VALUES(?,?,?,?,?,?)"
 			data[1] = strconv.FormatUint(logTableSchema.uuid(orm), 10)
 			data[2] = strconv.FormatUint(update.ID(), 10)
@@ -591,7 +593,8 @@ func (orm *ormImplementation) handleUpdates(async bool, schema *entitySchema, op
 			data[5] = asJSON
 			asJSON, _ = jsoniter.ConfigFastest.MarshalToString(newBind)
 			data[6] = asJSON
-			orm.RedisPipeLine(getRedisForStream(orm, LogChannelName).GetCode()).XAdd(LogChannelName, createEventSlice(data, []string{logTableSchema.mysqlPoolCode}))
+			data[7] = logTableSchema.mysqlPoolCode
+			orm.RedisPipeLine(getRedisForStream(orm, LogChannelName).GetCode()).XAdd(LogChannelName, createEventSlice(data, nil))
 		}
 
 		if update.getEntity() == nil {
