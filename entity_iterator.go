@@ -17,12 +17,14 @@ type EntityIterator[E any] interface {
 	AllIDs() []uint64
 	Reset()
 	LoadReference(columns ...string)
+	setIndex(index int)
 }
 
 type EntityAnonymousIterator interface {
 	Next() bool
 	ID() uint64
 	Index() int
+	setIndex(index int)
 	Len() int
 	Entity() any
 	Reset()
@@ -48,6 +50,10 @@ func (lc *localCacheIDsIterator[E]) Next() bool {
 
 func (lc *localCacheIDsIterator[E]) Index() int {
 	return lc.index
+}
+
+func (lc *localCacheIDsIterator[E]) setIndex(index int) {
+	lc.index = index
 }
 
 func (lc *localCacheIDsIterator[E]) ID() uint64 {
@@ -165,6 +171,8 @@ func (el *emptyResultsIterator[E]) Index() int {
 	return -1
 }
 
+func (el *emptyResultsIterator[E]) setIndex(_ int) {}
+
 func (el *emptyResultsIterator[E]) ID() uint64 {
 	return 0
 }
@@ -215,6 +223,10 @@ func (ei *entityIterator[E]) ID() uint64 {
 
 func (ei *entityIterator[E]) Index() int {
 	return ei.index
+}
+
+func (ei *entityIterator[E]) setIndex(index int) {
+	ei.index = index
 }
 
 func (ei *entityIterator[E]) Len() int {
@@ -276,6 +288,10 @@ func (ea *entityAnonymousIterator) Index() int {
 	return ea.index
 }
 
+func (ea *entityAnonymousIterator) setIndex(index int) {
+	ea.index = index
+}
+
 func (ea *entityAnonymousIterator) Len() int {
 	return ea.rows.Len()
 }
@@ -304,6 +320,8 @@ func (el *emptyResultsAnonymousIterator) ID() uint64 {
 func (el *emptyResultsAnonymousIterator) Index() int {
 	return -1
 }
+
+func (el *emptyResultsAnonymousIterator) setIndex(_ int) {}
 
 func (el *emptyResultsAnonymousIterator) Len() int {
 	return 0
@@ -342,6 +360,10 @@ func (lc *localCacheIDsAnonymousIterator) ID() uint64 {
 
 func (lc *localCacheIDsAnonymousIterator) Index() int {
 	return lc.index
+}
+
+func (lc *localCacheIDsAnonymousIterator) setIndex(index int) {
+	lc.index = index
 }
 
 func (lc *localCacheIDsAnonymousIterator) Len() int {

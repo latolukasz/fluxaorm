@@ -37,7 +37,7 @@ func (d indexDefinition) CreteWhere(hasNil bool, attributes []any) Where {
 	return NewWhere(query, newAttributes)
 }
 
-func GetByIndex[E any](ctx Context, indexName string, attributes ...any) EntityIterator[E] {
+func GetByIndex[E any](ctx Context, pager *Pager, indexName string, attributes ...any) EntityIterator[E] {
 	var e E
 	schema := ctx.(*ormImplementation).engine.registry.entitySchemas[reflect.TypeOf(e)]
 	if schema == nil {
@@ -64,12 +64,12 @@ func GetByIndex[E any](ctx Context, indexName string, attributes ...any) EntityI
 		attributes[i] = bind
 	}
 	if !def.Cached {
-		return Search[E](ctx, def.CreteWhere(hasNil, attributes), nil)
+		return Search[E](ctx, def.CreteWhere(hasNil, attributes), pager)
 	}
-	return getCachedByColumns[E](ctx, indexName, def, schema, attributes, hasNil)
+	return getCachedByColumns[E](ctx, pager, indexName, def, schema, attributes, hasNil)
 }
 
-func getCachedByColumns[E any](ctx Context, indexName string, index indexDefinition, schema *entitySchema, attributes []any, hasNil bool) EntityIterator[E] {
+func getCachedByColumns[E any](ctx Context, pager *Pager, indexName string, index indexDefinition, schema *entitySchema, attributes []any, hasNil bool) EntityIterator[E] {
 	bindID := hashIndexAttributes(attributes)
 	if schema.hasLocalCache {
 		fromCache, hasInCache := schema.localCache.getList(ctx, indexName, bindID)
@@ -77,7 +77,11 @@ func getCachedByColumns[E any](ctx Context, indexName string, index indexDefinit
 			if fromCache == cacheNilValue {
 				return &emptyResultsIterator[E]{}
 			}
-			return GetByIDs[E](ctx, fromCache.([]uint64)...)
+			ids := fromCache.([]uint64)
+			if pager != nil {
+				return GetByIDs[E](ctx, pager.paginateSlice(ids)...)
+			}
+			return GetByIDs[E](ctx, ids...)
 		}
 	}
 	rc := ctx.Engine().Redis(schema.getForcedRedisCode())
@@ -106,9 +110,15 @@ func getCachedByColumns[E any](ctx Context, indexName string, index indexDefinit
 			}
 			ids = ids[0:k]
 			slices.Sort(ids)
-			values := GetByIDs[E](ctx, ids...)
+			var values EntityIterator[E]
+			if pager != nil {
+				values = GetByIDs[E](ctx, pager.paginateSlice(ids)...)
+			} else {
+				values = GetByIDs[E](ctx, ids...)
+			}
+
 			if schema.hasLocalCache {
-				if values.Len() == 0 {
+				if len(ids) == 0 {
 					schema.localCache.setList(ctx, indexName, bindID, cacheNilValue)
 				} else {
 					schema.localCache.setList(ctx, indexName, bindID, ids)
@@ -133,7 +143,13 @@ func getCachedByColumns[E any](ctx Context, indexName string, index indexDefinit
 		p.SAdd(redisSetKey, redisValidSetValue)
 		p.SAdd(redisSetKey, idsForRedis...)
 		p.Exec(ctx)
-		values := GetByIDs[E](ctx, ids...)
+		var values EntityIterator[E]
+		if pager != nil {
+			values = GetByIDs[E](ctx, pager.paginateSlice(ids)...)
+		} else {
+			values = GetByIDs[E](ctx, ids...)
+		}
+
 		schema.localCache.setList(ctx, indexName, bindID, ids)
 		return values
 	}
@@ -151,6 +167,10 @@ func getCachedByColumns[E any](ctx Context, indexName string, index indexDefinit
 		values.Reset()
 		rc.SAdd(ctx, redisSetKey, idsForRedis...)
 	}
+	if pager != nil {
+		values.setIndex((pager.CurrentPage - 1) * pager.PageSize)
+	}
+
 	return values
 }
 

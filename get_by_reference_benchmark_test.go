@@ -30,11 +30,11 @@ func benchmarkGetByReference(b *testing.B, local, redis bool) {
 	err := orm.FlushWithCheck()
 	assert.NoError(b, err)
 
-	rows := GetByReference[getByReferenceEntity](orm, "RefCached", ref.ID)
+	rows := GetByReference[getByReferenceEntity](orm, nil, "RefCached", ref.ID)
 	assert.Len(b, rows, 10)
 	b.ResetTimer()
 	b.ReportAllocs()
 	for n := 0; n < b.N; n++ {
-		GetByReference[getByReferenceEntity](orm, "RefCached", ref.ID)
+		GetByReference[getByReferenceEntity](orm, nil, "RefCached", ref.ID)
 	}
 }

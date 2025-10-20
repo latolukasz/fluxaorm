@@ -9,7 +9,7 @@ import (
 
 const redisValidSetValue = "Y"
 
-func GetByReference[E any, I ID](ctx Context, referenceName string, id I) EntityIterator[E] {
+func GetByReference[E any, I ID](ctx Context, pager *Pager, referenceName string, id I) EntityIterator[E] {
 	if id == 0 {
 		return nil
 	}
@@ -23,17 +23,20 @@ func GetByReference[E any, I ID](ctx Context, referenceName string, id I) Entity
 		panic(fmt.Errorf("unknow reference name `%s`", referenceName))
 	}
 	if !def.Cached {
-		return Search[E](ctx, NewWhere("`"+referenceName+"` = ?", id), nil)
+		return Search[E](ctx, NewWhere("`"+referenceName+"` = ?", id), pager)
 	}
-	return getCachedByReference[E](ctx, referenceName, uint64(id), schema)
+	return getCachedByReference[E](ctx, pager, referenceName, uint64(id), schema)
 }
 
-func getCachedByReference[E any](ctx Context, key string, id uint64, schema *entitySchema) EntityIterator[E] {
+func getCachedByReference[E any](ctx Context, pager *Pager, key string, id uint64, schema *entitySchema) EntityIterator[E] {
 	if schema.hasLocalCache {
 		fromCache, hasInCache := schema.localCache.getList(ctx, key, id)
 		if hasInCache {
 			if fromCache == cacheNilValue {
 				return &emptyResultsIterator[E]{}
+			}
+			if pager != nil {
+				return GetByIDs[E](ctx, pager.paginateSlice(fromCache.([]uint64))...)
 			}
 			return GetByIDs[E](ctx, fromCache.([]uint64)...)
 		}
@@ -68,7 +71,12 @@ func getCachedByReference[E any](ctx Context, key string, id uint64, schema *ent
 			}
 			ids = ids[0:k]
 			slices.Sort(ids)
-			values := GetByIDs[E](ctx, ids...)
+			var values EntityIterator[E]
+			if pager != nil {
+				values = GetByIDs[E](ctx, pager.paginateSlice(ids)...)
+			} else {
+				values = GetByIDs[E](ctx, ids...)
+			}
 			if schema.hasLocalCache {
 				if values.Len() == 0 {
 					schema.localCache.setList(ctx, key, id, cacheNilValue)
@@ -101,7 +109,12 @@ func getCachedByReference[E any](ctx Context, key string, id uint64, schema *ent
 		p.SAdd(redisSetKey, redisValidSetValue)
 		p.SAdd(redisSetKey, idsForRedis...)
 		p.Exec(ctx)
-		values := GetByIDs[E](ctx, ids...)
+		var values EntityIterator[E]
+		if pager != nil {
+			values = GetByIDs[E](ctx, pager.paginateSlice(ids)...)
+		} else {
+			values = GetByIDs[E](ctx, ids...)
+		}
 		schema.localCache.setList(ctx, key, id, ids)
 		return values
 	}
@@ -124,6 +137,9 @@ func getCachedByReference[E any](ctx Context, key string, id uint64, schema *ent
 		}
 		values.Reset()
 		rc.SAdd(ctx, redisSetKey, idsForRedis...)
+	}
+	if pager != nil {
+		values.setIndex((pager.CurrentPage - 1) * pager.PageSize)
 	}
 	return values
 }
