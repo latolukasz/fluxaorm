@@ -80,9 +80,7 @@ func testLoadByIds(t *testing.T, local, redis bool) {
 		assert.Equal(t, fmt.Sprintf("Name %d", i), e.Name)
 		i++
 	}
-	if local {
-		assert.Len(t, loggerDB.Logs, 1)
-	} else {
+	if !local {
 		assert.Len(t, loggerDB.Logs, 1)
 	}
 
@@ -110,9 +108,7 @@ func testLoadByIds(t *testing.T, local, redis bool) {
 		i++
 	}
 	assert.Equal(t, 3, i)
-	if local {
-		assert.Len(t, loggerDB.Logs, 1)
-	} else {
+	if !local {
 		assert.Len(t, loggerDB.Logs, 1)
 	}
 	loggerDB.Clear()

@@ -492,7 +492,7 @@ func testUpdateFieldExecute(t *testing.T, async, local, redis bool) {
 	/* unique index */
 	if !async {
 		err = runEditEntityField(orm, entity, "Name", "name 3", async)
-		assert.EqualError(t, err, "Error 1062 (23000): Duplicate entry 'name 3' for key 'updateEntity.Name'")
+		assert.EqualError(t, err, "Duplicate entry 'name 3' for key 'updateEntity.Name'")
 		orm.ClearFlush()
 		err = runEditEntityField(orm, entity, "Name", "name 100", async)
 		assert.NoError(t, err)

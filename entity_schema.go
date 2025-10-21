@@ -63,6 +63,7 @@ type EntitySchema interface {
 	DisableCache(local, redis bool)
 	NewEntity(ctx Context) any
 	GetByID(ctx Context, id uint64) (entity any, found bool)
+	GetByIDs(ctx Context, ids ...uint64) EntityAnonymousIterator
 	Search(ctx Context, where Where, pager *Pager) EntityAnonymousIterator
 	SearchWithCount(ctx Context, where Where, pager *Pager) (results EntityAnonymousIterator, totalRows int)
 	SearchIDs(ctx Context, where Where, pager *Pager) []uint64
@@ -767,6 +768,117 @@ func (e *entitySchema) GetByID(ctx Context, id uint64) (entity any, found bool) 
 	return getByID(ctx.(*ormImplementation), id, ctx.Engine().Registry().EntitySchema(e.t).(*entitySchema))
 }
 
+func (e *entitySchema) GetByIDs(ctx Context, ids ...uint64) EntityAnonymousIterator {
+	schema := ctx.Engine().Registry().EntitySchema(e.t).(*entitySchema)
+	if len(ids) == 0 {
+		return emptyResultsAnonymousIteratorInstance
+	}
+	if schema.hasLocalCache {
+		return &localCacheAnonymousIDsIterator{orm: ctx.(*ormImplementation), schema: schema, ids: ids, index: -1}
+	}
+	results := &entityAnonymousIteratorAdvanced{index: -1, ids: ids, schema: schema, orm: ctx.(*ormImplementation)}
+	results.rows = make([]any, len(ids))
+	var missingKeys []int
+	cacheRedis, hasRedisCache := schema.GetRedisCache()
+	var redisPipeline *RedisPipeLine
+	if hasRedisCache {
+		redisPipeline = ctx.RedisPipeLine(cacheRedis.GetCode())
+		l := int64(len(schema.columnNames) + 1)
+		lRanges := make([]*PipeLineSlice, len(ids))
+		for i, id := range ids {
+			lRanges[i] = redisPipeline.LRange(schema.cacheKey+":"+strconv.FormatUint(id, 10), 0, l)
+		}
+		redisPipeline.Exec(ctx)
+		for i, id := range ids {
+			row := lRanges[i].Result()
+			if len(row) > 0 {
+				if len(row) == 1 {
+					continue
+				}
+				value := reflect.New(schema.t)
+				e := value.Interface()
+				if deserializeFromRedis(row, schema, value.Elem()) && schema.hasLocalCache {
+					schema.localCache.setEntity(ctx, id, e)
+				}
+				results.rows[i] = e
+			} else {
+				missingKeys = append(missingKeys, i)
+			}
+		}
+		if len(missingKeys) == 0 {
+			return results
+		}
+	}
+	sql := "SELECT " + schema.fieldsQuery + " FROM `" + schema.GetTableName() + "` WHERE `ID` IN ("
+	toSearch := 0
+	if len(missingKeys) > 0 {
+		for i, key := range missingKeys {
+			if i > 0 {
+				sql += ","
+			}
+			sql += strconv.FormatUint(ids[key], 10)
+		}
+		toSearch = len(missingKeys)
+	} else {
+		for i, id := range ids {
+			if i > 0 {
+				sql += ","
+			}
+			sql += strconv.FormatUint(id, 10)
+		}
+		toSearch = len(ids)
+	}
+	sql += ")"
+	execRedisPipeline := false
+	res, def := schema.GetDB().Query(ctx, sql)
+	defer def()
+	foundInDB := 0
+	for res.Next() {
+		foundInDB++
+		pointers := prepareScan(schema)
+		res.Scan(pointers...)
+		value := reflect.New(schema.t)
+		deserializeFromDB(schema.fields, value.Elem(), pointers)
+		id := *pointers[0].(*uint64)
+		for i, originalID := range ids { // TODO too slow
+			if id == originalID {
+				results.rows[i] = value.Interface()
+			}
+		}
+		if schema.hasLocalCache {
+			schema.localCache.setEntity(ctx, id, value.Interface())
+		}
+		if hasRedisCache {
+			bind := make(Bind)
+			err := fillBindFromOneSource(ctx, bind, value.Elem(), schema.fields, "")
+			checkError(err)
+			values := convertBindToRedisValue(bind, schema)
+			redisPipeline.RPush(schema.getCacheKey()+":"+strconv.FormatUint(id, 10), values...)
+			execRedisPipeline = true
+		}
+	}
+	def()
+	if foundInDB < toSearch && (schema.hasLocalCache || hasRedisCache) {
+		for i, id := range ids {
+			if results.rows[i] == nil {
+				if schema.hasLocalCache {
+					schema.localCache.setEntity(ctx, id, nil)
+				}
+				if hasRedisCache {
+					cacheKey := schema.getCacheKey() + ":" + strconv.FormatUint(id, 10)
+					redisPipeline.Del(cacheKey)
+					redisPipeline.RPush(cacheKey, cacheNilValue)
+					execRedisPipeline = true
+				}
+			}
+		}
+	}
+	if execRedisPipeline {
+		redisPipeline.Exec(ctx)
+	}
+	return results
+}
+
 func (e *entitySchema) SearchWithCount(ctx Context, where Where, pager *Pager) (results EntityAnonymousIterator, totalRows int) {
 	return e.search(ctx, where, pager, true)
 }
@@ -854,7 +966,7 @@ func (e *entitySchema) search(ctx Context, where Where, pager *Pager, withCount 
 	if pager != nil {
 		totalRows = getTotalRows(ctx, withCount, pager, where, schema, i)
 	}
-	resultsIterator := &entityAnonymousIterator{index: -1}
+	resultsIterator := &entityAnonymousIterator{index: -1, orm: ctx.(*ormImplementation), schema: schema}
 	resultsIterator.rows = entities
 	return resultsIterator, totalRows
 }

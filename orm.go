@@ -27,6 +27,8 @@ type Context interface {
 	NewEntity(entity any)
 	EditEntity(entity any) any
 	DeleteEntity(entity any)
+	ClearCache()
+	DisableCache()
 	Flush()
 	FlushWithCheck() error
 	FlushAsync() error
@@ -48,12 +50,14 @@ type ormImplementation struct {
 	context                context.Context
 	engine                 *engineImplementation
 	trackedEntities        *xsync.MapOf[uint64, *xsync.MapOf[uint64, EntityFlush]]
+	cachedEntities         *xsync.MapOf[uint64, *xsync.MapOf[uint64, any]]
 	queryLoggersDB         []LogHandler
 	queryLoggersRedis      []LogHandler
 	queryLoggersLocalCache []LogHandler
 	hasRedisLogger         bool
 	hasDBLogger            bool
 	hasLocalCacheLogger    bool
+	disabledCache          bool
 	meta                   Meta
 	stringBuilder          *strings.Builder
 	stringBuilder2         *strings.Builder
@@ -162,4 +166,57 @@ func (orm *ormImplementation) trackEntity(e EntityFlush) {
 	if loaded {
 		entities.Store(e.ID(), e)
 	}
+}
+
+func (orm *ormImplementation) cacheEntity(schema *entitySchema, id uint64, e any) {
+	if orm.disabledCache {
+		return
+	}
+	orm.mutexData.Lock()
+	defer orm.mutexData.Unlock()
+	if orm.cachedEntities == nil {
+		orm.cachedEntities = xsync.NewTypedMapOf[uint64, *xsync.MapOf[uint64, any]](func(seed maphash.Seed, u uint64) uint64 {
+			return u
+		})
+	}
+	entities, loaded := orm.cachedEntities.LoadOrCompute(schema.index, func() *xsync.MapOf[uint64, any] {
+		entities := xsync.NewTypedMapOf[uint64, any](func(seed maphash.Seed, u uint64) uint64 {
+			return u
+		})
+		entities.Store(id, e)
+		return entities
+	})
+	if loaded {
+		entities.Store(id, e)
+	}
+}
+
+func (orm *ormImplementation) getEntityFromCache(schema *entitySchema, id uint64) (e any, found bool) {
+	if orm.disabledCache {
+		return nil, false
+	}
+	orm.mutexData.Lock()
+	defer orm.mutexData.Unlock()
+	if orm.cachedEntities == nil {
+		return nil, false
+	}
+	entities, found := orm.cachedEntities.Load(schema.index)
+	if !found {
+		return nil, false
+	}
+	e, found = entities.Load(id)
+	if e == nil {
+		return nil, false
+	}
+	return e, found
+}
+
+func (orm *ormImplementation) ClearCache() {
+	orm.mutexData.Lock()
+	defer orm.mutexData.Unlock()
+	orm.cachedEntities = nil
+}
+
+func (orm *ormImplementation) DisableCache() {
+	orm.disabledCache = true
 }

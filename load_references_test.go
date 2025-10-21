@@ -37,6 +37,10 @@ func TestLoadReferencesLocal(t *testing.T) {
 	testLoadReferences(t, true, false)
 }
 
+func TestLoadReferencesRedis(t *testing.T) {
+	testLoadReferences(t, false, true)
+}
+
 func testLoadReferences(t *testing.T, local, redis bool) {
 	var entity *loadReferenceEntity
 	var ref1 *loadSubReferenceEntity1
@@ -85,6 +89,9 @@ func testLoadReferences(t *testing.T, local, redis bool) {
 		GetEntitySchema[loadSubReferenceEntity1](orm).(*entitySchema).localCache.Clear(orm)
 		GetEntitySchema[loadSubReferenceEntity2](orm).(*entitySchema).localCache.Clear(orm)
 	}
+	if redis {
+		orm.Engine().Redis(DefaultPoolCode).FlushDB(orm)
+	}
 	for iterator.Next() {
 		iterator.Entity()
 	}
@@ -94,6 +101,7 @@ func testLoadReferences(t *testing.T, local, redis bool) {
 	orm.RegisterQueryLogger(loggerLocal, false, false, true)
 	loggerRedis := &MockLogHandler{}
 	orm.RegisterQueryLogger(loggerRedis, false, true, false)
+	orm.EnableQueryDebug()
 	iterator.LoadReference("Ref1a")
 	assert.Len(t, loggerDB.Logs, 1)
 	i := 0

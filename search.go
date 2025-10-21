@@ -311,7 +311,7 @@ func search[E any](ctx Context, where Where, pager *Pager, withCount bool) (resu
 	if pager != nil {
 		totalRows = getTotalRows(ctx, withCount, pager, where, schema, i)
 	}
-	resultsIterator := &entityIterator[E]{index: -1}
+	resultsIterator := &entityIterator[E]{index: -1, schema: schema, orm: ctx.(*ormImplementation)}
 	resultsIterator.rows = entities
 	return resultsIterator, totalRows
 }

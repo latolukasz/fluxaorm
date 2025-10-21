@@ -308,6 +308,9 @@ func createStringAttrToStringSetter(setter fieldBindSetter) func(any, bool) (str
 		if err != nil {
 			return "", err
 		}
+		if v2 == nil {
+			return "", nil
+		}
 		return v2.(string), nil
 	}
 }
