@@ -11,7 +11,7 @@ type iteratorBase interface {
 	Len() int
 	Index() int
 	Next() bool
-	id() uint64
+	ID() uint64
 	setIndex(index int)
 }
 
@@ -190,7 +190,6 @@ func (lca *localCacheAnonymousIDsIterator) Entity() any {
 			}
 			return value
 		}
-		lca.warmup()
 	}
 	value, found := getByID(lca.orm, lca.ids[lca.index], lca.schema)
 	if !found {
@@ -201,13 +200,6 @@ func (lca *localCacheAnonymousIDsIterator) Entity() any {
 
 func (lc *localCacheIDsIterator[E]) LoadReference(columns ...string) {
 	loadReference(lc, lc.orm, lc.schema, columns...)
-}
-
-func (lca *localCacheAnonymousIDsIterator) warmup() {
-	if len(lca.ids)-lca.index <= 2 {
-		return
-	}
-	warmup(lca.orm, lca.schema, lca.ids, "")
 }
 
 type emptyResultsIterator[E any] struct{}
@@ -274,7 +266,7 @@ func (ei *entityIterator[E]) Next() bool {
 }
 
 func (ei *entityIterator[E]) id() uint64 {
-	return ei.ids[ei.index]
+	return ei.ID()
 }
 
 func (eia *entityAnonymousIteratorAdvanced) Next() bool {
@@ -383,10 +375,7 @@ func loadReference(iterator iteratorBase, orm *ormImplementation, schema *entity
 		index := iterator.Index()
 		iterator.setIndex(-1)
 		for iterator.Next() {
-			id := iterator.id()
-			//entity := reflect.ValueOf(iterator.Entity()).Elem()
-			//field := entity.FieldByName(fields[0])
-			//id := field.Uint()
+			id := iterator.ID()
 			if id == 0 {
 				continue
 			}

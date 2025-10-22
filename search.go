@@ -303,7 +303,9 @@ func search[E any](ctx Context, where Where, pager *Pager, withCount bool) (resu
 		queryResults.Scan(pointers...)
 		value := reflect.New(schema.t)
 		deserializeFromDB(schema.fields, value.Elem(), pointers)
-		entities = append(entities, value.Interface().(*E))
+		e := value.Interface().(*E)
+		ctx.cacheEntity(schema, *pointers[0].(*uint64), e)
+		entities = append(entities, e)
 		i++
 	}
 	def()

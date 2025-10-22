@@ -38,6 +38,13 @@ func getByID(orm *ormImplementation, id uint64, schema *entitySchema) (any, bool
 			return e, true
 		}
 	}
+	fromLocalCache, inLocalCache := orm.getEntityFromCache(schema, id)
+	if inLocalCache {
+		if fromLocalCache == nil {
+			return nil, false
+		}
+		return fromLocalCache, true
+	}
 	cacheRedis, hasRedis := schema.GetRedisCache()
 	var cacheKey string
 	if hasRedis {
@@ -56,6 +63,8 @@ func getByID(orm *ormImplementation, id uint64, schema *entitySchema) (any, bool
 			if deserializeFromRedis(row, schema, value.Elem()) {
 				if schema.hasLocalCache {
 					schema.localCache.setEntity(orm, id, entity)
+				} else if !orm.disabledCache {
+					orm.cacheEntity(schema, id, entity)
 				}
 				return entity, true
 			}
@@ -70,6 +79,8 @@ func getByID(orm *ormImplementation, id uint64, schema *entitySchema) (any, bool
 		deserializeFromDB(schema.fields, value.Elem(), pointers)
 		if schema.hasLocalCache {
 			schema.localCache.setEntity(orm, id, entity)
+		} else if !orm.disabledCache {
+			orm.cacheEntity(schema, id, entity)
 		}
 		if hasRedis {
 			bind := make(Bind)
@@ -82,6 +93,8 @@ func getByID(orm *ormImplementation, id uint64, schema *entitySchema) (any, bool
 	}
 	if schema.hasLocalCache {
 		schema.localCache.setEntity(orm, id, nil)
+	} else if !orm.disabledCache {
+		orm.cacheEntity(schema, id, nil)
 	}
 	if hasRedis {
 		p := orm.RedisPipeLine(cacheRedis.GetCode())

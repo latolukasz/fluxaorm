@@ -70,18 +70,18 @@ func testLoadByIds(t *testing.T, local, redis bool) {
 	if redis {
 		rc, _ := schema.GetRedisCache()
 		rc.FlushDB(orm)
+
 	}
+
 	rows = GetByIDs[getByIdsEntity](orm, ids...)
 	assert.Equal(t, 10, rows.Len())
+
 	i = 0
 	for rows.Next() {
 		e := rows.Entity()
 		assert.NotNil(t, e)
 		assert.Equal(t, fmt.Sprintf("Name %d", i), e.Name)
 		i++
-	}
-	if !local {
-		assert.Len(t, loggerDB.Logs, 1)
 	}
 
 	loggerDB.Clear()

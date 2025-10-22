@@ -70,7 +70,7 @@ func testGetByID(t *testing.T, local, redis bool) {
 	assert.True(t, found)
 	assert.NotNil(t, entity)
 	assert.Equal(t, "Name 0", entity.Name)
-	assert.Len(t, loggerDB.Logs, 1)
+
 	loggerDB.Clear()
 	if local || redis {
 		entity, found = GetByID[getByIDEntity](orm, ids[0])

@@ -44,6 +44,8 @@ type Context interface {
 	getRedisLoggers() (bool, []LogHandler)
 	trackEntity(e EntityFlush)
 	GetEventBroker() EventBroker
+	getEntityFromCache(schema *entitySchema, id uint64) (e any, found bool)
+	cacheEntity(schema *entitySchema, id uint64, e any)
 }
 
 type ormImplementation struct {

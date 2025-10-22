@@ -784,21 +784,41 @@ func (e *entitySchema) GetByIDs(ctx Context, ids ...uint64) EntityAnonymousItera
 	if hasRedisCache {
 		redisPipeline = ctx.RedisPipeLine(cacheRedis.GetCode())
 		l := int64(len(schema.columnNames) + 1)
-		lRanges := make([]*PipeLineSlice, len(ids))
+		foundInContextCache := 0
 		for i, id := range ids {
-			lRanges[i] = redisPipeline.LRange(schema.cacheKey+":"+strconv.FormatUint(id, 10), 0, l)
+			fromContextCache, inContextCache := ctx.getEntityFromCache(schema, id)
+			if inContextCache {
+				results.rows[i] = fromContextCache
+				foundInContextCache++
+			}
+		}
+		if foundInContextCache == len(ids) {
+			return results
+		}
+		lRanges := make([]*PipeLineSlice, len(ids)-foundInContextCache)
+		k := 0
+		for i, id := range ids {
+			if results.rows[i] == nil {
+				lRanges[k] = redisPipeline.LRange(schema.cacheKey+":"+strconv.FormatUint(id, 10), 0, l)
+				k++
+			}
 		}
 		redisPipeline.Exec(ctx)
+		k = 0
 		for i, id := range ids {
-			row := lRanges[i].Result()
+			if results.rows[i] != nil {
+				continue
+			}
+			row := lRanges[k].Result()
+			k++
 			if len(row) > 0 {
 				if len(row) == 1 {
 					continue
 				}
 				value := reflect.New(schema.t)
 				e := value.Interface()
-				if deserializeFromRedis(row, schema, value.Elem()) && schema.hasLocalCache {
-					schema.localCache.setEntity(ctx, id, e)
+				if deserializeFromRedis(row, schema, value.Elem()) {
+					ctx.cacheEntity(schema, id, e)
 				}
 				results.rows[i] = e
 			} else {
@@ -808,29 +828,42 @@ func (e *entitySchema) GetByIDs(ctx Context, ids ...uint64) EntityAnonymousItera
 		if len(missingKeys) == 0 {
 			return results
 		}
+	} else {
+		for i, id := range ids {
+			fromContextCache, inContextCache := ctx.getEntityFromCache(schema, id)
+			if inContextCache {
+				results.rows[i] = fromContextCache
+			} else {
+				missingKeys = append(missingKeys, i)
+			}
+		}
+		if len(missingKeys) == 0 {
+			return results
+		}
 	}
-	sql := "SELECT " + schema.fieldsQuery + " FROM `" + schema.GetTableName() + "` WHERE `ID` IN ("
+
+	q := "SELECT " + schema.fieldsQuery + " FROM `" + schema.GetTableName() + "` WHERE `ID` IN ("
 	toSearch := 0
 	if len(missingKeys) > 0 {
 		for i, key := range missingKeys {
 			if i > 0 {
-				sql += ","
+				q += ","
 			}
-			sql += strconv.FormatUint(ids[key], 10)
+			q += strconv.FormatUint(ids[key], 10)
 		}
 		toSearch = len(missingKeys)
 	} else {
 		for i, id := range ids {
 			if i > 0 {
-				sql += ","
+				q += ","
 			}
-			sql += strconv.FormatUint(id, 10)
+			q += strconv.FormatUint(id, 10)
 		}
 		toSearch = len(ids)
 	}
-	sql += ")"
+	q += ")"
 	execRedisPipeline := false
-	res, def := schema.GetDB().Query(ctx, sql)
+	res, def := schema.GetDB().Query(ctx, q)
 	defer def()
 	foundInDB := 0
 	for res.Next() {
@@ -847,6 +880,8 @@ func (e *entitySchema) GetByIDs(ctx Context, ids ...uint64) EntityAnonymousItera
 		}
 		if schema.hasLocalCache {
 			schema.localCache.setEntity(ctx, id, value.Interface())
+		} else {
+			ctx.cacheEntity(schema, id, value.Interface())
 		}
 		if hasRedisCache {
 			bind := make(Bind)
@@ -863,6 +898,8 @@ func (e *entitySchema) GetByIDs(ctx Context, ids ...uint64) EntityAnonymousItera
 			if results.rows[i] == nil {
 				if schema.hasLocalCache {
 					schema.localCache.setEntity(ctx, id, nil)
+				} else {
+					ctx.cacheEntity(schema, id, nil)
 				}
 				if hasRedisCache {
 					cacheKey := schema.getCacheKey() + ":" + strconv.FormatUint(id, 10)

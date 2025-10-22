@@ -101,7 +101,6 @@ func testLoadReferences(t *testing.T, local, redis bool) {
 	orm.RegisterQueryLogger(loggerLocal, false, false, true)
 	loggerRedis := &MockLogHandler{}
 	orm.RegisterQueryLogger(loggerRedis, false, true, false)
-	orm.EnableQueryDebug()
 	iterator.LoadReference("Ref1a")
 	assert.Len(t, loggerDB.Logs, 1)
 	i := 0
@@ -110,6 +109,20 @@ func testLoadReferences(t *testing.T, local, redis bool) {
 		assert.Equal(t, fmt.Sprintf("Ref1 %d", i+1), entity.Ref1a.GetEntity(orm).Name)
 		i++
 	}
+	assert.Equal(t, 10, i)
+	loggerDB.Clear()
+	loggerRedis.Clear()
+	loggerLocal.Clear()
+	iterator = Search[loadReferenceEntity](orm, NewWhere("1"), nil)
+	i = 0
+	for iterator.Next() {
+		entity = iterator.Entity()
+		assert.Equal(t, fmt.Sprintf("Ref1 %d", i+1), entity.Ref1a.GetEntity(orm).Name)
+		i++
+	}
+	assert.Len(t, loggerDB.Logs, 1)
+	assert.Len(t, loggerRedis.Logs, 0)
+	assert.Len(t, loggerLocal.Logs, 0)
 	assert.Equal(t, 10, i)
 
 }
