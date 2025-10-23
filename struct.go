@@ -30,18 +30,18 @@ func (r Struct[E]) getType() reflect.Type {
 	return reflect.TypeOf(e)
 }
 
-func (r *Struct[E]) Get() (*E, error) {
+func (r *Struct[E]) Get() *E {
 	if r.unserialized == nil {
 		if r.serialized == "" {
-			return nil, nil
+			return nil
 		}
 		r.unserialized = reflect.New(reflect.TypeOf(r.unserialized)).Elem().Interface().(*E)
 		err := jsoniter.ConfigFastest.UnmarshalFromString(r.serialized, &r.unserialized)
 		if err != nil {
-			return nil, err
+			return nil
 		}
 	}
-	return r.unserialized, nil
+	return r.unserialized
 }
 
 func (r *Struct[E]) setSerialized(v string) {
@@ -58,14 +58,6 @@ func (r Struct[E]) getSerialized() (string, error) {
 		r.isSerialized = true
 	}
 	return r.serialized, nil
-}
-
-func (r *Struct[E]) MustGet() *E {
-	v, err := r.Get()
-	if err != nil {
-		panic(err)
-	}
-	return v
 }
 
 func (r *Struct[E]) Set(e *E) {

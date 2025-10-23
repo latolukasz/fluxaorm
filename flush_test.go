@@ -288,7 +288,7 @@ func testFlushInsert(t *testing.T, async, local, redis bool) {
 	assert.Equal(t, float32(0), entity.SubAge)
 	assert.Zero(t, entity.Reference)
 	assert.NotNil(t, reference.ID, entity.ReferenceRequired)
-	assert.Nil(t, entity.TestJsons.MustGet())
+	assert.Nil(t, entity.TestJsons.Get())
 
 	for i := 0; i < 2; i++ {
 		assert.Equal(t, "", entity.StringArray[i])
@@ -464,9 +464,9 @@ func testFlushInsert(t *testing.T, async, local, redis bool) {
 	assert.Equal(t, float32(123), entity.SubAge)
 	assert.Equal(t, reference.ID, entity.Reference.GetID())
 	assert.Equal(t, reference.ID, entity.ReferenceRequired.GetID())
-	assert.NotNil(t, entity.TestJsons.MustGet())
-	assert.Equal(t, "Hi", entity.TestJsons.MustGet().A)
-	assert.Equal(t, uint64(12), entity.TestJsons.MustGet().B)
+	assert.NotNil(t, entity.TestJsons.Get())
+	assert.Equal(t, "Hi", entity.TestJsons.Get().A)
+	assert.Equal(t, uint64(12), entity.TestJsons.Get().B)
 	for i := 0; i < 2; i++ {
 		assert.Equal(t, fmt.Sprintf("Test %d", i), entity.StringArray[i])
 		assert.Equal(t, i+1, entity.IntArray[i])
@@ -914,9 +914,9 @@ func testFlushUpdate(t *testing.T, async, local, redis bool) {
 	assert.Equal(t, float32(123), entity.SubAge)
 	assert.Equal(t, reference.ID, entity.Reference.GetID())
 	assert.Equal(t, reference.ID, entity.ReferenceRequired.GetID())
-	assert.NotNil(t, entity.TestJsons.MustGet())
-	assert.Equal(t, "F", entity.TestJsons.MustGet().A)
-	assert.Equal(t, uint64(13), entity.TestJsons.MustGet().B)
+	assert.NotNil(t, entity.TestJsons.Get())
+	assert.Equal(t, "F", entity.TestJsons.Get().A)
+	assert.Equal(t, uint64(13), entity.TestJsons.Get().B)
 	for i := 0; i < 2; i++ {
 		assert.Equal(t, fmt.Sprintf("Test %d", i), entity.StringArray[i])
 		assert.Equal(t, i+1, entity.IntArray[i])
