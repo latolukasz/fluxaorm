@@ -107,6 +107,7 @@ type entitySchema struct {
 	cachedUniqueIndexes       map[string]indexDefinition
 	references                map[string]referenceDefinition
 	cachedReferences          map[string]referenceDefinition
+	structJSONs               map[string]structDefinition
 	indexes                   map[string]indexDefinition
 	cachedIndexes             map[string]indexDefinition
 	options                   map[string]any
@@ -144,6 +145,8 @@ type tableFields struct {
 	integersArray                  []int
 	references                     []int
 	referencesArray                []int
+	structJSONs                    []int
+	structJSONsArray               []int
 	referencesRequired             []bool
 	referencesRequiredArray        []bool
 	uIntegersNullable              []int
@@ -297,6 +300,7 @@ func (e *entitySchema) init(registry *registry, entityType reflect.Type) error {
 	e.options = make(map[string]any)
 	e.references = make(map[string]referenceDefinition)
 	e.cachedReferences = make(map[string]referenceDefinition)
+	e.structJSONs = make(map[string]structDefinition)
 	e.indexes = make(map[string]indexDefinition)
 	e.cachedIndexes = make(map[string]indexDefinition)
 	e.redisSearchFields = make(map[string]redisSearchIndexDefinition)
@@ -1111,7 +1115,9 @@ func (e *entitySchema) buildTableFields(t reflect.Type, registry *registry,
 				fType = fType.Elem()
 			}
 			k := fType.Kind().String()
-			if k == "struct" {
+			if fType.Implements(reflect.TypeOf((*structGetter)(nil)).Elem()) {
+				e.buildStructJSONField(attributes)
+			} else if k == "struct" {
 				e.buildStructField(attributes, registry, schemaTags)
 			} else if fType.Implements(reflect.TypeOf((*EnumValues)(nil)).Elem()) {
 				definition := reflect.New(fType).Interface().(EnumValues).EnumValues()
@@ -1219,6 +1225,35 @@ func (e *entitySchema) buildReferenceField(attributes schemaFieldAttributes) {
 		e.fieldDefinitions[columnName] = attributes
 		e.columnAttrToStringSetters[columnName] = createUint64AttrToStringSetter(e.fieldBindSetters[columnName])
 		e.fieldSetters[columnName] = createReferenceFieldSetter(attributes, i)
+		e.fieldGetters[columnName] = createFieldGetter(attributes, false, i)
+	}
+}
+
+func (e *entitySchema) buildStructJSONField(attributes schemaFieldAttributes) {
+	if attributes.IsArray {
+		attributes.Fields.structJSONsArray = append(attributes.Fields.structJSONsArray, attributes.Index)
+	} else {
+		attributes.Fields.structJSONs = append(attributes.Fields.structJSONs, attributes.Index)
+	}
+	fType := attributes.Field.Type
+	if attributes.IsArray {
+		fType = fType.Elem()
+	}
+	for i, columnName := range attributes.GetColumnNames() {
+		e.mapBindToScanPointer[columnName] = scanStringNullablePointer
+		e.mapPointerToValue[columnName] = pointerStringNullableScan
+		var refType reflect.Type
+		if i == 0 {
+			refType = reflect.New(fType).Interface().(structGetter).getType()
+			def := structDefinition{
+				Type: refType,
+			}
+			e.structJSONs[columnName] = def
+		}
+		e.fieldBindSetters[columnName] = createStructJSONFieldBindSetter()
+		e.fieldDefinitions[columnName] = attributes
+		e.columnAttrToStringSetters[columnName] = createStringAttrToStringSetter(e.fieldBindSetters[columnName])
+		e.fieldSetters[columnName] = createStructJSONFieldSetter(attributes, i)
 		e.fieldGetters[columnName] = createFieldGetter(attributes, false, i)
 	}
 }
@@ -1802,6 +1837,8 @@ func (fields *tableFields) buildColumnNames(subFieldPrefix string) ([]string, st
 	ids = append(ids, fields.uIntegersArray...)
 	ids = append(ids, fields.references...)
 	ids = append(ids, fields.referencesArray...)
+	ids = append(ids, fields.structJSONs...)
+	ids = append(ids, fields.structJSONsArray...)
 	ids = append(ids, fields.integers...)
 	ids = append(ids, fields.integersArray...)
 	ids = append(ids, fields.booleans...)

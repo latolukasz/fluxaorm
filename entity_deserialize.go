@@ -44,6 +44,17 @@ func deserializeFieldsFromRedis(data []string, fields *tableFields, elem reflect
 			index++
 		}
 	}
+	for _, i := range fields.structJSONs {
+		deserializeStructJSONFromRedis(data[index], elem.Field(i))
+		index++
+	}
+	for _, i := range fields.structJSONsArray {
+		f := elem.Field(i)
+		for j := 0; j < fields.arrays[i]; j++ {
+			deserializeStructJSONFromRedis(data[index], f.Index(j))
+			index++
+		}
+	}
 	for _, i := range fields.integers {
 		deserializeIntFromRedis(data[index], elem.Field(i))
 		index++
@@ -240,6 +251,15 @@ func deserializeReferencesFromRedis(v string, f reflect.Value) {
 	}
 }
 
+func deserializeStructJSONFromRedis(v string, f reflect.Value) {
+	s := f.Addr().Interface().(structSetter)
+	if v == nullRedisValue {
+		s.setSerialized("")
+	} else {
+		s.setSerialized(v)
+	}
+}
+
 func deserializeIntFromRedis(v string, f reflect.Value) {
 	if v == "0" {
 		f.SetInt(0)
@@ -422,6 +442,18 @@ func deserializeStructFromDB(elem reflect.Value, index int, fields *tableFields,
 			index++
 		}
 	}
+	for _, i := range fields.structJSONs {
+		deserializeStructJSONFromDB(elem.Field(i), *pointers[index].(*sql.NullString))
+		index++
+	}
+	for _, i := range fields.structJSONsArray {
+		f := elem.Field(i)
+		for j := 0; j < fields.arrays[i]; j++ {
+			deserializeStructJSONFromDB(f.Index(j), *pointers[index].(*sql.NullString))
+			index++
+		}
+	}
+
 	for _, i := range fields.integers {
 		deserializeIntFromDB(elem.Field(i), *pointers[index].(*int64))
 		index++
@@ -609,6 +641,15 @@ func deserializeReferenceFromDB(f reflect.Value, v sql.NullInt64) {
 		return
 	}
 	f.SetZero()
+}
+
+func deserializeStructJSONFromDB(f reflect.Value, v sql.NullString) {
+	s := f.Addr().Interface().(structSetter)
+	if v.Valid {
+		s.setSerialized(v.String)
+		return
+	}
+	s.setSerialized("")
 }
 
 func deserializeIntFromDB(f reflect.Value, v int64) {

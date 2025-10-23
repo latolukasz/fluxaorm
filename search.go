@@ -60,6 +60,18 @@ func prepareScanForFields(fields *tableFields, start int, pointers []any) int {
 			start++
 		}
 	}
+	for range fields.structJSONs {
+		v := sql.NullString{}
+		pointers[start] = &v
+		start++
+	}
+	for _, i := range fields.structJSONsArray {
+		for j := 0; j < fields.arrays[i]; j++ {
+			v := sql.NullString{}
+			pointers[start] = &v
+			start++
+		}
+	}
 	for range fields.integers {
 		v := int64(0)
 		pointers[start] = &v

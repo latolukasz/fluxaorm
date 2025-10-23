@@ -47,6 +47,12 @@ func copyEntity(source, target reflect.Value, fields *tableFields, withID bool) 
 	for _, i := range fields.referencesArray {
 		copyField(source, target, fields, i)
 	}
+	for _, i := range fields.structJSONs {
+		target.Field(i).Set(source.Field(i))
+	}
+	for _, i := range fields.structJSONsArray {
+		copyField(source, target, fields, i)
+	}
 	for _, i := range fields.integers {
 		target.Field(i).SetInt(source.Field(i).Int())
 	}

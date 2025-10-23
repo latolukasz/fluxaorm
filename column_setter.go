@@ -247,6 +247,16 @@ func createReferenceFieldBindSetter(columnName string, t reflect.Type, idSetter 
 	}
 }
 
+func createStructJSONFieldBindSetter() func(v any) (any, error) {
+	return func(v any) (any, error) {
+		if v == nil {
+			return nil, nil
+		}
+		structJSON, _ := v.(structGetter)
+		return structJSON.getSerialized()
+	}
+}
+
 func createEnumFieldBindSetter(columnName string, stringSetter fieldBindSetter, def *enumDefinition) func(v any) (any, error) {
 	return func(v any) (any, error) {
 		if v == nil {
@@ -660,6 +670,20 @@ func createReferenceFieldSetter(attributes schemaFieldAttributes, arrayIndex int
 			return
 		}
 		field.SetUint(v.(uint64))
+	}
+}
+
+func createStructJSONFieldSetter(attributes schemaFieldAttributes, arrayIndex int) func(v any, elem reflect.Value) {
+	return func(v any, elem reflect.Value) {
+		field := getSetterField(elem, attributes, arrayIndex)
+		if v == nil {
+			field.SetZero()
+			return
+		}
+		val := reflect.New(field.Type())
+		valInterface := val.Addr().Interface().(structSetter)
+		valInterface.setSerialized(v.(string))
+		field.Set(val)
 	}
 }
 

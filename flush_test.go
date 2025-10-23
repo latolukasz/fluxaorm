@@ -26,6 +26,11 @@ type flushStructAnonymous struct {
 	SubAge  float32 `orm:"decimal=9,5;unsigned=false"`
 }
 
+type flushStructJSON struct {
+	A string
+	B uint64
+}
+
 type testEnum string
 
 func (s testEnum) EnumValues() any {
@@ -106,6 +111,7 @@ type flushEntity struct {
 	Reference                 Reference[flushEntityReference]
 	ReferenceArray            [2]Reference[flushEntityReference]
 	ReferenceRequired         Reference[flushEntityReference] `orm:"required"`
+	TestJsons                 Struct[flushStructJSON]
 	flushStructAnonymous
 }
 
@@ -223,6 +229,7 @@ func testFlushInsert(t *testing.T, async, local, redis bool) {
 	newEntity.ReferenceRequired = Reference[flushEntityReference](reference.ID)
 	newEntity.Name = "Name"
 	assert.NotEmpty(t, newEntity.ID)
+
 	assert.NoError(t, testFlush(orm, async))
 	loggerDB.Clear()
 
@@ -281,6 +288,7 @@ func testFlushInsert(t *testing.T, async, local, redis bool) {
 	assert.Equal(t, float32(0), entity.SubAge)
 	assert.Zero(t, entity.Reference)
 	assert.NotNil(t, reference.ID, entity.ReferenceRequired)
+	assert.Nil(t, entity.TestJsons.MustGet())
 
 	for i := 0; i < 2; i++ {
 		assert.Equal(t, "", entity.StringArray[i])
@@ -374,6 +382,8 @@ func testFlushInsert(t *testing.T, async, local, redis bool) {
 	newEntity.SubAge = 123
 	newEntity.Reference = Reference[flushEntityReference](reference.ID)
 	newEntity.ReferenceRequired = Reference[flushEntityReference](reference.ID)
+	newEntity.TestJsons.Set(&flushStructJSON{"Hi", 12})
+
 	for i := 0; i < 2; i++ {
 		newEntity.StringArray[i] = fmt.Sprintf("Test %d", i)
 		newEntity.IntArray[i] = i + 1
@@ -454,6 +464,9 @@ func testFlushInsert(t *testing.T, async, local, redis bool) {
 	assert.Equal(t, float32(123), entity.SubAge)
 	assert.Equal(t, reference.ID, entity.Reference.GetID())
 	assert.Equal(t, reference.ID, entity.ReferenceRequired.GetID())
+	assert.NotNil(t, entity.TestJsons.MustGet())
+	assert.Equal(t, "Hi", entity.TestJsons.MustGet().A)
+	assert.Equal(t, uint64(12), entity.TestJsons.MustGet().B)
 	for i := 0; i < 2; i++ {
 		assert.Equal(t, fmt.Sprintf("Test %d", i), entity.StringArray[i])
 		assert.Equal(t, i+1, entity.IntArray[i])
@@ -805,6 +818,7 @@ func testFlushUpdate(t *testing.T, async, local, redis bool) {
 	editedEntity.SubAge = 123
 	editedEntity.Reference = Reference[flushEntityReference](reference.ID)
 	editedEntity.ReferenceRequired = Reference[flushEntityReference](reference.ID)
+	editedEntity.TestJsons.Set(&flushStructJSON{A: "F", B: 13})
 	for i := 0; i < 2; i++ {
 		editedEntity.StringArray[i] = fmt.Sprintf("Test %d", i)
 		editedEntity.IntArray[i] = i + 1
@@ -839,8 +853,8 @@ func testFlushUpdate(t *testing.T, async, local, redis bool) {
 	assert.True(t, isDirty)
 	assert.NotNil(t, oldValues)
 	assert.NotNil(t, newValues)
-	assert.Len(t, oldValues, 93)
-	assert.Len(t, newValues, 93)
+	assert.Len(t, oldValues, 94)
+	assert.Len(t, newValues, 94)
 
 	loggerLocal.Clear()
 	assert.NoError(t, testFlush(orm, async))
@@ -900,6 +914,9 @@ func testFlushUpdate(t *testing.T, async, local, redis bool) {
 	assert.Equal(t, float32(123), entity.SubAge)
 	assert.Equal(t, reference.ID, entity.Reference.GetID())
 	assert.Equal(t, reference.ID, entity.ReferenceRequired.GetID())
+	assert.NotNil(t, entity.TestJsons.MustGet())
+	assert.Equal(t, "F", entity.TestJsons.MustGet().A)
+	assert.Equal(t, uint64(13), entity.TestJsons.MustGet().B)
 	for i := 0; i < 2; i++ {
 		assert.Equal(t, fmt.Sprintf("Test %d", i), entity.StringArray[i])
 		assert.Equal(t, i+1, entity.IntArray[i])

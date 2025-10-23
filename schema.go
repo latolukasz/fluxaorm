@@ -573,7 +573,11 @@ func checkColumn(engine Engine, schema *entitySchema, field *reflect.StructField
 			definition, addDefaultNullIfNullable = handleBlob(attributes)
 		default:
 			kind := fieldType.Kind().String()
-			if kind == "struct" {
+			if fieldType.Implements(reflect.TypeOf((*structGetter)(nil)).Elem()) {
+				definition = "json"
+				addNotNullIfNotSet = false
+				defaultValue = "nil"
+			} else if kind == "struct" {
 				subFieldPrefix := prefix
 				arrayIndex := -1
 				if isArray {

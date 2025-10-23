@@ -73,6 +73,21 @@ func fillBindForReference(bind Bind, f reflect.Value, required bool, column stri
 	return nil
 }
 
+func fillBindForStructJSON(bind Bind, f reflect.Value, column string) error {
+	s := f.Interface().(structGetter)
+	val, err := s.getSerialized()
+	if err != nil {
+		return &BindError{Field: column, Message: err.Error()}
+	}
+	if val == "" {
+		bind[column] = nil
+		return nil
+	}
+
+	bind[column] = val
+	return nil
+}
+
 func fillBindForFloat(bind Bind, f reflect.Value, column string, floatsPrecision, floatsSize, floatsDecimalSize int, floatsUnsigned bool) error {
 	v := f.Float()
 	if v == 0 {
@@ -294,6 +309,22 @@ func fillBindFromOneSource(ctx Context, bind Bind, source reflect.Value, fields 
 		for j := 0; j < fields.arrays[i]; j++ {
 			required := fields.referencesRequiredArray[k]
 			err := fillBindForReference(bind, f.Index(j), required, prefix+fields.fields[i].Name+"_"+strconv.Itoa(j+1))
+			if err != nil {
+				return err
+			}
+		}
+	}
+	for _, i := range fields.structJSONs {
+		f := source.Field(i)
+		err := fillBindForStructJSON(bind, f, prefix+fields.fields[i].Name)
+		if err != nil {
+			return err
+		}
+	}
+	for _, i := range fields.structJSONsArray {
+		f := source.Field(i)
+		for j := 0; j < fields.arrays[i]; j++ {
+			err := fillBindForStructJSON(bind, f.Index(j), prefix+fields.fields[i].Name+"_"+strconv.Itoa(j+1))
 			if err != nil {
 				return err
 			}
@@ -541,6 +572,25 @@ func fillBindFromTwoSources(ctx Context, bind, oldBind, forcedNew, forcedOld Bin
 			}
 		}
 	}
+	for _, i := range fields.structJSONs {
+		f1 := source.Field(i)
+		f2 := before.Field(i)
+		err := fillBindsForStructJSON(f1, f2, bind, oldBind, forcedNew, forcedOld, fields, i, prefix, "")
+		if err != nil {
+			return err
+		}
+	}
+	for _, i := range fields.structJSONsArray {
+		f1 := source.Field(i)
+		f2 := before.Field(i)
+		for j := 0; j < fields.arrays[i]; j++ {
+			err := fillBindsForStructJSON(f1.Index(j), f2.Index(j), bind, oldBind, forcedNew, forcedOld, fields, i, prefix, "_"+strconv.Itoa(j+1))
+			if err != nil {
+				return err
+			}
+		}
+	}
+
 	for _, i := range fields.integers {
 		fillBindsForInt(source.Field(i), before.Field(i), bind, oldBind, forcedNew, forcedOld, fields, i, prefix, "")
 	}
@@ -815,6 +865,43 @@ func fillBindsForReference(f1, f2 reflect.Value, bind, oldBind, forcedNew, force
 			forcedNew[name] = v1
 		}
 		if v2 == 0 {
+			forcedOld[name] = nil
+		} else {
+			forcedOld[name] = v2
+		}
+	}
+	return nil
+}
+
+func fillBindsForStructJSON(f1, f2 reflect.Value, bind, oldBind, forcedNew, forcedOld Bind, fields *tableFields, i int, prefix, suffix string) error {
+	v1, err := f1.Interface().(structGetter).getSerialized()
+	if err != nil {
+		return err
+	}
+	v2, err := f2.Interface().(structGetter).getSerialized()
+	if err != nil {
+		return err
+	}
+	if v1 != v2 {
+		name := prefix + fields.fields[i].Name + suffix
+		if v1 == "" {
+			bind[name] = nil
+		} else {
+			bind[name] = v1
+		}
+		if v2 == "" {
+			oldBind[name] = nil
+		} else {
+			oldBind[name] = v2
+		}
+	} else if fields.forcedOldBid[i] {
+		name := prefix + fields.fields[i].Name + suffix
+		if v1 == "" {
+			forcedNew[name] = nil
+		} else {
+			forcedNew[name] = v1
+		}
+		if v2 == "" {
 			forcedOld[name] = nil
 		} else {
 			forcedOld[name] = v2
