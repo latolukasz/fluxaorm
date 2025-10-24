@@ -81,6 +81,24 @@ func (lca *localCacheAnonymousIDsIterator) Next() bool {
 	return true
 }
 
+func (lca *localCacheAnonymousIDsIterator) All() []any {
+	if lca.hasRows {
+		return lca.rows
+	}
+	lca.rows = make([]any, len(lca.ids))
+	i := 0
+	for lca.Next() {
+		lca.rows[i] = lca.Entity()
+		i++
+	}
+	lca.Reset()
+	return lca.rows
+}
+
+func (lca *localCacheAnonymousIDsIterator) AllIDs() []uint64 {
+	return lca.ids
+}
+
 func (lca *localCacheAnonymousIDsIterator) id() uint64 {
 	return lca.ids[lca.index]
 }
@@ -437,6 +455,25 @@ func (ea *entityAnonymousIterator) Next() bool {
 	return true
 }
 
+func (ea *entityAnonymousIterator) All() []any {
+	rows := make([]any, ea.rows.Len())
+	i := 0
+	for ea.Next() {
+		rows[i] = ea.Entity()
+		i++
+	}
+	ea.Reset()
+	return rows
+}
+
+func (ea *entityAnonymousIterator) AllIDs() []uint64 {
+	ids := make([]uint64, ea.rows.Len())
+	for i := 0; i < ea.rows.Len(); i++ {
+		ids[i] = ea.rows.Index(i).Elem().FieldByName("ID").Uint()
+	}
+	return ids
+}
+
 func (ea *entityAnonymousIterator) LoadReference(columns ...string) {
 	loadReference(ea, ea.orm, ea.schema, columns...)
 }
@@ -485,6 +522,14 @@ func (el *emptyResultsAnonymousIterator) Index() int {
 	return -1
 }
 
+func (el *emptyResultsAnonymousIterator) All() []any {
+	return []any{}
+}
+
+func (el *emptyResultsAnonymousIterator) AllIDs() []uint64 {
+	return []uint64{}
+}
+
 func (el *emptyResultsAnonymousIterator) setIndex(_ int) {}
 
 func (el *emptyResultsAnonymousIterator) Len() int {
@@ -515,6 +560,21 @@ func (lc *localCacheIDsAnonymousIterator) Next() bool {
 	}
 	lc.index++
 	return true
+}
+
+func (lc *localCacheIDsAnonymousIterator) All() []any {
+	rows := make([]any, len(lc.ids))
+	i := 0
+	for lc.Next() {
+		rows[i] = lc.Entity()
+		i++
+	}
+	lc.Reset()
+	return rows
+}
+
+func (lc *localCacheIDsAnonymousIterator) AllIDs() []uint64 {
+	return lc.ids
 }
 
 func (lc *localCacheIDsAnonymousIterator) id() uint64 {
