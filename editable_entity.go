@@ -327,17 +327,20 @@ func (orm *ormImplementation) EditEntity(entity any) any {
 func initNewEntity(elem reflect.Value, fields *tableFields) {
 	for k, i := range fields.stringsEnums {
 		def := fields.enums[k]
-		if def.required {
-			elem.Field(i).SetString(def.defaultValue)
+		f := elem.Field(i)
+		if def.required && f.String() == "" {
+			f.SetString(def.defaultValue)
 		}
 	}
 	for k, i := range fields.sliceStringsSets {
 		def := fields.enums[k]
 		if def.required {
 			f := elem.Field(i)
-			setValues := reflect.MakeSlice(f.Type(), 1, 1)
-			setValues.Index(0).SetString(def.defaultValue)
-			f.Set(setValues)
+			if f.Len() == 0 {
+				setValues := reflect.MakeSlice(f.Type(), 1, 1)
+				setValues.Index(0).SetString(def.defaultValue)
+				f.Set(setValues)
+			}
 		}
 	}
 }
