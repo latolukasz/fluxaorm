@@ -34,6 +34,8 @@ type EntityAnonymousIterator interface {
 	Index() int
 	setIndex(index int)
 	Len() int
+	All() []any
+	AllIDs() []uint64
 	Entity() any
 	Reset()
 	LoadReference(columns ...string)
@@ -276,6 +278,14 @@ func (eia *entityAnonymousIteratorAdvanced) Next() bool {
 	}
 	eia.index++
 	return true
+}
+
+func (eia *entityAnonymousIteratorAdvanced) All() []any {
+	return eia.rows
+}
+
+func (eia *entityAnonymousIteratorAdvanced) AllIDs() []uint64 {
+	return eia.ids
 }
 
 func (eia *entityAnonymousIteratorAdvanced) id() uint64 {
