@@ -98,6 +98,7 @@ type RedisCache interface {
 	FTSearch(ctx Context, index string, query string, options *redis.FTSearchOptions) redis.FTSearchResult
 	FTCreate(ctx Context, index string, options *redis.FTCreateOptions, schema ...*redis.FieldSchema)
 	FTInfo(ctx Context, index string) (info *redis.FTInfoResult, found bool)
+	Client() *redis.Client
 }
 
 type redisCache struct {
@@ -1381,6 +1382,10 @@ func (r *redisCache) GetCode() string {
 func (r *redisCache) fillLogFields(ctx Context, req redis.Cmder, start *time.Time, cacheMiss bool, err error) {
 	_, loggers := ctx.getRedisLoggers()
 	fillLogFields(ctx, loggers, r.config.GetCode(), sourceRedis, req.Name(), formatRedisCommandLog(req), start, cacheMiss, err)
+}
+
+func (r *redisCache) Client() *redis.Client {
+	return r.client
 }
 
 func formatRedisCommandLog(req redis.Cmder) string {
