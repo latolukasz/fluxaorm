@@ -112,6 +112,7 @@ type flushEntity struct {
 	ReferenceArray            [2]Reference[flushEntityReference]
 	ReferenceRequired         Reference[flushEntityReference] `orm:"required"`
 	TestJsons                 Struct[flushStructJSON]
+	References                References[flushEntityReference]
 	flushStructAnonymous
 }
 
@@ -216,6 +217,11 @@ func testFlushInsert(t *testing.T, async, local, redis bool) {
 	err := testFlush(orm, async)
 	assert.NoError(t, err)
 
+	reference2 := NewEntity[flushEntityReference](orm)
+	reference2.Name = "test reference 2"
+	err = testFlush(orm, async)
+	assert.NoError(t, err)
+
 	loggerDB := &MockLogHandler{}
 	orm.RegisterQueryLogger(loggerDB, true, false, false)
 	loggerLocal := &MockLogHandler{}
@@ -289,6 +295,7 @@ func testFlushInsert(t *testing.T, async, local, redis bool) {
 	assert.Zero(t, entity.Reference)
 	assert.NotNil(t, reference.ID, entity.ReferenceRequired)
 	assert.Nil(t, entity.TestJsons.Get())
+	assert.Equal(t, 0, entity.References.Len())
 
 	for i := 0; i < 2; i++ {
 		assert.Equal(t, "", entity.StringArray[i])
@@ -383,6 +390,7 @@ func testFlushInsert(t *testing.T, async, local, redis bool) {
 	newEntity.Reference = Reference[flushEntityReference](reference.ID)
 	newEntity.ReferenceRequired = Reference[flushEntityReference](reference.ID)
 	newEntity.TestJsons.Set(&flushStructJSON{"Hi", 12})
+	newEntity.References.SetIDs([]uint64{1, 2, 3, 4})
 
 	for i := 0; i < 2; i++ {
 		newEntity.StringArray[i] = fmt.Sprintf("Test %d", i)
@@ -467,6 +475,16 @@ func testFlushInsert(t *testing.T, async, local, redis bool) {
 	assert.NotNil(t, entity.TestJsons.Get())
 	assert.Equal(t, "Hi", entity.TestJsons.Get().A)
 	assert.Equal(t, uint64(12), entity.TestJsons.Get().B)
+	assert.Equal(t, 4, entity.References.Len())
+	assert.Equal(t, []uint64{1, 2, 3, 4}, entity.References.GetIDs())
+	assert.Nil(t, entity.References.GetEntity(orm, 0))
+	assert.Nil(t, entity.References.GetEntity(orm, 1))
+	assert.NotNil(t, entity.References.GetEntity(orm, 2))
+	assert.NotNil(t, entity.References.GetEntity(orm, 3))
+	assert.Equal(t, "test reference", entity.References.GetEntity(orm, 2).Name)
+	assert.Equal(t, "test reference 2", entity.References.GetEntity(orm, 3).Name)
+	references := entity.References.GetEntities(orm)
+	assert.Equal(t, 4, references.Len())
 	for i := 0; i < 2; i++ {
 		assert.Equal(t, fmt.Sprintf("Test %d", i), entity.StringArray[i])
 		assert.Equal(t, i+1, entity.IntArray[i])
