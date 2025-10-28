@@ -86,6 +86,7 @@ type fieldGetter func(reflect.Value) any
 
 type entitySchema struct {
 	index                     uint64
+	hideID                    bool
 	tableName                 string
 	archived                  bool
 	mysqlPoolCode             string
@@ -386,6 +387,7 @@ func (e *entitySchema) init(registry *registry, entityType reflect.Type) error {
 		columnMapping[name] = i
 	}
 	cacheKey = hashString(cacheKey + e.fieldsQuery)
+	e.hideID = e.fields.fields[0].Type.String() == "uint64"
 	e.uuidCacheKey = cacheKey[0:12]
 	cacheKey = cacheKey[0:5]
 	h := fnv.New32a()
@@ -709,6 +711,10 @@ func (e *entitySchema) Option(key string) any {
 }
 
 func (e *entitySchema) uuid(ctx Context) uint64 {
+	if e.hideID {
+		// TODO
+	}
+
 	r := ctx.Engine().Redis(e.getForcedRedisCode())
 	id := r.Incr(ctx, e.uuidCacheKey)
 	if id == 1 {

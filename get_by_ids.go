@@ -158,7 +158,7 @@ func getByIDs[E any](orm *ormImplementation, ids []uint64) EntityIterator[E] {
 }
 
 func warmup(orm *ormImplementation, schema *entitySchema, ids []uint64, references string) {
-	if len(ids) == 0 || orm.disabledCache {
+	if len(ids) == 0 || orm.disabledContextCache {
 		return
 	}
 	iterator := schema.GetByIDs(orm, ids...)

@@ -28,7 +28,7 @@ type Context interface {
 	EditEntity(entity any) any
 	DeleteEntity(entity any)
 	ClearCache()
-	DisableCache()
+	EnableContextCache()
 	Flush()
 	FlushWithCheck() error
 	FlushAsync() error
@@ -59,7 +59,7 @@ type ormImplementation struct {
 	hasRedisLogger         bool
 	hasDBLogger            bool
 	hasLocalCacheLogger    bool
-	disabledCache          bool
+	disabledContextCache   bool
 	meta                   Meta
 	stringBuilder          *strings.Builder
 	stringBuilder2         *strings.Builder
@@ -86,6 +86,7 @@ func (orm *ormImplementation) CloneWithContext(context context.Context) Context 
 		hasDBLogger:            orm.hasDBLogger,
 		hasLocalCacheLogger:    orm.hasLocalCacheLogger,
 		meta:                   orm.meta,
+		disabledContextCache:   orm.disabledContextCache,
 	}
 }
 
@@ -171,7 +172,7 @@ func (orm *ormImplementation) trackEntity(e EntityFlush) {
 }
 
 func (orm *ormImplementation) cacheEntity(schema *entitySchema, id uint64, e any) {
-	if orm.disabledCache {
+	if orm.disabledContextCache {
 		return
 	}
 	orm.mutexData.Lock()
@@ -194,7 +195,7 @@ func (orm *ormImplementation) cacheEntity(schema *entitySchema, id uint64, e any
 }
 
 func (orm *ormImplementation) getEntityFromCache(schema *entitySchema, id uint64) (e any, found bool) {
-	if orm.disabledCache {
+	if orm.disabledContextCache {
 		return nil, false
 	}
 	orm.mutexData.Lock()
@@ -219,6 +220,6 @@ func (orm *ormImplementation) ClearCache() {
 	orm.cachedEntities = nil
 }
 
-func (orm *ormImplementation) DisableCache() {
-	orm.disabledCache = true
+func (orm *ormImplementation) EnableContextCache() {
+	orm.disabledContextCache = false
 }
