@@ -2,10 +2,11 @@ package fluxaorm
 
 import (
 	"fmt"
-	"github.com/redis/go-redis/v9"
-	"github.com/stretchr/testify/assert"
 	"testing"
 	"time"
+
+	"github.com/redis/go-redis/v9"
+	"github.com/stretchr/testify/assert"
 )
 
 type redisSearchStructEntity struct {
@@ -14,7 +15,7 @@ type redisSearchStructEntity struct {
 }
 
 type redisSearchEntity struct {
-	ID            uint64     `orm:"localCache"`
+	ID            uint64     `orm:"localCache;redis_search_pool=default"`
 	Age           uint8      `orm:"redis_search;rs_sortable"`
 	Name          string     `orm:"redis_search"`
 	NameAsTag     string     `orm:"redis_search;rs_tag"`

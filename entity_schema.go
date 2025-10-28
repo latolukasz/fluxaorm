@@ -432,12 +432,13 @@ func (e *entitySchema) init(registry *registry, entityType reflect.Type) error {
 		if redisSearch == "true" {
 			if e.redisSearchIndexName == "" {
 				e.redisSearchIndexName = redisSearchIndexPrefix + e.tableName
-				redisCode := e.getTag("redis_search_pool", DefaultPoolCode, DefaultPoolCode)
-				if redisCode != "" {
-					_, has = registry.redisPools[redisCode]
-					if !has {
-						return fmt.Errorf("redis pool '%s' not found", redisCode)
-					}
+				redisCode := e.getTag("redis_search_pool", "", "")
+				if redisCode == "" {
+					return fmt.Errorf("required redis_search_pool tag is missing in '%s' entity", e.t.String())
+				}
+				_, has = registry.redisPools[redisCode]
+				if !has {
+					return fmt.Errorf("redis pool '%s' not found", redisCode)
 				}
 				if registry.redisPools[redisCode].GetDatabaseNumber() > 0 {
 					return fmt.Errorf("redis search pool '%s' must be in database 0", redisCode)
