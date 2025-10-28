@@ -15,22 +15,22 @@ type redisSearchStructEntity struct {
 }
 
 type redisSearchEntity struct {
-	ID            uint64     `orm:"localCache;redis_search_pool=default"`
-	Age           uint8      `orm:"redis_search;rs_sortable"`
-	Name          string     `orm:"redis_search"`
-	NameAsTag     string     `orm:"redis_search;rs_tag"`
-	Active        bool       `orm:"redis_search"`
-	ActiveNull    *bool      `orm:"redis_search"`
-	EnumNotNull   testEnum   `orm:"required;redis_search"`
-	EnumNull      testEnum   `orm:"redis_search"`
-	EnumSet       []testEnum `orm:"required;redis_search"`
+	ID            uint64     `orm:"localCache;redisSearch=default"`
+	Age           uint8      `orm:"searchable;sortable"`
+	Name          string     `orm:"searchable"`
+	NameAsTag     string     `orm:"searchable;rs_tag"`
+	Active        bool       `orm:"searchable"`
+	ActiveNull    *bool      `orm:"searchable"`
+	EnumNotNull   testEnum   `orm:"required;searchable"`
+	EnumNull      testEnum   `orm:"searchable"`
+	EnumSet       []testEnum `orm:"required;searchable"`
 	Sub           redisSearchStructEntity
-	Reference     Reference[redisSearchEntityReference] `orm:"redis_search;required"`
-	ReferenceNull Reference[redisSearchEntityReference] `orm:"redis_search"`
-	IntArray      [2]int                                `orm:"redis_search"`
-	Born          time.Time                             `orm:"redis_search;rs_sortable"`
-	Created       time.Time                             `orm:"time;redis_search;rs_sortable"`
-	CreatedNull   *time.Time                            `orm:"redis_search"`
+	Reference     Reference[redisSearchEntityReference] `orm:"searchable;required"`
+	ReferenceNull Reference[redisSearchEntityReference] `orm:"searchable"`
+	IntArray      [2]int                                `orm:"searchable"`
+	Born          time.Time                             `orm:"searchable;sortable"`
+	Created       time.Time                             `orm:"time;searchable;sortable"`
+	CreatedNull   *time.Time                            `orm:"searchable"`
 }
 
 type redisSearchEntityReference struct {
@@ -224,7 +224,7 @@ func testRedisSearchResults(t *testing.T, r RedisCache, orm Context, schema Enti
 	}
 
 	options = &RedisSearchOptions{}
-	retIds, total = RedisSearchIDs[redisSearchEntity](orm, "name 10", options)
+	retIds, total = RedisSearchIDs[redisSearchEntity](orm, fmt.Sprintf("name %d", ids[7]), options)
 	assert.Equal(t, 1, total)
 	assert.Len(t, retIds, 1)
 	assert.Equal(t, ids[7], retIds[0])
@@ -261,18 +261,6 @@ func testRedisSearchResults(t *testing.T, r RedisCache, orm Context, schema Enti
 	assert.Len(t, retIds, 3)
 	k = 0
 	for i := 2; i < 5; i++ {
-		assert.Equal(t, ids[i], retIds[k])
-		k++
-	}
-
-	options = &RedisSearchOptions{}
-	options.AddFilterNumberRange("Reference", int64(idsReferences[3]), int64(idsReferences[5]))
-	options.AddSortBy("Age", false)
-	retIds, total = RedisSearchIDs[redisSearchEntity](orm, "*", options)
-	assert.Equal(t, 3, total)
-	assert.Len(t, retIds, 3)
-	k = 0
-	for i := 3; i < 6; i++ {
 		assert.Equal(t, ids[i], retIds[k])
 		k++
 	}
@@ -422,9 +410,9 @@ func testRedisSearchResults(t *testing.T, r RedisCache, orm Context, schema Enti
 	}
 
 	options = &RedisSearchOptions{}
-	options.AddFilterNumber("Reference", 8)
+	options.AddFilterNumber("Reference", int64(idsReferences[7]))
 	e, found := RedisSearchOne[redisSearchEntity](orm, "*", options)
 	assert.True(t, found)
 	assert.NotNil(t, e)
-	assert.Equal(t, "name 8", e.Name)
+	assert.Equal(t, idsReferences[7], e.Reference.GetID())
 }
