@@ -2,11 +2,12 @@ package fluxaorm
 
 import (
 	"fmt"
-	"github.com/pkg/errors"
 	"net/url"
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/pkg/errors"
 )
 
 func (r *registry) InitByYaml(yaml any) error {

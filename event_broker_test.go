@@ -14,7 +14,7 @@ import (
 
 func TestRedisStreamGroupConsumerClean(t *testing.T) {
 	registry := NewRegistry()
-	registry.RegisterRedis("localhost:6389", 0, DefaultPoolCode, nil)
+	registry.RegisterRedis("localhost:6385", 0, DefaultPoolCode, nil)
 	registry.RegisterRedisStream("test-stream", "default", []string{"test-group-1", "test-group-2"})
 	validatedRegistry, err := registry.Validate()
 	assert.NoError(t, err)
@@ -88,7 +88,7 @@ func TestRedisStreamGroupConsumerClean(t *testing.T) {
 
 func TestRedisStreamGroupConsumerAutoScaled(t *testing.T) {
 	registry := NewRegistry()
-	registry.RegisterRedis("localhost:6389", 0, DefaultPoolCode, nil)
+	registry.RegisterRedis("localhost:6385", 0, DefaultPoolCode, nil)
 	registry.RegisterRedisStream("test-stream", "default", []string{"test-group"})
 	validatedRegistry, err := registry.Validate()
 	assert.NoError(t, err)
@@ -207,7 +207,7 @@ func TestRedisStreamGroupConsumerAutoScaled(t *testing.T) {
 
 func TestRedisStreamGroupConsumer(t *testing.T) {
 	registry := NewRegistry()
-	registry.RegisterRedis("localhost:6389", 0, DefaultPoolCode, nil)
+	registry.RegisterRedis("localhost:6385", 0, DefaultPoolCode, nil)
 	registry.RegisterRedisStream("test-stream", "default", []string{"test-group"})
 	registry.RegisterRedisStream("test-stream-a", "default", []string{"test-group", "test-group-multi"})
 	registry.RegisterRedisStream("test-stream-b", "default", []string{"test-group", "test-group-multi"})
