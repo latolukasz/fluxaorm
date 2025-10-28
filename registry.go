@@ -238,7 +238,6 @@ func (r *registry) Validate(serverID uint8) (Engine, error) {
 	}
 	e.registry.redisStreamGroups = r.redisStreamGroups
 	e.registry.redisStreamPools = r.redisStreamPools
-	uuidServerID = uint64(serverID)
 	return e, nil
 }
 
