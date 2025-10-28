@@ -38,7 +38,7 @@ func (r *References[E]) setSerialized(v string) {
 	r.serialized = v
 }
 
-func (r References[E]) Len() int {
+func (r *References[E]) Len() int {
 	if r.unserialized == nil {
 		if r.serialized == "" {
 			return 0
@@ -52,12 +52,12 @@ func (r References[E]) Len() int {
 	return len(r.unserialized)
 }
 
-func (r References[E]) GetIDs() []uint64 {
+func (r *References[E]) GetIDs() []uint64 {
 	r.Len()
 	return r.unserialized
 }
 
-func (r References[E]) GetEntity(ctx Context, index int) *E {
+func (r *References[E]) GetEntity(ctx Context, index int) *E {
 	if index < 0 {
 		return nil
 	}
@@ -72,7 +72,7 @@ func (r References[E]) GetEntity(ctx Context, index int) *E {
 	return e
 }
 
-func (r References[E]) GetEntities(ctx Context) EntityIterator[E] {
+func (r *References[E]) GetEntities(ctx Context) EntityIterator[E] {
 	if r.Len() == 0 {
 		return &emptyResultsIterator[E]{}
 	}

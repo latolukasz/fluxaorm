@@ -11,7 +11,7 @@ import (
 func TestLocker(t *testing.T) {
 	registry := NewRegistry()
 	registry.RegisterRedis("localhost:6385", 15, DefaultPoolCode, nil)
-	validatedRegistry, err := registry.Validate()
+	validatedRegistry, err := registry.Validate(1)
 	assert.Nil(t, err)
 	orm := validatedRegistry.NewContext(context.Background())
 	orm.Engine().Redis(DefaultPoolCode).FlushDB(orm)

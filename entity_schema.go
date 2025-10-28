@@ -712,7 +712,7 @@ func (e *entitySchema) Option(key string) any {
 
 func (e *entitySchema) uuid(ctx Context) uint64 {
 	if e.hideID {
-		// TODO
+		return uuid()
 	}
 
 	r := ctx.Engine().Redis(e.getForcedRedisCode())

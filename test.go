@@ -28,7 +28,7 @@ func PrepareTables(t *testing.T, registry Registry, entities ...any) (orm Contex
 	registry.RegisterLocalCache(DefaultPoolCode, 0)
 
 	registry.RegisterEntity(entities...)
-	engine, err := registry.Validate()
+	engine, err := registry.Validate(1)
 	if err != nil {
 		if t != nil {
 			assert.NoError(t, err)

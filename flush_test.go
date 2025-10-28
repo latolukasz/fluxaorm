@@ -390,7 +390,7 @@ func testFlushInsert(t *testing.T, async, local, redis bool) {
 	newEntity.Reference = Reference[flushEntityReference](reference.ID)
 	newEntity.ReferenceRequired = Reference[flushEntityReference](reference.ID)
 	newEntity.TestJsons.Set(&flushStructJSON{"Hi", 12})
-	newEntity.References.SetIDs([]uint64{1, 2, 3, 4})
+	newEntity.References.SetIDs([]uint64{1, 2, reference.ID, reference2.ID})
 
 	for i := 0; i < 2; i++ {
 		newEntity.StringArray[i] = fmt.Sprintf("Test %d", i)
@@ -476,7 +476,7 @@ func testFlushInsert(t *testing.T, async, local, redis bool) {
 	assert.Equal(t, "Hi", entity.TestJsons.Get().A)
 	assert.Equal(t, uint64(12), entity.TestJsons.Get().B)
 	assert.Equal(t, 4, entity.References.Len())
-	assert.Equal(t, []uint64{1, 2, 3, 4}, entity.References.GetIDs())
+	assert.Equal(t, []uint64{1, 2, reference.ID, reference2.ID}, entity.References.GetIDs())
 	assert.Nil(t, entity.References.GetEntity(orm, 0))
 	assert.Nil(t, entity.References.GetEntity(orm, 1))
 	assert.NotNil(t, entity.References.GetEntity(orm, 2))
@@ -1220,7 +1220,7 @@ func TestFlushTransaction(t *testing.T) {
 	reference.Name = "test reference"
 	err := testFlush(orm, false)
 	assert.NoError(t, err)
-	assert.Len(t, loggerDB.Logs, 2)
+	assert.Len(t, loggerDB.Logs, 1)
 	loggerDB.Clear()
 
 	reference = NewEntity[flushEntityReference](orm)

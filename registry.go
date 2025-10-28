@@ -19,7 +19,7 @@ import (
 )
 
 type Registry interface {
-	Validate() (Engine, error)
+	Validate(serverID uint8) (Engine, error)
 	RegisterEntity(entity ...any)
 	RegisterPlugin(plugin ...any)
 	RegisterMySQL(dataSourceName string, poolCode string, poolOptions *MySQLOptions)
@@ -45,7 +45,7 @@ func NewRegistry() Registry {
 	return &registry{}
 }
 
-func (r *registry) Validate() (Engine, error) {
+func (r *registry) Validate(serverID uint8) (Engine, error) {
 	maxPoolLen := 0
 	e := &engineImplementation{}
 	e.registry = &engineRegistryImplementation{engine: e}
@@ -238,7 +238,7 @@ func (r *registry) Validate() (Engine, error) {
 	}
 	e.registry.redisStreamGroups = r.redisStreamGroups
 	e.registry.redisStreamPools = r.redisStreamPools
-
+	uuidServerID = uint64(serverID)
 	return e, nil
 }
 
