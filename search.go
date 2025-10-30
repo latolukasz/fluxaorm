@@ -267,12 +267,16 @@ func searchRow[E any](ctx Context, where Where) (entity *E, found bool) {
 	schema := getEntitySchema[E](ctx)
 	pool := schema.GetDB()
 	whereQuery := where.String()
-	if schema.hasFakeDelete && !where.(*BaseWhere).withDeletes {
-		whereQuery += " AND `FakeDelete` = 0"
-	}
 
 	if schema.hasLocalCache {
-		query := "SELECT ID FROM `" + schema.GetTableName() + "` WHERE " + whereQuery + " LIMIT 1"
+		query := "SELECT ID FROM `" + schema.GetTableName() + "` WHERE "
+		if schema.hasFakeDelete && !where.(*BaseWhere).withDeletes {
+			query += "`FakeDelete` = 0"
+			if whereQuery != "" {
+				query += " AND "
+			}
+		}
+		query += whereQuery + " LIMIT 1"
 		var id uint64
 		if pool.QueryRow(ctx, NewWhere(query, where.GetParameters()...), &id) {
 			return GetByID[E](ctx, id)
@@ -281,7 +285,14 @@ func searchRow[E any](ctx Context, where Where) (entity *E, found bool) {
 	}
 
 	/* #nosec */
-	query := "SELECT " + schema.fieldsQuery + " FROM `" + schema.GetTableName() + "` WHERE " + whereQuery + " LIMIT 1"
+	query := "SELECT " + schema.fieldsQuery + " FROM `" + schema.GetTableName() + "` WHERE "
+	if schema.hasFakeDelete && !where.(*BaseWhere).withDeletes {
+		query += "`FakeDelete` = 0"
+		if whereQuery != "" {
+			query += " AND "
+		}
+	}
+	query += whereQuery + " LIMIT 1"
 	pointers := prepareScan(schema)
 	found = pool.QueryRow(ctx, NewWhere(query, where.GetParameters()...), pointers...)
 	if !found {
@@ -304,10 +315,14 @@ func search[E any](ctx Context, where Where, pager *Pager, withCount bool) (resu
 	}
 	entities := make([]*E, 0)
 	whereQuery := where.String()
-	query := "SELECT " + schema.fieldsQuery + " FROM `" + schema.GetTableName() + "` WHERE " + whereQuery
+	query := "SELECT " + schema.fieldsQuery + " FROM `" + schema.GetTableName() + "` WHERE "
 	if schema.hasFakeDelete && !where.(*BaseWhere).withDeletes {
-		query += " AND `FakeDelete` = 0"
+		query += "`FakeDelete` = 0"
+		if whereQuery != "" {
+			query += " AND "
+		}
 	}
+	query += whereQuery
 	if pager != nil {
 		query += " " + pager.String()
 	}
@@ -343,10 +358,14 @@ func searchOne[E any](ctx Context, where Where) (*E, bool) {
 func searchIDs(ctx Context, schema EntitySchema, where Where, pager *Pager, withCount bool) (ids []uint64, total int) {
 	whereQuery := where.String()
 	/* #nosec */
-	query := "SELECT `ID` FROM `" + schema.GetTableName() + "` WHERE " + whereQuery
+	query := "SELECT `ID` FROM `" + schema.GetTableName() + "` WHERE "
 	if schema.(*entitySchema).hasFakeDelete && !where.(*BaseWhere).withDeletes {
-		query += " AND `FakeDelete` = 0"
+		query += "`FakeDelete` = 0"
+		if whereQuery != "" {
+			query += " AND "
+		}
 	}
+	query += whereQuery
 	if pager != nil {
 		query += " " + pager.String()
 	}
