@@ -27,6 +27,7 @@ type Context interface {
 	NewEntity(entity any)
 	EditEntity(entity any) any
 	DeleteEntity(entity any)
+	ForceDeleteEntity(entity any)
 	ClearCache()
 	EnableContextCache()
 	Flush()

@@ -8,10 +8,10 @@ import (
 )
 
 func EditEntityField(ctx Context, entity any, field string, value any) error {
-	return editEntityField(ctx, entity, field, value)
+	return editEntityField(ctx, entity, field, value, false)
 }
 
-func editEntityField(ctx Context, entity any, field string, value any) error {
+func editEntityField(ctx Context, entity any, field string, value any, fakeDelete bool) error {
 	schema := getEntitySchemaFromSource(ctx, entity)
 	setter, has := schema.fieldBindSetters[field]
 	if !has {
@@ -30,6 +30,13 @@ func editEntityField(ctx Context, entity any, field string, value any) error {
 		return nil
 	}
 	id := elem.Field(0).Uint()
+	if fakeDelete {
+		if newValue.(bool) {
+			newValue = id
+		} else {
+			newValue = 0
+		}
+	}
 	cImplementation := ctx.(*ormImplementation)
 	var asyncError error
 	func() {

@@ -1220,7 +1220,7 @@ func TestFlushTransaction(t *testing.T) {
 	reference.Name = "test reference"
 	err := testFlush(orm, false)
 	assert.NoError(t, err)
-	assert.Len(t, loggerDB.Logs, 1)
+	assert.Len(t, loggerDB.Logs, 2)
 	loggerDB.Clear()
 
 	reference = NewEntity[flushEntityReference](orm)

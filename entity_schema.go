@@ -90,6 +90,7 @@ type entitySchema struct {
 	archived                  bool
 	mysqlPoolCode             string
 	t                         reflect.Type
+	hasFakeDelete             bool
 	tSlice                    reflect.Type
 	fields                    *tableFields
 	engine                    Engine
@@ -306,6 +307,8 @@ func (e *entitySchema) init(registry *registry, entityType reflect.Type) error {
 	e.redisSearchFields = make(map[string]redisSearchIndexDefinition)
 	e.mapBindToScanPointer = mapBindToScanPointer{}
 	e.mapPointerToValue = mapPointerToValue{}
+	fakeDeleteField, foundFakeDeleteField := e.t.FieldByName("FakeDelete")
+	e.hasFakeDelete = foundFakeDeleteField && fakeDeleteField.Type.Kind() == reflect.Bool
 	e.mysqlPoolCode = e.getTag("mysql", "default", DefaultPoolCode)
 	_, has := registry.mysqlPools[e.mysqlPoolCode]
 	if !has {
@@ -427,7 +430,7 @@ func (e *entitySchema) init(registry *registry, entityType reflect.Type) error {
 		}
 	}
 
-	redisCode := e.getTag("redisSearch", "", "")
+	redisCode := e.getTag("redisSearch", DefaultPoolCode, "")
 	if redisCode != "" {
 		e.redisSearchIndexName = redisSearchIndexPrefix + e.tableName
 		_, has = registry.redisPools[redisCode]
@@ -956,7 +959,7 @@ func (e *entitySchema) Copy(ctx Context, source any) any {
 }
 
 func (e *entitySchema) EditEntityField(ctx Context, entity any, field string, value any) error {
-	return editEntityField(ctx, entity, field, value)
+	return editEntityField(ctx, entity, field, value, false)
 }
 
 func (e *entitySchema) EditEntity(ctx Context, source any) any {
@@ -1497,6 +1500,7 @@ func (e *entitySchema) buildStringSliceField(enumName string, attributes schemaF
 }
 
 func (e *entitySchema) buildBoolField(attributes schemaFieldAttributes) {
+	isFakeDelete := e.hasFakeDelete && attributes.GetColumnNames()[0] == "FakeDelete"
 	if attributes.IsArray {
 		attributes.Fields.booleansArray = append(attributes.Fields.booleansArray, attributes.Index)
 	} else {
@@ -1508,7 +1512,13 @@ func (e *entitySchema) buildBoolField(attributes schemaFieldAttributes) {
 		e.fieldBindSetters[columnName] = createBoolFieldBindSetter(columnName)
 		e.fieldDefinitions[columnName] = attributes
 		e.columnAttrToStringSetters[columnName] = createBoolAttrToStringSetter(e.fieldBindSetters[columnName])
-		e.fieldSetters[columnName] = createBoolFieldSetter(attributes, i)
+		if isFakeDelete {
+			e.fieldSetters[columnName] = func(v any, elem reflect.Value) {
+				getSetterField(elem, attributes, i).SetBool(v.(uint64) > 0)
+			}
+		} else {
+			e.fieldSetters[columnName] = createBoolFieldSetter(attributes, i)
+		}
 		e.fieldGetters[columnName] = createFieldGetter(attributes, false, i)
 	}
 }

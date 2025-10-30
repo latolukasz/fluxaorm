@@ -389,7 +389,25 @@ func createBoolFieldBindSetter(columnName string) func(v any) (any, error) {
 			}
 			return *b, nil
 		case int:
-			return v.(int) == 1, nil
+			return v.(int) > 0, nil
+		case uint:
+			return v.(uint) > 0, nil
+		case uint8:
+			return v.(uint8) > 0, nil
+		case uint16:
+			return v.(uint16) > 0, nil
+		case uint32:
+			return v.(uint32) > 0, nil
+		case uint64:
+			return v.(uint64) > 0, nil
+		case int8:
+			return v.(int8) > 0, nil
+		case int16:
+			return v.(int16) > 0, nil
+		case int32:
+			return v.(int32) > 0, nil
+		case int64:
+			return v.(int64) > 0, nil
 		case string:
 			s := strings.ToLower(v.(string))
 			return s == "true" || s == "1" || s == "yes", nil

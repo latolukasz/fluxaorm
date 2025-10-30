@@ -13,8 +13,9 @@ type Where interface {
 }
 
 type BaseWhere struct {
-	query      string
-	parameters []any
+	query       string
+	parameters  []any
+	withDeletes bool
 }
 
 func (w *BaseWhere) String() string {
@@ -23,6 +24,11 @@ func (w *BaseWhere) String() string {
 
 func (w *BaseWhere) SetParameter(index int, param any) *BaseWhere {
 	w.parameters[index-1] = param
+	return w
+}
+
+func (w *BaseWhere) WithFakeDeletes() *BaseWhere {
+	w.withDeletes = true
 	return w
 }
 
@@ -64,5 +70,5 @@ func NewWhere(query string, parameters ...any) *BaseWhere {
 		}
 		finalParameters = append(finalParameters, value)
 	}
-	return &BaseWhere{query, finalParameters}
+	return &BaseWhere{query, finalParameters, false}
 }

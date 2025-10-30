@@ -287,23 +287,47 @@ func newEntity(ctx Context, schema *entitySchema) any {
 }
 
 func DeleteEntity[E any](ctx Context, source *E) {
+	schema := getEntitySchema[E](ctx)
+	if schema.hasFakeDelete {
+		err := editEntityField(ctx, source, "FakeDelete", true, true)
+		if err != nil {
+			panic(err)
+		}
+		return
+	}
 	toRemove := &removableEntity{}
 	toRemove.ctx = ctx
 	toRemove.source = source
 	toRemove.value = reflect.ValueOf(source).Elem()
 	toRemove.id = toRemove.value.Field(0).Uint()
-	schema := getEntitySchema[E](ctx)
 	toRemove.schema = schema
 	ctx.trackEntity(toRemove)
 }
 
+func (orm *ormImplementation) ForceDeleteEntity(entity any) {
+	orm.deleteEntity(entity, true)
+}
+
 func (orm *ormImplementation) DeleteEntity(entity any) {
+	orm.deleteEntity(entity, false)
+}
+
+func (orm *ormImplementation) deleteEntity(entity any, force bool) {
+	schema := getEntitySchemaFromSource(orm, entity)
+	value := reflect.ValueOf(entity).Elem()
+	id := value.Field(0).Uint()
+	if schema.hasFakeDelete && !force {
+		err := editEntityField(orm, entity, "FakeDelete", true, true)
+		if err != nil {
+			panic(err)
+		}
+		return
+	}
 	toRemove := &removableEntity{}
 	toRemove.ctx = orm
 	toRemove.source = entity
-	toRemove.value = reflect.ValueOf(entity).Elem()
-	toRemove.id = toRemove.value.Field(0).Uint()
-	schema := getEntitySchemaFromSource(orm, entity)
+	toRemove.value = value
+	toRemove.id = id
 	toRemove.schema = schema
 	orm.trackEntity(toRemove)
 }

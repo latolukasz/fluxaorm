@@ -178,6 +178,32 @@ func getAllTables(db DBClient) []string {
 func getSchemaChanges(ctx Context, entitySchema *entitySchema) (preAlters, alters, postAlters []Alter) {
 	indexes := make(map[string]*IndexSchemaDefinition)
 	columns, err := checkStruct(ctx.Engine(), entitySchema, entitySchema.GetType(), indexes, nil, "", -1)
+
+	if entitySchema.hasFakeDelete {
+		hasFakeDeleteIndex := false
+		for _, indexDef := range indexes {
+			if indexDef.columnsMap[1] == "FakeDelete" {
+				hasFakeDeleteIndex = true
+			}
+			hasAnyFakeDeleteColumn := false
+			for _, column := range indexDef.columnsMap {
+				if column == "FakeDelete" {
+					hasAnyFakeDeleteColumn = true
+					break
+				}
+			}
+			if !hasAnyFakeDeleteColumn {
+				indexDef.columnsMap[len(indexDef.columnsMap)+1] = "FakeDelete"
+			}
+		}
+		if !hasFakeDeleteIndex {
+			indexes["FakeDelete"] = &IndexSchemaDefinition{
+				Name:       "FakeDelete",
+				columnsMap: map[int]string{1: "FakeDelete"},
+			}
+		}
+	}
+
 	checkError(err)
 	indexesSlice := make([]*IndexSchemaDefinition, 0)
 	for _, index := range indexes {
@@ -549,7 +575,12 @@ func checkColumn(engine Engine, schema *entitySchema, field *reflect.StructField
 		case "*uint16":
 			definition, addNotNullIfNotSet, defaultValue = handleInt(typeAsString, attributes, true)
 		case "bool":
-			definition, addNotNullIfNotSet, defaultValue = "tinyint(1)", true, "'0'"
+			if columnName == "FakeDelete" && prefix == "" {
+				idField, _ := schema.t.FieldByName("ID")
+				definition, addNotNullIfNotSet, defaultValue = handleInt(idField.Type.String(), schema.tags["ID"], false)
+			} else {
+				definition, addNotNullIfNotSet, defaultValue = "tinyint(1)", true, "'0'"
+			}
 		case "*bool":
 			definition, addNotNullIfNotSet, defaultValue = "tinyint(1)", false, "nil"
 		case "string":

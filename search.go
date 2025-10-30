@@ -267,6 +267,9 @@ func searchRow[E any](ctx Context, where Where) (entity *E, found bool) {
 	schema := getEntitySchema[E](ctx)
 	pool := schema.GetDB()
 	whereQuery := where.String()
+	if schema.hasFakeDelete && !where.(*BaseWhere).withDeletes {
+		whereQuery += " AND `FakeDelete` = 0"
+	}
 
 	if schema.hasLocalCache {
 		query := "SELECT ID FROM `" + schema.GetTableName() + "` WHERE " + whereQuery + " LIMIT 1"
@@ -302,6 +305,9 @@ func search[E any](ctx Context, where Where, pager *Pager, withCount bool) (resu
 	entities := make([]*E, 0)
 	whereQuery := where.String()
 	query := "SELECT " + schema.fieldsQuery + " FROM `" + schema.GetTableName() + "` WHERE " + whereQuery
+	if schema.hasFakeDelete && !where.(*BaseWhere).withDeletes {
+		query += " AND `FakeDelete` = 0"
+	}
 	if pager != nil {
 		query += " " + pager.String()
 	}
@@ -338,6 +344,9 @@ func searchIDs(ctx Context, schema EntitySchema, where Where, pager *Pager, with
 	whereQuery := where.String()
 	/* #nosec */
 	query := "SELECT `ID` FROM `" + schema.GetTableName() + "` WHERE " + whereQuery
+	if schema.(*entitySchema).hasFakeDelete && !where.(*BaseWhere).withDeletes {
+		query += " AND `FakeDelete` = 0"
+	}
 	if pager != nil {
 		query += " " + pager.String()
 	}

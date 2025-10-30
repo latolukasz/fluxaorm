@@ -121,8 +121,13 @@ func testLoadReferences(t *testing.T, local, redis bool) {
 		i++
 	}
 	assert.Len(t, loggerDB.Logs, 1)
-	assert.Len(t, loggerRedis.Logs, 0)
-	assert.Len(t, loggerLocal.Logs, 20)
+	if !local {
+		assert.Len(t, loggerRedis.Logs, 10)
+		assert.Len(t, loggerLocal.Logs, 0)
+	} else {
+		assert.Len(t, loggerRedis.Logs, 0)
+		assert.Len(t, loggerLocal.Logs, 20)
+	}
 	assert.Equal(t, 10, i)
 
 }

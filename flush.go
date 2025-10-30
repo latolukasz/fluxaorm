@@ -544,6 +544,19 @@ func (orm *ormImplementation) handleUpdates(async bool, schema *entitySchema, op
 		} else {
 			args = make([]any, len(newBind)+1)
 		}
+		if schema.hasFakeDelete {
+			v, has := newBind["FakeDelete"]
+			if has {
+				b, isBool := v.(bool)
+				if isBool {
+					if b {
+						newBind["FakeDelete"] = update.ID()
+					} else {
+						newBind["FakeDelete"] = uint64(0)
+					}
+				}
+			}
+		}
 		for column, value := range newBind {
 			if k > 0 {
 				sql += ","
@@ -634,20 +647,56 @@ func (orm *ormImplementation) handleUpdates(async bool, schema *entitySchema, op
 		}
 		rsPoolCode := schema.redisSearchIndexPoolCode
 		if rsPoolCode != "" {
-			rsPool := orm.RedisPipeLine(rsPoolCode)
-			values := make([]any, 0)
-			for column, def := range schema.redisSearchFields {
-				_, has := newBind[column]
+			managedByFakeDelete := false
+			if schema.hasFakeDelete {
+				v, has := newBind["FakeDelete"]
 				if has {
-					values = append(values, column)
-					values = append(values, def.convertBindToHashValue(newBind[column]))
+					managedByFakeDelete = true
+					rsPool := orm.RedisPipeLine(rsPoolCode)
+					if v.(uint64) > 0 {
+						if idAsString == "" {
+							idAsString = strconv.FormatUint(update.ID(), 10)
+						}
+						rsPool.Del(schema.redisSearchIndexPrefix + idAsString)
+					} else {
+						values := make([]any, 0)
+						bind := make(Bind)
+						err = fillBindFromOneSource(orm, bind, elem, schema.fields, "")
+						if err != nil {
+							return err
+						}
+						for column, def := range schema.redisSearchFields {
+							_, has := bind[column]
+							if has {
+								values = append(values, column)
+								values = append(values, def.convertBindToHashValue(bind[column]))
+							}
+						}
+						if len(values) > 0 {
+							if idAsString == "" {
+								idAsString = strconv.FormatUint(update.ID(), 10)
+							}
+							rsPool.HSet(schema.redisSearchIndexPrefix+idAsString, values...)
+						}
+					}
 				}
 			}
-			if len(values) > 0 {
-				if idAsString == "" {
-					idAsString = strconv.FormatUint(update.ID(), 10)
+			if !managedByFakeDelete {
+				rsPool := orm.RedisPipeLine(rsPoolCode)
+				values := make([]any, 0)
+				for column, def := range schema.redisSearchFields {
+					_, has := newBind[column]
+					if has {
+						values = append(values, column)
+						values = append(values, def.convertBindToHashValue(newBind[column]))
+					}
 				}
-				rsPool.HSet(schema.redisSearchIndexPrefix+idAsString, values...)
+				if len(values) > 0 {
+					if idAsString == "" {
+						idAsString = strconv.FormatUint(update.ID(), 10)
+					}
+					rsPool.HSet(schema.redisSearchIndexPrefix+idAsString, values...)
+				}
 			}
 		}
 
