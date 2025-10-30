@@ -29,7 +29,11 @@ func (r *registry) InitByYaml(yaml any) error {
 					return err
 				}
 			case "redis":
-				err = validateRedisURI(r, value, key)
+				asString, ok := value.(string)
+				if !ok {
+					return fmt.Errorf("redis uri '%v' is not valid", value)
+				}
+				err = validateRedisURI(r, asString, key)
 				if err != nil {
 					return err
 				}
@@ -75,6 +79,7 @@ func validateOrmMysqlURI(registry *registry, value any, key string) error {
 		switch k {
 		case "uri":
 			uri, err = validateOrmString(v, "uri")
+
 		case "connMaxLifetime":
 			connMaxLifetime, err := validateOrmInt(v, "connMaxLifetime")
 			if err != nil {
@@ -112,12 +117,8 @@ func validateOrmMysqlURI(registry *registry, value any, key string) error {
 	return nil
 }
 
-func validateRedisURI(registry *registry, value any, key string) error {
-	asString, ok := value.(string)
-	if !ok {
-		return fmt.Errorf("redis uri '%v' is not valid", value)
-	}
-	parts := strings.Split(asString, "?")
+func validateRedisURI(registry *registry, value string, key string) error {
+	parts := strings.Split(value, "?")
 	elements := strings.Split(parts[0], ":")
 	dbNumber := ""
 	uri := ""

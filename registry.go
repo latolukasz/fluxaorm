@@ -26,6 +26,7 @@ type Registry interface {
 	RegisterLocalCache(code string, limit int)
 	RegisterRedis(address string, db int, poolCode string, options *RedisOptions)
 	InitByYaml(yaml any) error
+	InitByConfig(config *Config) error
 	SetOption(key string, value any)
 	RegisterRedisStream(name string, redisPool string, groups []string)
 }
