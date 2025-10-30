@@ -88,6 +88,17 @@ func testGetByReference(t *testing.T, local, redis bool) {
 	assert.Equal(t, entities[0].Name, e.Name)
 	assert.Len(t, loggerDB.Logs, 1)
 
+	rows = GetByReference[getByReferenceEntity](orm, nil, "Ref", ref.ID)
+	assert.Equal(t, 10, rows.Len())
+
+	rows, total := GetByReferenceWithCount[getByReferenceEntity](orm, nil, "Ref", ref.ID)
+	assert.Equal(t, 10, rows.Len())
+	assert.Equal(t, 10, total)
+
+	rows, total = GetByReferenceWithCount[getByReferenceEntity](orm, NewPager(0, 0), "Ref", ref.ID)
+	assert.Equal(t, 0, rows.Len())
+	assert.Equal(t, 10, total)
+
 	loggerDB.Clear()
 	rows = GetByReference[getByReferenceEntity](orm, nil, "RefCached", ref.ID)
 	assert.Equal(t, 10, rows.Len())

@@ -18,5 +18,6 @@ func GetAll[E any](ctx Context) EntityIterator[E] {
 	if !schema.cacheAll {
 		return Search[E](ctx, allEntitiesWhere, nil)
 	}
-	return getCachedByReference[E](ctx, nil, cacheAllFakeReferenceKey, 0, schema)
+	iterator, _ := getCachedByReference[E](ctx, nil, cacheAllFakeReferenceKey, 0, schema, false)
+	return iterator
 }

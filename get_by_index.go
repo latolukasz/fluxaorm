@@ -66,22 +66,55 @@ func GetByIndex[E any](ctx Context, pager *Pager, indexName string, attributes .
 	if !def.Cached {
 		return Search[E](ctx, def.CreteWhere(hasNil, attributes), pager)
 	}
-	return getCachedByColumns[E](ctx, pager, indexName, def, schema, attributes, hasNil)
+	iterator, _ := getCachedByColumns[E](ctx, pager, indexName, def, schema, attributes, hasNil, false)
+	return iterator
 }
 
-func getCachedByColumns[E any](ctx Context, pager *Pager, indexName string, index indexDefinition, schema *entitySchema, attributes []any, hasNil bool) EntityIterator[E] {
+func GetByIndexWithCount[E any](ctx Context, pager *Pager, indexName string, attributes ...any) (res EntityIterator[E], total int) {
+	var e E
+	schema := ctx.(*ormImplementation).engine.registry.entitySchemas[reflect.TypeOf(e)]
+	if schema == nil {
+		panic(fmt.Errorf("entity '%T' is not registered", e))
+	}
+	def, has := schema.indexes[indexName]
+	if !has {
+		panic(fmt.Errorf("unknow index name `%s`", indexName))
+	}
+	if len(attributes) != len(def.Columns) {
+		panic(fmt.Errorf("invalid attributes length, %d is required, %d provided", len(def.Columns), len(attributes)))
+	}
+	hasNil := false
+	for i, attribute := range attributes {
+		if attribute == nil {
+			hasNil = true
+			continue
+		}
+		setter := schema.fieldBindSetters[def.Columns[i]]
+		bind, err := setter(attribute)
+		if err != nil {
+			panic(err)
+		}
+		attributes[i] = bind
+	}
+	if !def.Cached {
+		return SearchWithCount[E](ctx, def.CreteWhere(hasNil, attributes), pager)
+	}
+	return getCachedByColumns[E](ctx, pager, indexName, def, schema, attributes, hasNil, true)
+}
+
+func getCachedByColumns[E any](ctx Context, pager *Pager, indexName string, index indexDefinition, schema *entitySchema, attributes []any, hasNil, withTotal bool) (EntityIterator[E], int) {
 	bindID := hashIndexAttributes(attributes)
 	if schema.hasLocalCache {
 		fromCache, hasInCache := schema.localCache.getList(ctx, indexName, bindID)
 		if hasInCache {
 			if fromCache == cacheNilValue {
-				return &emptyResultsIterator[E]{}
+				return &emptyResultsIterator[E]{}, 0
 			}
 			ids := fromCache.([]uint64)
 			if pager != nil {
-				return GetByIDs[E](ctx, pager.paginateSlice(ids)...)
+				return GetByIDs[E](ctx, pager.paginateSlice(ids)...), len(ids)
 			}
-			return GetByIDs[E](ctx, ids...)
+			return GetByIDs[E](ctx, ids...), len(ids)
 		}
 	}
 	rc := ctx.Engine().Redis(schema.getForcedRedisCode())
@@ -106,7 +139,7 @@ func getCachedByColumns[E any](ctx Context, pager *Pager, indexName string, inde
 				if schema.hasLocalCache {
 					schema.localCache.setList(ctx, indexName, bindID, cacheNilValue)
 				}
-				return &emptyResultsIterator[E]{}
+				return &emptyResultsIterator[E]{}, 0
 			}
 			ids = ids[0:k]
 			slices.Sort(ids)
@@ -124,7 +157,7 @@ func getCachedByColumns[E any](ctx Context, pager *Pager, indexName string, inde
 					schema.localCache.setList(ctx, indexName, bindID, ids)
 				}
 			}
-			return values
+			return values, len(ids)
 		}
 	}
 	if schema.hasLocalCache {
@@ -132,7 +165,7 @@ func getCachedByColumns[E any](ctx Context, pager *Pager, indexName string, inde
 		if len(ids) == 0 {
 			schema.localCache.setList(ctx, indexName, bindID, cacheNilValue)
 			rc.SAdd(ctx, redisSetKey, cacheNilValue)
-			return &emptyResultsIterator[E]{}
+			return &emptyResultsIterator[E]{}, 0
 		}
 		idsForRedis := make([]any, len(ids))
 		for i, value := range ids {
@@ -151,9 +184,16 @@ func getCachedByColumns[E any](ctx Context, pager *Pager, indexName string, inde
 		}
 
 		schema.localCache.setList(ctx, indexName, bindID, ids)
-		return values
+		return values, len(ids)
 	}
-	values := Search[E](ctx, index.CreteWhere(hasNil, attributes), nil)
+	var values EntityIterator[E]
+	total := 0
+	if withTotal {
+		values, total = SearchWithCount[E](ctx, index.CreteWhere(hasNil, attributes), nil)
+	} else {
+		values = Search[E](ctx, index.CreteWhere(hasNil, attributes), nil)
+	}
+
 	if values.Len() == 0 {
 		rc.SAdd(ctx, redisSetKey, redisValidSetValue, cacheNilValue)
 	} else {
@@ -171,7 +211,7 @@ func getCachedByColumns[E any](ctx Context, pager *Pager, indexName string, inde
 		values.setIndex((pager.CurrentPage - 1) * pager.PageSize)
 	}
 
-	return values
+	return values, total
 }
 
 func hashIndexAttributes(attributes []any) uint64 {

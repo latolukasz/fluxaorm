@@ -75,6 +75,10 @@ func testGetByIndex(t *testing.T, local, redis bool) {
 	e := rows.Entity()
 	assert.Equal(t, entities[0].ID, e.ID)
 
+	rows, total := GetByIndexWithCount[getByIndexEntity](orm, nil, "Name", nil)
+	assert.Equal(t, 5, rows.Len())
+	assert.Equal(t, 5, total)
+
 	rows = GetByIndex[getByIndexEntity](orm, nil, "Name", "Test name")
 	assert.Equal(t, 3, rows.Len())
 	rows.Next()

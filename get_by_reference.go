@@ -25,20 +25,41 @@ func GetByReference[E any, I ID](ctx Context, pager *Pager, referenceName string
 	if !def.Cached {
 		return Search[E](ctx, NewWhere("`"+referenceName+"` = ?", id), pager)
 	}
-	return getCachedByReference[E](ctx, pager, referenceName, uint64(id), schema)
+	iterator, _ := getCachedByReference[E](ctx, pager, referenceName, uint64(id), schema, false)
+	return iterator
 }
 
-func getCachedByReference[E any](ctx Context, pager *Pager, key string, id uint64, schema *entitySchema) EntityIterator[E] {
+func GetByReferenceWithCount[E any, I ID](ctx Context, pager *Pager, referenceName string, id I) (ret EntityIterator[E], total int) {
+	if id == 0 {
+		return nil, 0
+	}
+	var e E
+	schema := ctx.(*ormImplementation).engine.registry.entitySchemas[reflect.TypeOf(e)]
+	if schema == nil {
+		panic(fmt.Errorf("entity '%T' is not registered", e))
+	}
+	def, has := schema.references[referenceName]
+	if !has {
+		panic(fmt.Errorf("unknow reference name `%s`", referenceName))
+	}
+	if !def.Cached {
+		return SearchWithCount[E](ctx, NewWhere("`"+referenceName+"` = ?", id), pager)
+	}
+	return getCachedByReference[E](ctx, pager, referenceName, uint64(id), schema, true)
+}
+
+func getCachedByReference[E any](ctx Context, pager *Pager, key string, id uint64, schema *entitySchema, withTotal bool) (EntityIterator[E], int) {
 	if schema.hasLocalCache {
 		fromCache, hasInCache := schema.localCache.getList(ctx, key, id)
 		if hasInCache {
 			if fromCache == cacheNilValue {
-				return &emptyResultsIterator[E]{}
+				return &emptyResultsIterator[E]{}, 9
 			}
 			if pager != nil {
-				return GetByIDs[E](ctx, pager.paginateSlice(fromCache.([]uint64))...)
+				return GetByIDs[E](ctx, pager.paginateSlice(fromCache.([]uint64))...), len(fromCache.([]uint64))
 			}
-			return GetByIDs[E](ctx, fromCache.([]uint64)...)
+			asIDs := fromCache.([]uint64)
+			return GetByIDs[E](ctx, asIDs...), len(asIDs)
 		}
 	}
 	rc := ctx.Engine().Redis(schema.getForcedRedisCode())
@@ -67,7 +88,7 @@ func getCachedByReference[E any](ctx Context, pager *Pager, key string, id uint6
 				if schema.hasLocalCache {
 					schema.localCache.setList(ctx, key, id, cacheNilValue)
 				}
-				return &emptyResultsIterator[E]{}
+				return &emptyResultsIterator[E]{}, 0
 			}
 			ids = ids[0:k]
 			slices.Sort(ids)
@@ -84,7 +105,7 @@ func getCachedByReference[E any](ctx Context, pager *Pager, key string, id uint6
 					schema.localCache.setList(ctx, key, id, ids)
 				}
 			}
-			return values
+			return values, len(ids)
 		}
 	}
 	if schema.hasLocalCache {
@@ -98,7 +119,7 @@ func getCachedByReference[E any](ctx Context, pager *Pager, key string, id uint6
 		if len(ids) == 0 {
 			schema.localCache.setList(ctx, key, id, cacheNilValue)
 			rc.SAdd(ctx, redisSetKey, cacheNilValue)
-			return &emptyResultsIterator[E]{}
+			return &emptyResultsIterator[E]{}, 0
 		}
 		idsForRedis := make([]any, len(ids))
 		for i, value := range ids {
@@ -116,7 +137,7 @@ func getCachedByReference[E any](ctx Context, pager *Pager, key string, id uint6
 			values = GetByIDs[E](ctx, ids...)
 		}
 		schema.localCache.setList(ctx, key, id, ids)
-		return values
+		return values, len(ids)
 	}
 	var where Where
 	if id > 0 {
@@ -124,7 +145,14 @@ func getCachedByReference[E any](ctx Context, pager *Pager, key string, id uint6
 	} else {
 		where = allEntitiesWhere
 	}
-	values := Search[E](ctx, where, nil)
+	var values EntityIterator[E]
+	var total int
+	if withTotal {
+		values, total = SearchWithCount[E](ctx, where, nil)
+	} else {
+		values = Search[E](ctx, where, nil)
+	}
+
 	if values.Len() == 0 {
 		rc.SAdd(ctx, redisSetKey, redisValidSetValue, cacheNilValue)
 	} else {
@@ -141,5 +169,5 @@ func getCachedByReference[E any](ctx Context, pager *Pager, key string, id uint6
 	if pager != nil {
 		values.setIndex((pager.CurrentPage - 1) * pager.PageSize)
 	}
-	return values
+	return values, total
 }

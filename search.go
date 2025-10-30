@@ -327,6 +327,11 @@ func search[E any](ctx Context, where Where, pager *Pager, withCount bool) (resu
 		query += " " + pager.String()
 	}
 	pool := schema.GetDB()
+
+	if withCount && pager != nil && pager.PageSize == 0 {
+		totalRows = getTotalRows(ctx, withCount, pager, where, schema, 0)
+		return &emptyResultsIterator[E]{}, totalRows
+	}
 	queryResults, def := pool.Query(ctx, query, where.GetParameters()...)
 	defer def()
 
