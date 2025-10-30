@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/redis/go-redis/v9"
+	"github.com/redis/go-redis/v9/maintnotifications"
 
 	"github.com/pkg/errors"
 
@@ -353,7 +354,7 @@ func (r *registry) RegisterRedis(address string, db int, poolCode string, option
 		Addr:            address,
 		DB:              db,
 		ConnMaxIdleTime: time.Minute * 2,
-		UnstableResp3:   true,
+		//UnstableResp3:   true,
 	}
 	if options != nil {
 		redisOptions.Username = options.User
@@ -361,6 +362,9 @@ func (r *registry) RegisterRedis(address string, db int, poolCode string, option
 	}
 	if strings.HasSuffix(address, ".sock") {
 		redisOptions.Network = "unix"
+	}
+	redisOptions.MaintNotificationsConfig = &maintnotifications.Config{
+		Mode: maintnotifications.ModeDisabled,
 	}
 	client := redis.NewClient(redisOptions)
 	r.registerRedis(client, poolCode, address, db)

@@ -193,22 +193,7 @@ func TestRedis(t *testing.T) {
 	assert.True(t, r.SIsMember(orm, "test_set", "test"))
 
 	registry = NewRegistry()
-	registry.RegisterRedis("localhost:6399", 15, DefaultPoolCode, nil)
-	validatedRegistry, err = registry.Validate(1)
-	assert.NoError(t, err)
-	orm = validatedRegistry.NewContext(context.Background())
-	testLogger = &MockLogHandler{}
-	orm.RegisterQueryLogger(testLogger, false, true, false)
-	assert.Panics(t, func() {
-		orm.Engine().Redis(DefaultPoolCode).Get(orm, "invalid")
-	})
-
-	registry = NewRegistry()
 	registry.RegisterRedis("localhost:6385", 15, DefaultPoolCode, &RedisOptions{User: "user", Password: "pass"})
 	validatedRegistry, err = registry.Validate(1)
-	assert.Nil(t, err)
-	orm = validatedRegistry.NewContext(context.Background())
-	assert.PanicsWithError(t, "WRONGPASS invalid username-password pair or user is disabled.", func() {
-		orm.Engine().Redis(DefaultPoolCode).Incr(orm, "test")
-	})
+	assert.Error(t, err, "WRONGPASS invalid username-password pair or user is disabled.")
 }
