@@ -185,57 +185,57 @@ func (e *entitySchema) createRedisSearchIndexDefinition(indexName string) string
 	return query
 }
 
-type RedisSearchOptions struct {
-	Pager   *Pager
+type RedisSearchQuery struct {
+	Query   string
 	SortBy  []RedisSearchSortBy
 	Filters []RedisSearchFilter
 	Tags    string
 }
 
-func (s *RedisSearchOptions) AddSortBy(fieldName string, desc bool) {
-	s.SortBy = append(s.SortBy, RedisSearchSortBy{fieldName, desc})
+func (q *RedisSearchQuery) AddSortBy(fieldName string, desc bool) {
+	q.SortBy = append(q.SortBy, RedisSearchSortBy{fieldName, desc})
 }
 
-func (s *RedisSearchOptions) AddFilterTag(fieldName string, tag ...string) {
+func (q *RedisSearchQuery) AddFilterTag(fieldName string, tag ...string) {
 	if len(tag) == 0 {
 		return
 	}
-	if s.Tags != "" {
-		s.Tags += " "
+	if q.Tags != "" {
+		q.Tags += " "
 	}
-	s.Tags += "@" + fieldName + fmt.Sprintf(":{%s}", strings.Join(tag, "|"))
+	q.Tags += "@" + fieldName + fmt.Sprintf(":{%s}", strings.Join(tag, "|"))
 }
 
-func (s *RedisSearchOptions) AddFilterBoolean(fieldName string, value bool) {
+func (q *RedisSearchQuery) AddFilterBoolean(fieldName string, value bool) {
 	if value {
-		s.AddFilterTag(fieldName, "1")
+		q.AddFilterTag(fieldName, "1")
 	} else {
-		s.AddFilterTag(fieldName, "0")
+		q.AddFilterTag(fieldName, "0")
 	}
 }
 
-func (s *RedisSearchOptions) AddFilterNumberRange(fieldName string, min, max int64) {
-	s.Filters = append(s.Filters, RedisSearchFilter{fieldName, min, max})
+func (q *RedisSearchQuery) AddFilterNumberRange(fieldName string, min, max int64) {
+	q.Filters = append(q.Filters, RedisSearchFilter{fieldName, min, max})
 }
 
-func (s *RedisSearchOptions) AddFilterNumber(fieldName string, value int64) {
-	s.Filters = append(s.Filters, RedisSearchFilter{fieldName, value, value})
+func (q *RedisSearchQuery) AddFilterNumber(fieldName string, value int64) {
+	q.Filters = append(q.Filters, RedisSearchFilter{fieldName, value, value})
 }
 
-func (s *RedisSearchOptions) AddFilterNumberGreaterEqual(fieldName string, value int64) {
-	s.Filters = append(s.Filters, RedisSearchFilter{fieldName, value, nil})
+func (q *RedisSearchQuery) AddFilterNumberGreaterEqual(fieldName string, value int64) {
+	q.Filters = append(q.Filters, RedisSearchFilter{fieldName, value, nil})
 }
 
-func (s *RedisSearchOptions) AddFilterNumberLessEqual(fieldName string, value int64) {
-	s.Filters = append(s.Filters, RedisSearchFilter{fieldName, nil, value})
+func (q *RedisSearchQuery) AddFilterNumberLessEqual(fieldName string, value int64) {
+	q.Filters = append(q.Filters, RedisSearchFilter{fieldName, nil, value})
 }
 
-func (s *RedisSearchOptions) AddFilterDateRange(fieldName string, min, max time.Time) {
-	s.Filters = append(s.Filters, RedisSearchFilter{fieldName, min, max})
+func (q *RedisSearchQuery) AddFilterDateRange(fieldName string, min, max time.Time) {
+	q.Filters = append(q.Filters, RedisSearchFilter{fieldName, min, max})
 }
 
-func (s *RedisSearchOptions) AddFilterDate(fieldName string, value time.Time) {
-	s.Filters = append(s.Filters, RedisSearchFilter{fieldName, value, value})
+func (q *RedisSearchQuery) AddFilterDate(fieldName string, value time.Time) {
+	q.Filters = append(q.Filters, RedisSearchFilter{fieldName, value, value})
 }
 
 type RedisSearchSortBy struct {
@@ -249,12 +249,12 @@ type RedisSearchFilter struct {
 	Max       any
 }
 
-func RedisSearchIDs[E any](ctx Context, query string, options *RedisSearchOptions) (results []uint64, totalRows int) {
-	return redisSearchIDs(ctx, GetEntitySchema[E](ctx), query, options)
+func RedisSearchIDs[E any](ctx Context, query *RedisSearchQuery, pager *Pager) (results []uint64, totalRows int) {
+	return redisSearchIDs(ctx, GetEntitySchema[E](ctx), query, pager)
 }
 
-func RedisSearch[E any](ctx Context, query string, options *RedisSearchOptions) (results EntityIterator[E], totalRows int) {
-	ids, totalRows := redisSearchIDs(ctx, GetEntitySchema[E](ctx), query, options)
+func RedisSearch[E any](ctx Context, query *RedisSearchQuery, pager *Pager) (results EntityIterator[E], totalRows int) {
+	ids, totalRows := redisSearchIDs(ctx, GetEntitySchema[E](ctx), query, pager)
 	schema := getEntitySchema[E](ctx)
 	if schema.hasLocalCache {
 		if totalRows == 0 {
@@ -265,12 +265,11 @@ func RedisSearch[E any](ctx Context, query string, options *RedisSearchOptions) 
 	return GetByIDs[E](ctx, ids...), totalRows
 }
 
-func RedisSearchOne[E any](ctx Context, query string, options *RedisSearchOptions) (entity *E, found bool) {
-	if options == nil {
-		options = &RedisSearchOptions{}
+func RedisSearchOne[E any](ctx Context, query *RedisSearchQuery) (entity *E, found bool) {
+	if query == nil {
+		query = &RedisSearchQuery{}
 	}
-	options.Pager = NewPager(1, 1)
-	ids, total := RedisSearchIDs[E](ctx, query, options)
+	ids, total := RedisSearchIDs[E](ctx, query, NewPager(1, 1))
 	if total == 0 {
 		return nil, false
 	}
@@ -353,7 +352,7 @@ func (e *entitySchema) ReindexRedisIndex(ctx Context) {
 	}
 }
 
-func redisSearchIDs(ctx Context, schema EntitySchema, query string, options *RedisSearchOptions) (ids []uint64, total int) {
+func redisSearchIDs(ctx Context, schema EntitySchema, query *RedisSearchQuery, pager *Pager) (ids []uint64, total int) {
 	indexName := schema.GetRedisSearchIndexName()
 	if indexName == "" {
 		panic(fmt.Errorf("entity %s is not searchable by Redis Search", schema.GetType().Name()))
@@ -363,12 +362,16 @@ func redisSearchIDs(ctx Context, schema EntitySchema, query string, options *Red
 	searchOptions := &redis.FTSearchOptions{
 		NoContent: true,
 	}
-	if options != nil {
-		if options.Pager != nil {
-			searchOptions.LimitOffset = (options.Pager.GetCurrentPage() - 1) * options.Pager.GetPageSize()
-			searchOptions.Limit = options.Pager.GetPageSize()
+	q := "*"
+	if query != nil {
+		if query.Query != "" {
+			q = query.Query
 		}
-		for _, sortOption := range options.SortBy {
+		if pager != nil {
+			searchOptions.LimitOffset = (pager.GetCurrentPage() - 1) * pager.GetPageSize()
+			searchOptions.Limit = pager.GetPageSize()
+		}
+		for _, sortOption := range query.SortBy {
 			sortBy := redis.FTSearchSortBy{FieldName: sortOption.FieldName}
 			if sortOption.Desc {
 				sortBy.Desc = true
@@ -377,7 +380,7 @@ func redisSearchIDs(ctx Context, schema EntitySchema, query string, options *Red
 			}
 			searchOptions.SortBy = append(searchOptions.SortBy, sortBy)
 		}
-		for _, filter := range options.Filters {
+		for _, filter := range query.Filters {
 			fieldDef, valid := schema.(*entitySchema).fieldDefinitions[filter.FieldName]
 			if !valid {
 				panic(fmt.Errorf("field %s is not searchable by Redis Search", filter.FieldName))
@@ -411,13 +414,13 @@ func redisSearchIDs(ctx Context, schema EntitySchema, query string, options *Red
 				}
 			}
 			if isDragonFlyDB {
-				if query == "*" {
-					query = ""
+				if q == "*" {
+					q = ""
 				}
-				if query != "" {
-					query += " "
+				if q != "" {
+					q += " "
 				}
-				query += "@" + filter.FieldName + fmt.Sprintf(":[%v %v]", minV, maxV)
+				q += "@" + filter.FieldName + fmt.Sprintf(":[%v %v]", minV, maxV)
 			} else {
 				searchOptions.Filters = append(searchOptions.Filters, redis.FTSearchFilter{
 					FieldName: filter.FieldName,
@@ -426,18 +429,21 @@ func redisSearchIDs(ctx Context, schema EntitySchema, query string, options *Red
 				})
 			}
 		}
-		if options.Tags != "" {
-			if query == "*" {
-				query = ""
+		if query.Tags != "" {
+			if q == "*" {
+				q = ""
 			}
-			if query != "" {
-				query += " "
+			if q != "" {
+				q += " "
 			}
-			query += options.Tags
+			q += query.Tags
 		}
+	} else if pager != nil {
+		searchOptions.LimitOffset = (pager.GetCurrentPage() - 1) * pager.GetPageSize()
+		searchOptions.Limit = pager.GetPageSize()
 	}
 
-	res := r.FTSearch(ctx, indexName, query, searchOptions)
+	res := r.FTSearch(ctx, indexName, q, searchOptions)
 	total = res.Total
 	if total == 0 {
 		return []uint64{}, total

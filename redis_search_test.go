@@ -101,14 +101,14 @@ func TestRedisSearch(t *testing.T) {
 	assert.NotNil(t, res)
 	assert.Equal(t, 9, res.Total)
 
-	options := &RedisSearchOptions{}
-	options.AddFilterNumber("Age", 1)
-	_, found := RedisSearchOne[redisSearchEntity](orm, "*", options)
+	query := &RedisSearchQuery{}
+	query.AddFilterNumber("Age", 1)
+	_, found := RedisSearchOne[redisSearchEntity](orm, query)
 	assert.False(t, found)
 
-	options = &RedisSearchOptions{}
-	options.AddSortBy("Age", false)
-	retIds, total := RedisSearchIDs[redisSearchEntity](orm, "*", options)
+	query = &RedisSearchQuery{}
+	query.AddSortBy("Age", false)
+	retIds, total := RedisSearchIDs[redisSearchEntity](orm, query, nil)
 	assert.Equal(t, 9, total)
 	assert.Len(t, retIds, 9)
 	for i := 1; i < 10; i++ {
@@ -120,14 +120,14 @@ func TestRedisSearch(t *testing.T) {
 	e.Age = 100
 	assert.NoError(t, orm.FlushWithCheck())
 
-	options = &RedisSearchOptions{}
-	options.AddFilterNumber("Age", 100)
-	e, found = RedisSearchOne[redisSearchEntity](orm, "*", options)
+	query = &RedisSearchQuery{}
+	query.AddFilterNumber("Age", 100)
+	e, found = RedisSearchOne[redisSearchEntity](orm, query)
 	assert.True(t, found)
 	assert.Equal(t, fmt.Sprintf("name %d", ids[1]), e.Name)
 
 	assert.PanicsWithError(t, "entity redisSearchEntityReference is not searchable by Redis Search", func() {
-		RedisSearchIDs[redisSearchEntityReference](orm, "*", nil)
+		RedisSearchIDs[redisSearchEntityReference](orm, query, nil)
 	})
 
 }
@@ -143,44 +143,43 @@ func testRedisSearchResults(t *testing.T, r RedisCache, orm Context, schema Enti
 	res := r.FTSearch(orm, schema.GetRedisSearchIndexName(), "*", &redis.FTSearchOptions{NoContent: true})
 	assert.NotNil(t, res)
 	assert.Equal(t, 10, res.Total)
-	options := &RedisSearchOptions{}
-	options.AddSortBy("Age", false)
-	retIds, total := RedisSearchIDs[redisSearchEntity](orm, "*", options)
+	query := &RedisSearchQuery{}
+	query.AddSortBy("Age", false)
+	retIds, total := RedisSearchIDs[redisSearchEntity](orm, query, nil)
 	assert.Equal(t, 10, total)
 	assert.Len(t, retIds, 10)
 	for i, id := range ids {
 		assert.Equal(t, id, retIds[i])
 	}
 
-	options = &RedisSearchOptions{
-		Pager: NewPager(1, 5),
-	}
-	options.AddSortBy("Age", false)
-	retIds, total = RedisSearchIDs[redisSearchEntity](orm, "*", options)
+	query = &RedisSearchQuery{}
+	query.AddSortBy("Age", false)
+	pager := NewPager(1, 5)
+	retIds, total = RedisSearchIDs[redisSearchEntity](orm, nil, pager)
 	assert.Equal(t, 10, total)
 	assert.Len(t, retIds, 5)
 	for i, id := range ids[0:5] {
 		assert.Equal(t, id, retIds[i])
 	}
-	options.Pager.IncrementPage()
-	retIds, total = RedisSearchIDs[redisSearchEntity](orm, "*", options)
+	pager.IncrementPage()
+	retIds, total = RedisSearchIDs[redisSearchEntity](orm, query, pager)
 	assert.Equal(t, 10, total)
 	assert.Len(t, retIds, 5)
 	for i, id := range ids[5:] {
 		assert.Equal(t, id, retIds[i])
 	}
 
-	options = &RedisSearchOptions{}
-	options.AddSortBy("Age", false)
-	retIds, total = RedisSearchIDs[redisSearchEntity](orm, "*", options)
+	query = &RedisSearchQuery{}
+	query.AddSortBy("Age", false)
+	retIds, total = RedisSearchIDs[redisSearchEntity](orm, query, nil)
 	assert.Equal(t, 10, total)
 	assert.Len(t, retIds, 10)
 	for i, id := range ids {
 		assert.Equal(t, id, retIds[i])
 	}
-	options = &RedisSearchOptions{}
-	options.AddSortBy("Age", true)
-	retIds, total = RedisSearchIDs[redisSearchEntity](orm, "*", options)
+	query = &RedisSearchQuery{}
+	query.AddSortBy("Age", true)
+	retIds, total = RedisSearchIDs[redisSearchEntity](orm, query, nil)
 	assert.Equal(t, 10, total)
 	assert.Len(t, retIds, 10)
 	k := 0
@@ -188,10 +187,10 @@ func testRedisSearchResults(t *testing.T, r RedisCache, orm Context, schema Enti
 		assert.Equal(t, ids[i], retIds[k])
 		k++
 	}
-	options = &RedisSearchOptions{}
-	options.AddFilterNumberGreaterEqual("Age", 8)
-	options.AddSortBy("Age", false)
-	retIds, total = RedisSearchIDs[redisSearchEntity](orm, "*", options)
+	query = &RedisSearchQuery{}
+	query.AddFilterNumberGreaterEqual("Age", 8)
+	query.AddSortBy("Age", false)
+	retIds, total = RedisSearchIDs[redisSearchEntity](orm, query, nil)
 	assert.Equal(t, 3, total)
 	assert.Len(t, retIds, 3)
 	k = 0
@@ -199,10 +198,10 @@ func testRedisSearchResults(t *testing.T, r RedisCache, orm Context, schema Enti
 		assert.Equal(t, ids[i], retIds[k])
 		k++
 	}
-	options = &RedisSearchOptions{}
-	options.AddFilterNumberLessEqual("Age", 3)
-	options.AddSortBy("Age", false)
-	retIds, total = RedisSearchIDs[redisSearchEntity](orm, "*", options)
+	query = &RedisSearchQuery{}
+	query.AddFilterNumberLessEqual("Age", 3)
+	query.AddSortBy("Age", false)
+	retIds, total = RedisSearchIDs[redisSearchEntity](orm, query, nil)
 	assert.Equal(t, 3, total)
 	assert.Len(t, retIds, 3)
 	k = 0
@@ -211,10 +210,10 @@ func testRedisSearchResults(t *testing.T, r RedisCache, orm Context, schema Enti
 		k++
 	}
 
-	options = &RedisSearchOptions{}
-	options.AddFilterNumberRange("Age", 3, 5)
-	options.AddSortBy("Age", false)
-	retIds, total = RedisSearchIDs[redisSearchEntity](orm, "*", options)
+	query = &RedisSearchQuery{}
+	query.AddFilterNumberRange("Age", 3, 5)
+	query.AddSortBy("Age", false)
+	retIds, total = RedisSearchIDs[redisSearchEntity](orm, query, nil)
 	assert.Equal(t, 3, total)
 	assert.Len(t, retIds, 3)
 	k = 0
@@ -223,16 +222,17 @@ func testRedisSearchResults(t *testing.T, r RedisCache, orm Context, schema Enti
 		k++
 	}
 
-	options = &RedisSearchOptions{}
-	retIds, total = RedisSearchIDs[redisSearchEntity](orm, fmt.Sprintf("name %d", ids[7]), options)
+	query = &RedisSearchQuery{}
+	query.Query = fmt.Sprintf("name %d", ids[7])
+	retIds, total = RedisSearchIDs[redisSearchEntity](orm, query, nil)
 	assert.Equal(t, 1, total)
 	assert.Len(t, retIds, 1)
 	assert.Equal(t, ids[7], retIds[0])
 
-	options = &RedisSearchOptions{}
-	options.AddFilterNumberLessEqual("Age", 3)
-	options.AddSortBy("Age", false)
-	retIds, total = RedisSearchIDs[redisSearchEntity](orm, "*", options)
+	query = &RedisSearchQuery{}
+	query.AddFilterNumberLessEqual("Age", 3)
+	query.AddSortBy("Age", false)
+	retIds, total = RedisSearchIDs[redisSearchEntity](orm, query, nil)
 	assert.Equal(t, 3, total)
 	assert.Len(t, retIds, 3)
 	k = 0
@@ -241,10 +241,10 @@ func testRedisSearchResults(t *testing.T, r RedisCache, orm Context, schema Enti
 		k++
 	}
 
-	options = &RedisSearchOptions{}
-	options.AddFilterDateRange("Born", now.AddDate(0, 0, 3), now.AddDate(0, 0, 5))
-	options.AddSortBy("Age", false)
-	retIds, total = RedisSearchIDs[redisSearchEntity](orm, "*", options)
+	query = &RedisSearchQuery{}
+	query.AddFilterDateRange("Born", now.AddDate(0, 0, 3), now.AddDate(0, 0, 5))
+	query.AddSortBy("Age", false)
+	retIds, total = RedisSearchIDs[redisSearchEntity](orm, query, nil)
 	assert.Equal(t, 3, total)
 	assert.Len(t, retIds, 3)
 	k = 0
@@ -253,10 +253,10 @@ func testRedisSearchResults(t *testing.T, r RedisCache, orm Context, schema Enti
 		k++
 	}
 
-	options = &RedisSearchOptions{}
-	options.AddFilterDateRange("Created", now.Add(time.Hour*6*3), now.Add(time.Hour*6*5))
-	options.AddSortBy("Age", false)
-	retIds, total = RedisSearchIDs[redisSearchEntity](orm, "*", options)
+	query = &RedisSearchQuery{}
+	query.AddFilterDateRange("Created", now.Add(time.Hour*6*3), now.Add(time.Hour*6*5))
+	query.AddSortBy("Age", false)
+	retIds, total = RedisSearchIDs[redisSearchEntity](orm, query, nil)
 	assert.Equal(t, 3, total)
 	assert.Len(t, retIds, 3)
 	k = 0
@@ -265,10 +265,10 @@ func testRedisSearchResults(t *testing.T, r RedisCache, orm Context, schema Enti
 		k++
 	}
 
-	options = &RedisSearchOptions{}
-	options.AddSortBy("Age", false)
-	options.AddFilterTag("EnumNotNull", "b", "c")
-	retIds, total = RedisSearchIDs[redisSearchEntity](orm, "*", options)
+	query = &RedisSearchQuery{}
+	query.AddSortBy("Age", false)
+	query.AddFilterTag("EnumNotNull", "b", "c")
+	retIds, total = RedisSearchIDs[redisSearchEntity](orm, query, nil)
 	assert.Equal(t, 7, total)
 	assert.Len(t, retIds, 7)
 	k = 0
@@ -277,10 +277,10 @@ func testRedisSearchResults(t *testing.T, r RedisCache, orm Context, schema Enti
 		k++
 	}
 
-	options = &RedisSearchOptions{}
-	options.AddSortBy("Age", false)
-	options.AddFilterTag("EnumSet", "a")
-	retIds, total = RedisSearchIDs[redisSearchEntity](orm, "", options)
+	query = &RedisSearchQuery{}
+	query.AddSortBy("Age", false)
+	query.AddFilterTag("EnumSet", "a")
+	retIds, total = RedisSearchIDs[redisSearchEntity](orm, query, nil)
 	assert.Equal(t, 7, total)
 	assert.Len(t, retIds, 7)
 	k = 0
@@ -288,17 +288,17 @@ func testRedisSearchResults(t *testing.T, r RedisCache, orm Context, schema Enti
 		assert.Equal(t, ids[i], retIds[k])
 		k++
 	}
-	options = &RedisSearchOptions{}
-	options.AddSortBy("Age", false)
-	options.AddFilterTag("EnumSet", "a", "b")
-	retIds, total = RedisSearchIDs[redisSearchEntity](orm, "", options)
+	query = &RedisSearchQuery{}
+	query.AddSortBy("Age", false)
+	query.AddFilterTag("EnumSet", "a", "b")
+	retIds, total = RedisSearchIDs[redisSearchEntity](orm, query, nil)
 	assert.Equal(t, 10, total)
 	assert.Len(t, retIds, 10)
-	options = &RedisSearchOptions{}
-	options.AddSortBy("Age", false)
-	options.AddFilterTag("EnumSet", "a")
-	options.AddFilterTag("EnumSet", "b")
-	retIds, total = RedisSearchIDs[redisSearchEntity](orm, "", options)
+	query = &RedisSearchQuery{}
+	query.AddSortBy("Age", false)
+	query.AddFilterTag("EnumSet", "a")
+	query.AddFilterTag("EnumSet", "b")
+	retIds, total = RedisSearchIDs[redisSearchEntity](orm, query, nil)
 	assert.Equal(t, 3, total)
 	assert.Len(t, retIds, 3)
 	k = 0
@@ -307,10 +307,10 @@ func testRedisSearchResults(t *testing.T, r RedisCache, orm Context, schema Enti
 		k++
 	}
 
-	options = &RedisSearchOptions{}
-	options.AddSortBy("Age", false)
-	options.AddFilterBoolean("Active", true)
-	retIds, total = RedisSearchIDs[redisSearchEntity](orm, "", options)
+	query = &RedisSearchQuery{}
+	query.AddSortBy("Age", false)
+	query.AddFilterBoolean("Active", true)
+	retIds, total = RedisSearchIDs[redisSearchEntity](orm, query, nil)
 	assert.Equal(t, 4, total)
 	assert.Len(t, retIds, 4)
 	k = 0
@@ -318,16 +318,18 @@ func testRedisSearchResults(t *testing.T, r RedisCache, orm Context, schema Enti
 		assert.Equal(t, ids[i], retIds[k])
 		k++
 	}
-	options = &RedisSearchOptions{}
-	options.AddSortBy("Age", false)
-	options.AddFilterBoolean("Active", false)
-	retIds, total = RedisSearchIDs[redisSearchEntity](orm, "@Active:{0}", options)
+	query = &RedisSearchQuery{}
+	query.AddSortBy("Age", false)
+	query.AddFilterBoolean("Active", false)
+	query.Query = "@Active:{0}"
+	retIds, total = RedisSearchIDs[redisSearchEntity](orm, query, nil)
 	assert.Equal(t, 6, total)
 	assert.Len(t, retIds, 6)
 
-	options = &RedisSearchOptions{}
-	options.AddSortBy("Age", false)
-	retIds, total = RedisSearchIDs[redisSearchEntity](orm, "@NameAsTag:{NULL}", options)
+	query = &RedisSearchQuery{}
+	query.AddSortBy("Age", false)
+	query.Query = "@NameAsTag:{NULL}"
+	retIds, total = RedisSearchIDs[redisSearchEntity](orm, query, nil)
 	assert.Equal(t, 3, total)
 	assert.Len(t, retIds, 3)
 	k = 0
@@ -335,10 +337,10 @@ func testRedisSearchResults(t *testing.T, r RedisCache, orm Context, schema Enti
 		assert.Equal(t, ids[i], retIds[k])
 		k++
 	}
-	options = &RedisSearchOptions{}
-	options.AddSortBy("Age", false)
-	options.AddFilterTag("NameAsTag", "tag2")
-	retIds, total = RedisSearchIDs[redisSearchEntity](orm, "", options)
+	query = &RedisSearchQuery{}
+	query.AddSortBy("Age", false)
+	query.AddFilterTag("NameAsTag", "tag2")
+	retIds, total = RedisSearchIDs[redisSearchEntity](orm, query, nil)
 	assert.Equal(t, 3, total)
 	assert.Len(t, retIds, 3)
 	k = 0
@@ -347,9 +349,10 @@ func testRedisSearchResults(t *testing.T, r RedisCache, orm Context, schema Enti
 		k++
 	}
 
-	options = &RedisSearchOptions{}
-	options.AddSortBy("Age", false)
-	retIds, total = RedisSearchIDs[redisSearchEntity](orm, "@EnumNull:{NULL}", options)
+	query = &RedisSearchQuery{}
+	query.AddSortBy("Age", false)
+	query.Query = "@EnumNull:{NULL}"
+	retIds, total = RedisSearchIDs[redisSearchEntity](orm, query, nil)
 	assert.Equal(t, 6, total)
 	assert.Len(t, retIds, 6)
 	k = 0
@@ -362,9 +365,10 @@ func testRedisSearchResults(t *testing.T, r RedisCache, orm Context, schema Enti
 		k++
 	}
 
-	options = &RedisSearchOptions{}
-	options.AddSortBy("Age", false)
-	retIds, total = RedisSearchIDs[redisSearchEntity](orm, "@ActiveNull:{NULL}", options)
+	query = &RedisSearchQuery{}
+	query.AddSortBy("Age", false)
+	query.Query = "@ActiveNull:{NULL}"
+	retIds, total = RedisSearchIDs[redisSearchEntity](orm, query, nil)
 	assert.Equal(t, 6, total)
 	assert.Len(t, retIds, 6)
 	k = 0
@@ -377,10 +381,10 @@ func testRedisSearchResults(t *testing.T, r RedisCache, orm Context, schema Enti
 		k++
 	}
 
-	options = &RedisSearchOptions{}
-	options.AddSortBy("Age", false)
-	options.AddFilterNumber("ReferenceNull", 0)
-	retIds, total = RedisSearchIDs[redisSearchEntity](orm, "*", options)
+	query = &RedisSearchQuery{}
+	query.AddSortBy("Age", false)
+	query.AddFilterNumber("ReferenceNull", 0)
+	retIds, total = RedisSearchIDs[redisSearchEntity](orm, query, nil)
 	assert.Equal(t, 6, total)
 	assert.Len(t, retIds, 6)
 	k = 0
@@ -393,7 +397,7 @@ func testRedisSearchResults(t *testing.T, r RedisCache, orm Context, schema Enti
 		k++
 	}
 
-	iterator, total := RedisSearch[redisSearchEntity](orm, "*", options)
+	iterator, total := RedisSearch[redisSearchEntity](orm, query, nil)
 	assert.Equal(t, 6, total)
 	assert.Len(t, retIds, iterator.Len())
 	k = 0
@@ -409,9 +413,9 @@ func testRedisSearchResults(t *testing.T, r RedisCache, orm Context, schema Enti
 		}
 	}
 
-	options = &RedisSearchOptions{}
-	options.AddFilterNumber("Reference", int64(idsReferences[7]))
-	e, found := RedisSearchOne[redisSearchEntity](orm, "*", options)
+	query = &RedisSearchQuery{}
+	query.AddFilterNumber("Reference", int64(idsReferences[7]))
+	e, found := RedisSearchOne[redisSearchEntity](orm, query)
 	assert.True(t, found)
 	assert.NotNil(t, e)
 	assert.Equal(t, idsReferences[7], e.Reference.GetID())

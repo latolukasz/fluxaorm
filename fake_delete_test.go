@@ -50,7 +50,7 @@ func TestFakeDelete(t *testing.T) {
 	assert.Equal(t, entity.ID, rows.All()[0].ID)
 	assert.Equal(t, entity3.ID, rows.All()[1].ID)
 
-	rowsFromRS, totalInRS := RedisSearch[testFakeDeleteEntity](orm, "*", nil)
+	rowsFromRS, totalInRS := RedisSearch[testFakeDeleteEntity](orm, nil, nil)
 	assert.Equal(t, 2, totalInRS)
 	assert.Equal(t, 2, rowsFromRS.Len())
 
@@ -101,7 +101,7 @@ func TestFakeDelete(t *testing.T) {
 	row = EditEntity(orm, row)
 	row.FakeDelete = false
 	assert.NoError(t, orm.FlushWithCheck())
-	rowsFromRS, totalInRS = RedisSearch[testFakeDeleteEntity](orm, "*", nil)
+	rowsFromRS, totalInRS = RedisSearch[testFakeDeleteEntity](orm, nil, nil)
 	assert.Equal(t, 2, totalInRS)
 	assert.Equal(t, 2, rowsFromRS.Len())
 	assert.Equal(t, entity.ID, rowsFromRS.All()[0].ID)
@@ -114,7 +114,7 @@ func TestFakeDelete(t *testing.T) {
 	row = EditEntity(orm, row)
 	row.FakeDelete = true
 	assert.NoError(t, orm.FlushWithCheck())
-	rowsFromRS, totalInRS = RedisSearch[testFakeDeleteEntity](orm, "*", nil)
+	rowsFromRS, totalInRS = RedisSearch[testFakeDeleteEntity](orm, nil, nil)
 	assert.Equal(t, 1, totalInRS)
 	assert.Equal(t, 1, rowsFromRS.Len())
 	assert.Equal(t, entity.ID, rowsFromRS.All()[0].ID)
