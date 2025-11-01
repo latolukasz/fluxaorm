@@ -9,6 +9,8 @@ import (
 	"time"
 )
 
+const max_redis_search_limit = 100000
+
 type redisSearchIndexDefinition struct {
 	FieldType              string
 	Sortable               bool
@@ -370,6 +372,8 @@ func redisSearchIDs(ctx Context, schema EntitySchema, query *RedisSearchQuery, p
 		if pager != nil {
 			searchOptions.LimitOffset = (pager.GetCurrentPage() - 1) * pager.GetPageSize()
 			searchOptions.Limit = pager.GetPageSize()
+		} else {
+			searchOptions.Limit = max_redis_search_limit
 		}
 		for _, sortOption := range query.SortBy {
 			sortBy := redis.FTSearchSortBy{FieldName: sortOption.FieldName}
@@ -441,6 +445,8 @@ func redisSearchIDs(ctx Context, schema EntitySchema, query *RedisSearchQuery, p
 	} else if pager != nil {
 		searchOptions.LimitOffset = (pager.GetCurrentPage() - 1) * pager.GetPageSize()
 		searchOptions.Limit = pager.GetPageSize()
+	} else {
+		searchOptions.Limit = max_redis_search_limit
 	}
 
 	res := r.FTSearch(ctx, indexName, q, searchOptions)
