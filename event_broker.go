@@ -3,10 +3,11 @@ package fluxaorm
 import (
 	"context"
 	"fmt"
-	"github.com/redis/go-redis/v9"
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/redis/go-redis/v9"
 
 	"github.com/shamaton/msgpack"
 )
@@ -17,7 +18,6 @@ type Event interface {
 	Stream() string
 	Tag(key string) (value string)
 	Unserialize(val interface{})
-	delete()
 }
 
 type event struct {
@@ -25,23 +25,12 @@ type event struct {
 	stream   string
 	message  redis.XMessage
 	ack      bool
-	deleted  bool
-}
-
-type garbageCollectorEvent struct {
-	Group string
-	Pool  string
 }
 
 func (ev *event) Ack() {
 	ev.consumer.redis.XAck(ev.consumer.ctx, ev.stream, ev.consumer.group, ev.message.ID)
-	ev.ack = true
-}
-
-func (ev *event) delete() {
-	ev.Ack()
 	ev.consumer.redis.XDel(ev.consumer.ctx, ev.stream, ev.message.ID)
-	ev.deleted = true
+	ev.ack = true
 }
 
 func (ev *event) ID() string {
@@ -72,7 +61,6 @@ type EventBroker interface {
 	NewFlusher() EventFlusher
 	GetStreamsStatistics(stream ...string) []*RedisStreamStatistics
 	GetStreamStatistics(stream string) *RedisStreamStatistics
-	GetStreamGroupStatistics(stream, group string) *RedisStreamGroupStatistics
 }
 
 type EventFlusher interface {
@@ -223,7 +211,6 @@ func (r *eventsConsumer) consume(name string, count int, handler EventConsumerHa
 		lock.Release(r.ctx)
 		timer.Stop()
 	}()
-	r.garbage()
 
 	for _, stream := range r.streams {
 		r.redis.XGroupCreateMkStream(r.ctx, stream, r.group, "0")
@@ -325,7 +312,6 @@ func (r *eventsConsumer) digestKeys(ctx Context, attributes *consumeAttributes) 
 	}
 	attributes.Handler(events)
 	var toAck map[string][]string
-	allDeleted := true
 	for _, ev := range events {
 		ev := ev.(*event)
 		if !ev.ack {
@@ -333,16 +319,11 @@ func (r *eventsConsumer) digestKeys(ctx Context, attributes *consumeAttributes) 
 				toAck = make(map[string][]string)
 			}
 			toAck[ev.stream] = append(toAck[ev.stream], ev.message.ID)
-			allDeleted = false
-		} else if !ev.deleted {
-			allDeleted = false
 		}
-	}
-	if !allDeleted {
-		r.garbage()
 	}
 	for stream, ids := range toAck {
 		r.redis.XAck(ctx, stream, r.group, ids...)
+		r.redis.XDel(ctx, stream, ids...)
 	}
 	return false
 }
@@ -379,13 +360,4 @@ func (r *eventsConsumer) incrementID(id string) string {
 	s := strings.Split(id, "-")
 	counter, _ := strconv.Atoi(s[1])
 	return s[0] + "-" + strconv.Itoa(counter+1)
-}
-
-func (r *eventsConsumer) garbage() {
-	now := time.Now().Unix()
-	if (now - r.garbageLastTick) >= 10 {
-		garbageEvent := garbageCollectorEvent{Group: r.group, Pool: r.redis.GetCode()}
-		r.ctx.GetEventBroker().Publish(RedisStreamGarbageCollectorChannelName, garbageEvent)
-		r.garbageLastTick = now
-	}
 }

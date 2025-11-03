@@ -29,7 +29,7 @@ type Registry interface {
 	InitByYaml(yaml any) error
 	InitByConfig(config *Config) error
 	SetOption(key string, value any)
-	RegisterRedisStream(name string, redisPool string, groups []string)
+	RegisterRedisStream(name string, redisPool string, group string)
 }
 
 type registry struct {
@@ -39,7 +39,7 @@ type registry struct {
 	entities          map[string]reflect.Type
 	plugins           []any
 	options           map[string]any
-	redisStreamGroups map[string]map[string]map[string]bool
+	redisStreamGroups map[string]map[string]string
 	redisStreamPools  map[string]string
 }
 
@@ -219,23 +219,16 @@ func (r *registry) Validate(serverID uint8) (Engine, error) {
 	}
 	_, has := r.redisStreamPools[LazyChannelName]
 	if !has {
-		r.RegisterRedisStream(LazyChannelName, "default", []string{BackgroundConsumerGroupName})
+		r.RegisterRedisStream(LazyChannelName, "default", BackgroundConsumerGroupName)
 	}
 	_, has = r.redisStreamPools[LazyErrorsChannelName]
 	if !has {
-		r.RegisterRedisStream(LazyErrorsChannelName, "default", []string{BackgroundConsumerGroupName})
+		r.RegisterRedisStream(LazyErrorsChannelName, "default", BackgroundConsumerGroupName)
 	}
 	if hasLog {
 		_, has = r.redisStreamPools[LogChannelName]
 		if !has {
-			r.RegisterRedisStream(LogChannelName, "default", []string{BackgroundConsumerGroupName})
-		}
-	}
-
-	if len(r.redisStreamGroups) > 0 {
-		_, has := r.redisStreamPools[RedisStreamGarbageCollectorChannelName]
-		if !has {
-			r.RegisterRedisStream(RedisStreamGarbageCollectorChannelName, "default", []string{BackgroundConsumerGroupName})
+			r.RegisterRedisStream(LogChannelName, "default", BackgroundConsumerGroupName)
 		}
 	}
 	e.registry.redisStreamGroups = r.redisStreamGroups
@@ -243,9 +236,9 @@ func (r *registry) Validate(serverID uint8) (Engine, error) {
 	return e, nil
 }
 
-func (r *registry) RegisterRedisStream(name string, redisPool string, groups []string) {
+func (r *registry) RegisterRedisStream(name string, redisPool string, group string) {
 	if r.redisStreamGroups == nil {
-		r.redisStreamGroups = make(map[string]map[string]map[string]bool)
+		r.redisStreamGroups = make(map[string]map[string]string)
 		r.redisStreamPools = make(map[string]string)
 	}
 	_, has := r.redisStreamPools[name]
@@ -254,13 +247,9 @@ func (r *registry) RegisterRedisStream(name string, redisPool string, groups []s
 	}
 	r.redisStreamPools[name] = redisPool
 	if r.redisStreamGroups[redisPool] == nil {
-		r.redisStreamGroups[redisPool] = make(map[string]map[string]bool)
+		r.redisStreamGroups[redisPool] = make(map[string]string)
 	}
-	groupsMap := make(map[string]bool, len(groups))
-	for _, group := range groups {
-		groupsMap[group] = true
-	}
-	r.redisStreamGroups[redisPool][name] = groupsMap
+	r.redisStreamGroups[redisPool][name] = group
 }
 
 func (r *registry) SetOption(key string, value any) {

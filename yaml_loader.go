@@ -207,14 +207,10 @@ func validateStreams(registry *registry, value interface{}, key string) error {
 	if err != nil {
 		return err
 	}
-	for name, groups := range def {
-		asSlice, ok := groups.([]interface{})
+	for name, group := range def {
+		asString, ok := group.(string)
 		if !ok {
-			panic(fmt.Errorf("streams '%v' is not valid", groups))
-		}
-		asString := make([]string, len(asSlice))
-		for i, val := range asSlice {
-			asString[i] = fmt.Sprintf("%v", val)
+			panic(fmt.Errorf("stream %s group '%v' is not valid", key, group))
 		}
 		registry.RegisterRedisStream(name, key, asString)
 	}

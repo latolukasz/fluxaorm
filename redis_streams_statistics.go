@@ -12,7 +12,7 @@ type RedisStreamStatistics struct {
 	RedisPool          string
 	Len                uint64
 	OldestEventSeconds int
-	Groups             []*RedisStreamGroupStatistics
+	Group              *RedisStreamGroupStatistics
 }
 
 type RedisStreamGroupStatistics struct {
@@ -39,19 +39,6 @@ func (eb *eventBroker) GetStreamStatistics(stream string) *RedisStreamStatistics
 	return nil
 }
 
-func (eb *eventBroker) GetStreamGroupStatistics(stream, group string) *RedisStreamGroupStatistics {
-	stats := eb.GetStreamStatistics(stream)
-	for _, groupStats := range stats.Groups {
-		if groupStats.Group == group {
-			return groupStats
-		}
-	}
-	return &RedisStreamGroupStatistics{
-		Group: group,
-		Lag:   int64(stats.Len),
-	}
-}
-
 func (eb *eventBroker) GetStreamsStatistics(stream ...string) []*RedisStreamStatistics {
 	now := time.Now()
 	results := make([]*RedisStreamStatistics, 0)
@@ -72,10 +59,10 @@ func (eb *eventBroker) GetStreamsStatistics(stream ...string) []*RedisStreamStat
 			}
 			stat := &RedisStreamStatistics{Stream: streamName, RedisPool: redisPool}
 			results = append(results, stat)
-			stat.Groups = make([]*RedisStreamGroupStatistics, 0)
 			stat.Len = uint64(r.XLen(eb.ctx, streamName))
 			minPending := -1
-			for _, group := range r.XInfoGroups(eb.ctx, streamName) {
+			groups := r.XInfoGroups(eb.ctx, streamName)
+			for _, group := range groups {
 				groupStats := &RedisStreamGroupStatistics{Group: group.Name, Pending: uint64(group.Pending)}
 				groupStats.LastDeliveredID = group.LastDeliveredID
 				groupStats.Lag = group.Lag
@@ -99,7 +86,8 @@ func (eb *eventBroker) GetStreamsStatistics(stream ...string) []*RedisStreamStat
 						groupStats.Consumers = append(groupStats.Consumers, consumer)
 					}
 				}
-				stat.Groups = append(stat.Groups, groupStats)
+				stat.Group = groupStats
+				break
 			}
 		}
 	}

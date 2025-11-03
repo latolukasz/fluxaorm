@@ -32,7 +32,7 @@ type Engine interface {
 	Redis(code string) RedisCache
 	Registry() EngineRegistry
 	Option(key string) any
-	GetRedisStreams() map[string]map[string][]string
+	GetRedisStreams() map[string]map[string]string
 }
 
 type engineRegistryImplementation struct {
@@ -46,7 +46,7 @@ type engineRegistryImplementation struct {
 	dbTables              map[string]map[string]bool
 	options               map[string]any
 	enums                 map[string][]string
-	redisStreamGroups     map[string]map[string]map[string]bool
+	redisStreamGroups     map[string]map[string]string
 	redisStreamPools      map[string]string
 	disableLogTables      bool
 }
@@ -89,17 +89,12 @@ func (e *engineImplementation) Redis(code string) RedisCache {
 	return e.redisServers[code]
 }
 
-func (e *engineImplementation) GetRedisStreams() map[string]map[string][]string {
-	res := make(map[string]map[string][]string)
+func (e *engineImplementation) GetRedisStreams() map[string]map[string]string {
+	res := make(map[string]map[string]string)
 	for redisPool, row := range e.registry.redisStreamGroups {
-		res[redisPool] = make(map[string][]string)
-		for stream, groups := range row {
-			res[redisPool][stream] = make([]string, len(groups))
-			i := 0
-			for group := range groups {
-				res[redisPool][stream][i] = group
-				i++
-			}
+		res[redisPool] = make(map[string]string)
+		for stream, group := range row {
+			res[redisPool][stream] = group
 		}
 	}
 	return res
@@ -167,9 +162,8 @@ func (er *engineRegistryImplementation) DisableLogTables() {
 func (er *engineRegistryImplementation) getRedisStreamsForGroup(group string) []string {
 	streams := make([]string, 0)
 	for _, row := range er.redisStreamGroups {
-		for stream, groups := range row {
-			_, has := groups[group]
-			if has {
+		for stream, groupName := range row {
+			if groupName == group {
 				streams = append(streams, stream)
 			}
 		}

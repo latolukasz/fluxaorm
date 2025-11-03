@@ -72,7 +72,7 @@ func (r *registry) InitByConfig(config *Config) error {
 		}
 		r.RegisterRedis(pool.URI, pool.Database, pool.Code, options)
 		for _, stream := range pool.Streams {
-			r.RegisterRedisStream(stream.Name, pool.Code, []string{stream.Name})
+			r.RegisterRedisStream(stream.Name, pool.Code, stream.Group)
 		}
 	}
 	for _, pool := range config.RedisSentinelPools {
@@ -85,7 +85,7 @@ func (r *registry) InitByConfig(config *Config) error {
 		}
 		r.RegisterRedis("", pool.Database, pool.Code, options)
 		for _, stream := range pool.Streams {
-			r.RegisterRedisStream(stream.Name, pool.Code, []string{stream.Name})
+			r.RegisterRedisStream(stream.Name, pool.Code, stream.Group)
 		}
 	}
 	for _, pool := range config.LocalCachePools {
