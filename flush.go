@@ -181,6 +181,7 @@ func (orm *ormImplementation) handleDeletes(async bool, schema *entitySchema, op
 		uniqueIndexes := schema.GetUniqueIndexes()
 		var bind Bind
 		var err error
+		var idAsString string
 		deleteFlush := operation.(entityFlushDelete)
 		if len(uniqueIndexes) > 0 {
 			bind, err = deleteFlush.getOldBind()
@@ -203,7 +204,10 @@ func (orm *ormImplementation) handleDeletes(async bool, schema *entitySchema, op
 		}
 		rc, hasRedisCache := schema.GetRedisCache()
 		if hasRedisCache {
-			cacheKey := schema.getCacheKey() + ":" + strconv.FormatUint(operation.ID(), 10)
+			if idAsString == "" {
+				idAsString = strconv.FormatUint(operation.ID(), 10)
+			}
+			cacheKey := schema.getCacheKey() + ":" + idAsString
 			orm.RedisPipeLine(rc.GetCode()).Del(cacheKey)
 			orm.RedisPipeLine(rc.GetCode()).LPush(cacheKey, "")
 		}
@@ -224,7 +228,9 @@ func (orm *ormImplementation) handleDeletes(async bool, schema *entitySchema, op
 					lc.removeList(orm, refColumn, id.(uint64))
 				})
 			}
-			idAsString := strconv.FormatUint(id.(uint64), 10)
+			if idAsString == "" {
+				idAsString = strconv.FormatUint(operation.ID(), 10)
+			}
 			redisSetKey := schema.cacheKey + ":" + refColumn + ":" + idAsString
 			orm.RedisPipeLine(schema.getForcedRedisCode()).SRem(redisSetKey, strconv.FormatUint(deleteFlush.ID(), 10))
 		}
@@ -255,7 +261,9 @@ func (orm *ormImplementation) handleDeletes(async bool, schema *entitySchema, op
 					lc.removeList(orm, key, id)
 				})
 			}
-			idAsString := strconv.FormatUint(id, 10)
+			if idAsString == "" {
+				idAsString = strconv.FormatUint(operation.ID(), 10)
+			}
 			redisSetKey := schema.cacheKey + ":" + key + ":" + idAsString
 			orm.RedisPipeLine(schema.getForcedRedisCode()).SRem(redisSetKey, strconv.FormatUint(deleteFlush.ID(), 10))
 		}
@@ -302,6 +310,22 @@ func (orm *ormImplementation) handleDeletes(async bool, schema *entitySchema, op
 			}
 			if after != nil {
 				orm.flushPostActions = append(orm.flushPostActions, after)
+			}
+		}
+		if len(schema.dirtyDeleted) > 0 {
+			rsPool := orm.RedisPipeLine(schema.getForcedRedisCode())
+			if idAsString == "" {
+				idAsString = strconv.FormatUint(operation.ID(), 10)
+			}
+			if bind == nil {
+				bind, err = deleteFlush.getOldBind()
+				if err != nil {
+					return err
+				}
+			}
+			e := createEventSlice(bind, []string{"action", "delete", "entity", schema.t.String(), "id", idAsString})
+			for _, dirtyDef := range schema.dirtyDeleted {
+				rsPool.XAdd("dirty_"+dirtyDef.Stream, e)
 			}
 		}
 	}
@@ -472,6 +496,16 @@ func (orm *ormImplementation) handleInserts(async bool, schema *entitySchema, op
 				k += 2
 			}
 			rsPool.HSet(schema.redisSearchIndexPrefix+idAsString, values...)
+		}
+		if len(schema.dirtyAdded) > 0 {
+			rsPool := orm.RedisPipeLine(schema.getForcedRedisCode())
+			if idAsString == "" {
+				idAsString = strconv.FormatUint(bind["ID"].(uint64), 10)
+			}
+			e := createEventSlice(bind, []string{"action", "add", "entity", schema.t.String(), "id", idAsString})
+			for _, dirtyDef := range schema.dirtyAdded {
+				rsPool.XAdd("dirty_"+dirtyDef.Stream, e)
+			}
 		}
 	}
 	if !async {
@@ -784,6 +818,50 @@ func (orm *ormImplementation) handleUpdates(async bool, schema *entitySchema, op
 			}
 			redisSetKey = schema.cacheKey + ":" + key2 + ":" + strconv.FormatUint(id2, 10)
 			orm.RedisPipeLine(schema.getForcedRedisCode()).SRem(redisSetKey, idAsString)
+		}
+		fakeDeleted := false
+		if schema.hasFakeDelete {
+			v, has := newBind["FakeDelete"]
+			if has && v.(uint64) > 0 {
+				fakeDeleted = true
+				if len(schema.dirtyDeleted) > 0 {
+					rsPool := orm.RedisPipeLine(schema.getForcedRedisCode())
+					if idAsString == "" {
+						idAsString = strconv.FormatUint(operation.ID(), 10)
+					}
+					e := createEventSlice(newBind, []string{"action", "delete", "entity", schema.t.String(), "id", idAsString})
+					for _, dirtyDef := range schema.dirtyDeleted {
+						rsPool.XAdd("dirty_"+dirtyDef.Stream, e)
+					}
+				}
+			}
+		}
+		if !fakeDeleted && len(schema.dirtyUpdated) > 0 {
+			rsPool := orm.RedisPipeLine(schema.getForcedRedisCode())
+			if idAsString == "" {
+				idAsString = strconv.FormatUint(update.ID(), 10)
+			}
+			var e []string
+			for _, dirtyDef := range schema.dirtyUpdated {
+				_, hasID := dirtyDef.Columns["ID"]
+				if hasID {
+					if e == nil {
+						e = createEventSlice(newBind, []string{"action", "edit", "entity", schema.t.String(), "id", idAsString})
+					}
+					rsPool.XAdd("dirty_"+dirtyDef.Stream, e)
+					continue
+				}
+				for key := range newBind {
+					_, has := dirtyDef.Columns[key]
+					if has {
+						if e == nil {
+							e = createEventSlice(newBind, []string{"action", "edit", "entity", schema.t.String(), "id", idAsString})
+						}
+						rsPool.XAdd("dirty_"+dirtyDef.Stream, e)
+						break
+					}
+				}
+			}
 		}
 	}
 	return nil

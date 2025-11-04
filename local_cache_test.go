@@ -11,7 +11,7 @@ func TestLocalCache(t *testing.T) {
 	registry := NewRegistry()
 	registry.RegisterLocalCache(DefaultPoolCode, 0)
 	registry.RegisterLocalCache("with_limit", 3)
-	validatedRegistry, err := registry.Validate(1)
+	validatedRegistry, err := registry.Validate()
 	assert.Nil(t, err)
 	orm := validatedRegistry.NewContext(context.Background())
 	testLogger := &MockLogHandler{}

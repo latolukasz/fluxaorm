@@ -17,6 +17,11 @@ type indexDefinition struct {
 	Duplicated bool
 }
 
+type dirtyDefinition struct {
+	Stream  string
+	Columns map[string]bool
+}
+
 func (d indexDefinition) CreteWhere(hasNil bool, attributes []any) Where {
 	if !hasNil {
 		return NewWhere(d.Where, attributes...)

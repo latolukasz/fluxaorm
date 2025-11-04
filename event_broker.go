@@ -12,22 +12,26 @@ import (
 	"github.com/shamaton/msgpack"
 )
 
+const consumerGroupName = "consumer_group"
+
 type Event interface {
 	Ack()
 	ID() string
-	Stream() string
 	Tag(key string) (value string)
 	Unserialize(val interface{})
 }
 
 type event struct {
 	consumer *eventsConsumer
-	stream   string
 	message  redis.XMessage
+	stream   string
 	ack      bool
 }
 
 func (ev *event) Ack() {
+	if ev.ack {
+		return
+	}
 	ev.consumer.redis.XAck(ev.consumer.ctx, ev.stream, ev.consumer.group, ev.message.ID)
 	ev.consumer.redis.XDel(ev.consumer.ctx, ev.stream, ev.message.ID)
 	ev.ack = true
@@ -35,10 +39,6 @@ func (ev *event) Ack() {
 
 func (ev *event) ID() string {
 	return ev.message.ID
-}
-
-func (ev *event) Stream() string {
-	return ev.stream
 }
 
 func (ev *event) Tag(key string) (value string) {
@@ -57,7 +57,7 @@ func (ev *event) Unserialize(value interface{}) {
 
 type EventBroker interface {
 	Publish(stream string, body interface{}, meta ...string) (id string)
-	Consumer(ctx Context, group string) EventsConsumer
+	Consumer(ctx Context, stream string) EventsConsumer
 	NewFlusher() EventFlusher
 	GetStreamsStatistics(stream ...string) []*RedisStreamStatistics
 	GetStreamStatistics(stream string) *RedisStreamStatistics
@@ -152,17 +152,13 @@ type EventsConsumer interface {
 	SetBlockTime(ttl time.Duration)
 }
 
-func (eb *eventBroker) Consumer(ctx Context, group string) EventsConsumer {
-	streams := eb.ctx.engine.registry.getRedisStreamsForGroup(group)
-	if len(streams) == 0 {
-		panic(fmt.Errorf("unregistered streams for group %s", group))
-	}
-	redisPool := eb.ctx.engine.registry.redisStreamPools[streams[0]]
+func (eb *eventBroker) Consumer(ctx Context, stream string) EventsConsumer {
+	r := getRedisForStream(eb.ctx, stream)
 	return &eventsConsumer{
 		eventConsumerBase: eventConsumerBase{ctx: ctx.(*ormImplementation), block: true, blockTime: time.Second * 5},
-		redis:             eb.ctx.engine.Redis(redisPool),
-		streams:           streams,
-		group:             group,
+		redis:             r,
+		stream:            stream,
+		group:             consumerGroupName,
 		lockTTL:           time.Second * 90,
 		lockTick:          time.Minute}
 }
@@ -176,7 +172,7 @@ type eventConsumerBase struct {
 type eventsConsumer struct {
 	eventConsumerBase
 	redis           RedisCache
-	streams         []string
+	stream          string
 	group           string
 	lockTTL         time.Duration
 	lockTick        time.Duration
@@ -211,22 +207,14 @@ func (r *eventsConsumer) consume(name string, count int, handler EventConsumerHa
 		lock.Release(r.ctx)
 		timer.Stop()
 	}()
-
-	for _, stream := range r.streams {
-		r.redis.XGroupCreateMkStream(r.ctx, stream, r.group, "0")
-	}
-
+	r.redis.XGroupCreateMkStream(r.ctx, r.stream, r.group, "0")
 	attributes := &consumeAttributes{
 		Pending:   true,
 		BlockTime: -1,
 		Name:      name,
 		Count:     count,
 		Handler:   handler,
-		LastIDs:   make(map[string]string),
-		Streams:   make([]string, len(r.streams)*2),
-	}
-	for _, stream := range r.streams {
-		attributes.LastIDs[stream] = "0"
+		LastID:    "0",
 	}
 	ctx := r.ctx.CloneWithContext(context.Background())
 	for {
@@ -253,8 +241,7 @@ type consumeAttributes struct {
 	Name      string
 	Count     int
 	Handler   EventConsumerHandler
-	LastIDs   map[string]string
-	Streams   []string
+	LastID    string
 }
 
 func (r *eventsConsumer) digest(ctx Context, attributes *consumeAttributes) (stop bool) {
@@ -266,20 +253,11 @@ func (r *eventsConsumer) digest(ctx Context, attributes *consumeAttributes) (sto
 }
 
 func (r *eventsConsumer) digestKeys(ctx Context, attributes *consumeAttributes) (finished bool) {
-	i := 0
-	for _, stream := range r.streams {
-		attributes.Streams[i] = stream
-		i++
+	lastID := ">"
+	if attributes.Pending {
+		lastID = attributes.LastID
 	}
-	for _, stream := range r.streams {
-		if attributes.Pending {
-			attributes.Streams[i] = attributes.LastIDs[stream]
-		} else {
-			attributes.Streams[i] = ">"
-		}
-		i++
-	}
-	a := &redis.XReadGroupArgs{Consumer: attributes.Name, Group: r.group, Streams: attributes.Streams,
+	a := &redis.XReadGroupArgs{Consumer: attributes.Name, Group: r.group, Streams: []string{r.stream, lastID},
 		Count: int64(attributes.Count), Block: attributes.BlockTime}
 	results := r.redis.XReadGroup(ctx, a)
 	totalMessages := 0
@@ -288,7 +266,7 @@ func (r *eventsConsumer) digestKeys(ctx Context, attributes *consumeAttributes) 
 		if l > 0 {
 			totalMessages += l
 			if attributes.Pending {
-				attributes.LastIDs[row.Stream] = row.Messages[l-1].ID
+				attributes.LastID = row.Messages[l-1].ID
 			}
 		}
 	}
@@ -303,7 +281,7 @@ func (r *eventsConsumer) digestKeys(ctx Context, attributes *consumeAttributes) 
 		return true
 	}
 	events := make([]Event, totalMessages)
-	i = 0
+	i := 0
 	for _, row := range results {
 		for _, message := range row.Messages {
 			events[i] = &event{stream: row.Stream, message: message, consumer: r}
@@ -329,25 +307,23 @@ func (r *eventsConsumer) digestKeys(ctx Context, attributes *consumeAttributes) 
 }
 
 func (r *eventsConsumer) Claim(from, to int) {
-	for _, stream := range r.streams {
-		start := "-"
-		for {
-			xPendingArg := &redis.XPendingExtArgs{Stream: stream, Group: r.group, Start: start, End: "+", Consumer: r.getName(from), Count: 100}
-			pending := r.redis.XPendingExt(r.ctx, xPendingArg)
-			l := len(pending)
-			if l == 0 {
-				break
-			}
-			ids := make([]string, l)
-			for i, row := range pending {
-				ids[i] = row.ID
-			}
-			start = r.incrementID(ids[l-1])
-			arg := &redis.XClaimArgs{Consumer: r.getName(to), Stream: stream, Group: r.group, Messages: ids}
-			r.redis.XClaimJustID(r.ctx, arg)
-			if l < 100 {
-				break
-			}
+	start := "-"
+	for {
+		xPendingArg := &redis.XPendingExtArgs{Stream: r.stream, Group: r.group, Start: start, End: "+", Consumer: r.getName(from), Count: 100}
+		pending := r.redis.XPendingExt(r.ctx, xPendingArg)
+		l := len(pending)
+		if l == 0 {
+			break
+		}
+		ids := make([]string, l)
+		for i, row := range pending {
+			ids[i] = row.ID
+		}
+		start = r.incrementID(ids[l-1])
+		arg := &redis.XClaimArgs{Consumer: r.getName(to), Stream: r.stream, Group: r.group, Messages: ids}
+		r.redis.XClaimJustID(r.ctx, arg)
+		if l < 100 {
+			break
 		}
 	}
 }

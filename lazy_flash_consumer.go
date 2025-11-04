@@ -9,8 +9,6 @@ import (
 
 const LazyChannelName = "orm-lazy-channel"
 const LazyErrorsChannelName = "orm-lazy-errors-channel"
-const LogChannelName = "orm-log-channel"
-const BackgroundConsumerGroupName = "orm-async-consumer"
 
 var mySQLErrorCodesToSkip = []uint16{
 	1022, // Can't write; duplicate key in table '%s'
@@ -28,51 +26,34 @@ var mySQLErrorCodesToSkip = []uint16{
 	2032, // Data truncated
 }
 
-type LogQueueValue struct {
-	PoolName  string
-	TableName string
-	ID        uint64
-	LogID     uint64
-	Meta      map[string]interface{}
-	Before    map[string]interface{}
-	Changes   map[string]interface{}
-	Updated   time.Time
-}
-
-type BackgroundConsumer struct {
+type LazyFlashConsumer struct {
 	eventConsumerBase
-	garbageCollectorSha1 string
-	consumer             *eventsConsumer
+	consumer *eventsConsumer
 }
 
-func NewBackgroundConsumer(ctx Context) *BackgroundConsumer {
-	c := &BackgroundConsumer{}
+func NewLazyFlashConsumer(ctx Context) *LazyFlashConsumer {
+	c := &LazyFlashConsumer{}
 	c.ctx = ctx.(*ormImplementation)
 	c.block = true
 	c.blockTime = time.Second * 30
 	return c
 }
 
-func (r *BackgroundConsumer) SetBlockTime(ttl time.Duration) {
+func (r *LazyFlashConsumer) SetBlockTime(ttl time.Duration) {
 	r.eventConsumerBase.SetBlockTime(ttl)
 }
 
-func (r *BackgroundConsumer) Digest() bool {
-	r.consumer = r.ctx.GetEventBroker().Consumer(r.ctx, BackgroundConsumerGroupName).(*eventsConsumer)
+func (r *LazyFlashConsumer) Digest() bool {
+	r.consumer = r.ctx.GetEventBroker().Consumer(r.ctx, LazyChannelName).(*eventsConsumer)
 	r.consumer.eventConsumerBase = r.eventConsumerBase
 	return r.consumer.Consume(500, func(events []Event) {
 		for _, e := range events {
-			switch e.Stream() {
-			case LazyChannelName:
-				r.handleLazyFlush(e)
-			case LogChannelName:
-				r.handleLogTable(e)
-			}
+			r.handleLazyFlush(e)
 		}
 	})
 }
 
-func (r *BackgroundConsumer) handleLazyFlush(event Event) {
+func (r *LazyFlashConsumer) handleLazyFlush(event Event) {
 	defer func() {
 		if rec := recover(); rec != nil {
 			asMySQLError, isMySQLError := rec.(*mysql.MySQLError)
@@ -109,42 +90,5 @@ func (r *BackgroundConsumer) handleLazyFlush(event Event) {
 	} else {
 		db.Exec(r.ctx, sql)
 	}
-	event.Ack()
-}
-
-func (r *BackgroundConsumer) handleLogTable(event Event) {
-	defer func() {
-		if rec := recover(); rec != nil {
-			asMySQLError, isMySQLError := rec.(*mysql.MySQLError)
-			if isMySQLError && slices.Contains(mySQLErrorCodesToSkip, asMySQLError.Number) {
-				return
-			}
-			panic(rec)
-		}
-	}()
-	var lazyEvent []any
-	event.Unserialize(&lazyEvent)
-	if lazyEvent == nil || len(lazyEvent) < 3 {
-		event.Ack()
-		return
-	}
-	sql, valid := lazyEvent[0].(string)
-	if !valid {
-		event.Ack()
-		return
-	}
-	dbCode, valid := lazyEvent[len(lazyEvent)-1].(string)
-	if !valid {
-		event.Ack()
-		return
-	}
-	db := r.ctx.Engine().DB(dbCode)
-	if db == nil {
-		event.Ack()
-		return
-	}
-	args := lazyEvent[1 : len(lazyEvent)-1]
-	db.Exec(r.ctx, sql, args...)
-	event.Ack()
 	event.Ack()
 }

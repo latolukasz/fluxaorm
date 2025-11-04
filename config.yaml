@@ -12,8 +12,8 @@ default:
   redis: localhost:6385:0
   local_cache: 100
   streams:
-    stream-1: test-group
-    stream-2: test-group
+    - stream-1
+    - stream-2
 another:
   sentinel:
     master:1:

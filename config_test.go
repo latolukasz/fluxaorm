@@ -13,8 +13,8 @@ func TestConfig(t *testing.T) {
 			{URI: "root:root@tcp(localhost:3377)/test", Code: "default"},
 		},
 		RedisPools: []ConfigRedis{
-			{URI: "localhost:6385", Code: "default", Database: 0, Streams: []ConfigStream{
-				{Name: "test-stream", Group: "test-group"},
+			{URI: "localhost:6385", Code: "default", Database: 0, Streams: []string{
+				"test-stream", "test-group",
 			}},
 			{URI: "localhost:6385", Code: "test", Database: 1},
 		},
@@ -26,7 +26,7 @@ func TestConfig(t *testing.T) {
 
 	err := registry.InitByConfig(config)
 	assert.NoError(t, err)
-	engine, err := registry.Validate(1)
+	engine, err := registry.Validate()
 	assert.NoError(t, err)
 
 	assert.Len(t, engine.Registry().LocalCachePools(), 2)

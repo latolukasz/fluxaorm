@@ -20,7 +20,7 @@ import (
 )
 
 type Registry interface {
-	Validate(serverID uint8) (Engine, error)
+	Validate() (Engine, error)
 	RegisterEntity(entity ...any)
 	RegisterPlugin(plugin ...any)
 	RegisterMySQL(dataSourceName string, poolCode string, poolOptions *MySQLOptions)
@@ -29,7 +29,7 @@ type Registry interface {
 	InitByYaml(yaml any) error
 	InitByConfig(config *Config) error
 	SetOption(key string, value any)
-	RegisterRedisStream(name string, redisPool string, group string)
+	RegisterRedisStream(name string, redisPool string)
 }
 
 type registry struct {
@@ -47,7 +47,7 @@ func NewRegistry() Registry {
 	return &registry{}
 }
 
-func (r *registry) Validate(serverID uint8) (Engine, error) {
+func (r *registry) Validate() (Engine, error) {
 	maxPoolLen := 0
 	e := &engineImplementation{}
 	e.registry = &engineRegistryImplementation{engine: e}
@@ -163,6 +163,7 @@ func (r *registry) Validate(serverID uint8) (Engine, error) {
 		}
 		extractEnums(schema.fields, e.registry)
 	}
+
 	hasLog := false
 	for _, entityType := range r.entities {
 		logEntity, isLogEntity := reflect.New(entityType).Interface().(logEntityInterface)
@@ -219,16 +220,27 @@ func (r *registry) Validate(serverID uint8) (Engine, error) {
 	}
 	_, has := r.redisStreamPools[LazyChannelName]
 	if !has {
-		r.RegisterRedisStream(LazyChannelName, "default", BackgroundConsumerGroupName)
+		r.RegisterRedisStream(LazyChannelName, "default")
 	}
 	_, has = r.redisStreamPools[LazyErrorsChannelName]
 	if !has {
-		r.RegisterRedisStream(LazyErrorsChannelName, "default", BackgroundConsumerGroupName)
+		r.RegisterRedisStream(LazyErrorsChannelName, "default")
+	}
+	for _, schema := range e.registry.entitySchemas {
+		for _, def := range [][]*dirtyDefinition{schema.dirtyAdded, schema.dirtyUpdated, schema.dirtyDeleted} {
+			for _, dirty := range def {
+				streamName := "dirty_" + dirty.Stream
+				_, hasStream := r.redisStreamPools[streamName]
+				if !hasStream {
+					r.RegisterRedisStream(streamName, schema.getForcedRedisCode())
+				}
+			}
+		}
 	}
 	if hasLog {
 		_, has = r.redisStreamPools[LogChannelName]
 		if !has {
-			r.RegisterRedisStream(LogChannelName, "default", BackgroundConsumerGroupName)
+			r.RegisterRedisStream(LogChannelName, "default")
 		}
 	}
 	e.registry.redisStreamGroups = r.redisStreamGroups
@@ -236,7 +248,7 @@ func (r *registry) Validate(serverID uint8) (Engine, error) {
 	return e, nil
 }
 
-func (r *registry) RegisterRedisStream(name string, redisPool string, group string) {
+func (r *registry) RegisterRedisStream(name string, redisPool string) {
 	if r.redisStreamGroups == nil {
 		r.redisStreamGroups = make(map[string]map[string]string)
 		r.redisStreamPools = make(map[string]string)
@@ -249,7 +261,7 @@ func (r *registry) RegisterRedisStream(name string, redisPool string, group stri
 	if r.redisStreamGroups[redisPool] == nil {
 		r.redisStreamGroups[redisPool] = make(map[string]string)
 	}
-	r.redisStreamGroups[redisPool][name] = group
+	r.redisStreamGroups[redisPool][name] = consumerGroupName
 }
 
 func (r *registry) SetOption(key string, value any) {

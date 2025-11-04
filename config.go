@@ -16,27 +16,22 @@ type ConfigMysql struct {
 }
 
 type ConfigRedis struct {
-	Code     string         `yaml:"code" validate:"required"`
-	URI      string         `yaml:"uri" validate:"required"`
-	Database int            `yaml:"database"`
-	User     string         `yaml:"user"`
-	Password string         `yaml:"password"`
-	Streams  []ConfigStream `yaml:"streams"`
-}
-
-type ConfigStream struct {
-	Name  string `yaml:"name" validate:"required"`
-	Group string `yaml:"group" validate:"required"`
+	Code     string   `yaml:"code" validate:"required"`
+	URI      string   `yaml:"uri" validate:"required"`
+	Database int      `yaml:"database"`
+	User     string   `yaml:"user"`
+	Password string   `yaml:"password"`
+	Streams  []string `yaml:"streams"`
 }
 
 type ConfigRedisSentinel struct {
-	Code       string         `yaml:"code" validate:"required"`
-	MasterName string         `yaml:"masterName" validate:"required"`
-	Database   int            `yaml:"database"`
-	Sentinels  []string       `yaml:"sentinels"`
-	User       string         `yaml:"user"`
-	Password   string         `yaml:"password"`
-	Streams    []ConfigStream `yaml:"streams"`
+	Code       string   `yaml:"code" validate:"required"`
+	MasterName string   `yaml:"masterName" validate:"required"`
+	Database   int      `yaml:"database"`
+	Sentinels  []string `yaml:"sentinels"`
+	User       string   `yaml:"user"`
+	Password   string   `yaml:"password"`
+	Streams    []string `yaml:"streams"`
 }
 
 type ConfigLocalCache struct {
@@ -72,7 +67,7 @@ func (r *registry) InitByConfig(config *Config) error {
 		}
 		r.RegisterRedis(pool.URI, pool.Database, pool.Code, options)
 		for _, stream := range pool.Streams {
-			r.RegisterRedisStream(stream.Name, pool.Code, stream.Group)
+			r.RegisterRedisStream(stream, pool.Code)
 		}
 	}
 	for _, pool := range config.RedisSentinelPools {
@@ -85,7 +80,7 @@ func (r *registry) InitByConfig(config *Config) error {
 		}
 		r.RegisterRedis("", pool.Database, pool.Code, options)
 		for _, stream := range pool.Streams {
-			r.RegisterRedisStream(stream.Name, pool.Code, stream.Group)
+			r.RegisterRedisStream(stream, pool.Code)
 		}
 	}
 	for _, pool := range config.LocalCachePools {

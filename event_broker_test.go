@@ -15,8 +15,8 @@ import (
 func TestRedisStreamGroupConsumerClean(t *testing.T) {
 	registry := NewRegistry()
 	registry.RegisterRedis("localhost:6385", 0, DefaultPoolCode, nil)
-	registry.RegisterRedisStream("test-stream", "default", "test-group-1")
-	validatedRegistry, err := registry.Validate(1)
+	registry.RegisterRedisStream("test-stream", "default")
+	validatedRegistry, err := registry.Validate()
 	assert.NoError(t, err)
 	ctx := validatedRegistry.NewContext(context.Background())
 	ctx.Engine().Redis(DefaultPoolCode).FlushDB(ctx)
@@ -30,7 +30,7 @@ func TestRedisStreamGroupConsumerClean(t *testing.T) {
 	}
 	eventFlusher.Flush()
 
-	consumer1 := broker.Consumer(ctx, "test-group-1")
+	consumer1 := broker.Consumer(ctx, "test-stream")
 	consumer1.(*eventsConsumer).blockTime = time.Millisecond
 	consumer1.DisableBlockMode()
 
@@ -50,14 +50,14 @@ func TestRedisStreamGroupConsumerClean(t *testing.T) {
 func TestRedisStreamGroupConsumerAutoScaled(t *testing.T) {
 	registry := NewRegistry()
 	registry.RegisterRedis("localhost:6385", 0, DefaultPoolCode, nil)
-	registry.RegisterRedisStream("test-stream", "default", "test-group")
-	validatedRegistry, err := registry.Validate(1)
+	registry.RegisterRedisStream("test-stream", "default")
+	validatedRegistry, err := registry.Validate()
 	assert.NoError(t, err)
 	ctx := validatedRegistry.NewContext(context.Background())
 	ctx.Engine().Redis(DefaultPoolCode).FlushDB(ctx)
 	broker := ctx.GetEventBroker()
 
-	consumer := broker.Consumer(ctx, "test-group")
+	consumer := broker.Consumer(ctx, "test-stream")
 	consumer.(*eventsConsumer).blockTime = time.Millisecond
 	consumer.DisableBlockMode()
 	consumer.Consume(1, func(events []Event) {})
@@ -78,7 +78,7 @@ func TestRedisStreamGroupConsumerAutoScaled(t *testing.T) {
 	wg.Add(2)
 	go func() {
 		defer wg.Done()
-		consumer := broker.Consumer(ctx, "test-group")
+		consumer := broker.Consumer(ctx, "test-stream")
 		consumer.(*eventsConsumer).blockTime = time.Millisecond
 		consumer.DisableBlockMode()
 		consumed1 = consumer.Consume(5, func(events []Event) {
@@ -89,7 +89,7 @@ func TestRedisStreamGroupConsumerAutoScaled(t *testing.T) {
 	time.Sleep(time.Millisecond)
 	go func() {
 		defer wg.Done()
-		consumer := broker.Consumer(ctx, "test-group")
+		consumer := broker.Consumer(ctx, "test-stream")
 		consumer.(*eventsConsumer).blockTime = time.Millisecond
 		consumer.DisableBlockMode()
 		consumed2 = consumer.Consume(5, func(events []Event) {
@@ -114,7 +114,7 @@ func TestRedisStreamGroupConsumerAutoScaled(t *testing.T) {
 	wg.Add(2)
 	go func() {
 		defer wg.Done()
-		consumer := broker.Consumer(ctx, "test-group")
+		consumer := broker.Consumer(ctx, "test-stream")
 		consumer.(*eventsConsumer).blockTime = time.Millisecond
 		consumer.DisableBlockMode()
 		consumed1 = consumer.ConsumeMany(1, 5, func(events []Event) {
@@ -126,7 +126,7 @@ func TestRedisStreamGroupConsumerAutoScaled(t *testing.T) {
 	time.Sleep(time.Millisecond)
 	go func() {
 		defer wg.Done()
-		consumer := broker.Consumer(ctx, "test-group")
+		consumer := broker.Consumer(ctx, "test-stream")
 		consumer.(*eventsConsumer).blockTime = time.Millisecond
 		consumer.DisableBlockMode()
 		consumed2 = consumer.ConsumeMany(2, 5, func(events []Event) {
@@ -143,7 +143,7 @@ func TestRedisStreamGroupConsumerAutoScaled(t *testing.T) {
 	for i := 1; i <= 10; i++ {
 		ctx.GetEventBroker().Publish("test-stream", testEvent{fmt.Sprintf("a%d", i)})
 	}
-	consumer = broker.Consumer(ctx, "test-group")
+	consumer = broker.Consumer(ctx, "test-stream")
 	consumer.(*eventsConsumer).blockTime = time.Millisecond
 	consumer.DisableBlockMode()
 	assert.PanicsWithError(t, "stop", func() {
@@ -151,17 +151,17 @@ func TestRedisStreamGroupConsumerAutoScaled(t *testing.T) {
 			panic(errors.New("stop"))
 		})
 	})
-	pending := ctx.Engine().Redis(DefaultPoolCode).XPending(ctx, "test-stream", "test-group")
+	pending := ctx.Engine().Redis(DefaultPoolCode).XPending(ctx, "test-stream", consumerGroupName)
 	assert.Len(t, pending.Consumers, 1)
 	assert.Equal(t, int64(3), pending.Consumers["consumer-1"])
 
 	consumer.Claim(1, 2)
-	pending = ctx.Engine().Redis(DefaultPoolCode).XPending(ctx, "test-stream", "test-group")
+	pending = ctx.Engine().Redis(DefaultPoolCode).XPending(ctx, "test-stream", consumerGroupName)
 	assert.Len(t, pending.Consumers, 1)
 	assert.Equal(t, int64(3), pending.Consumers["consumer-2"])
 	consumer.Claim(7, 2)
 
-	consumer = broker.Consumer(ctx, "test-group")
+	consumer = broker.Consumer(ctx, "test-stream")
 	consumer.(*eventsConsumer).blockTime = time.Millisecond
 	consumer.DisableBlockMode()
 }

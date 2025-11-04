@@ -203,16 +203,13 @@ func validateSentinel(registry *registry, value any, key string) error {
 }
 
 func validateStreams(registry *registry, value interface{}, key string) error {
-	def, err := fixYamlMap(value, key)
+	def, err := validateOrmStrings(value, key)
 	if err != nil {
 		return err
 	}
-	for name, group := range def {
-		asString, ok := group.(string)
-		if !ok {
-			panic(fmt.Errorf("stream %s group '%v' is not valid", key, group))
-		}
-		registry.RegisterRedisStream(name, key, asString)
+	for _, name := range def {
+		registry.RegisterRedisStream(name, key)
+
 	}
 	return nil
 }

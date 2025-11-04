@@ -158,15 +158,3 @@ func (er *engineRegistryImplementation) getDefaultQueryLogger() LogHandler {
 func (er *engineRegistryImplementation) DisableLogTables() {
 	er.disableLogTables = true
 }
-
-func (er *engineRegistryImplementation) getRedisStreamsForGroup(group string) []string {
-	streams := make([]string, 0)
-	for _, row := range er.redisStreamGroups {
-		for stream, groupName := range row {
-			if groupName == group {
-				streams = append(streams, stream)
-			}
-		}
-	}
-	return streams
-}

@@ -76,7 +76,7 @@ func TestPlugin(t *testing.T) {
 
 	registry = NewRegistry()
 	registry.RegisterPlugin(&testPluginToTest{option: 1})
-	_, err := registry.Validate(1)
+	_, err := registry.Validate()
 	assert.EqualError(t, err, "error 1")
 
 	registry = NewRegistry()
@@ -86,7 +86,7 @@ func TestPlugin(t *testing.T) {
 	err = registry.InitByYaml(yaml)
 	assert.Equal(t, yaml, p.lastValue)
 	assert.NoError(t, err)
-	engine, err := registry.Validate(1)
+	engine, err := registry.Validate()
 	assert.NoError(t, err)
 	assert.Equal(t, "b", engine.Registry().Option("InitRegistryFromYaml"))
 

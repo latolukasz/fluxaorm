@@ -23,7 +23,7 @@ func TestLogTable(t *testing.T) {
 	entity.Age = 18
 	err := orm.FlushWithCheck()
 	assert.NoError(t, err)
-	err = runAsyncConsumer(orm)
+	err = runLogTablesConsumer(orm)
 	assert.Nil(t, err)
 
 	logs := Search[LogEntity[logTableEntity]](orm, NewWhere("1"), nil)
@@ -47,7 +47,7 @@ func TestLogTable(t *testing.T) {
 	entity.Age = 30
 	err = orm.FlushWithCheck()
 	assert.NoError(t, err)
-	err = runAsyncConsumer(orm)
+	err = runLogTablesConsumer(orm)
 	assert.Nil(t, err)
 
 	logs = Search[LogEntity[logTableEntity]](orm, NewWhere("1"), nil)
@@ -70,7 +70,7 @@ func TestLogTable(t *testing.T) {
 	entity.Age = 40
 	err = orm.FlushWithCheck()
 	assert.NoError(t, err)
-	err = runAsyncConsumer(orm)
+	err = runLogTablesConsumer(orm)
 	assert.NoError(t, err)
 	logs = Search[LogEntity[logTableEntity]](orm, NewWhere("1"), nil)
 	assert.Equal(t, 3, logs.Len())
@@ -101,7 +101,7 @@ func TestLogTable(t *testing.T) {
 	DeleteEntity(orm, entity)
 	err = orm.FlushWithCheck()
 	assert.NoError(t, err)
-	err = runAsyncConsumer(orm)
+	err = runLogTablesConsumer(orm)
 	assert.NoError(t, err)
 	logs = Search[LogEntity[logTableEntity]](orm, NewWhere("1"), nil)
 	assert.Equal(t, 4, logs.Len())
@@ -133,7 +133,7 @@ func TestLogTable(t *testing.T) {
 	err = EditEntityField(orm, entity, "Age", 42)
 	assert.NoError(t, err)
 	assert.NoError(t, orm.FlushWithCheck())
-	assert.NoError(t, runAsyncConsumer(orm))
+	assert.NoError(t, runLogTablesConsumer(orm))
 	logs = Search[LogEntity[logTableEntity]](orm, NewWhere("EntityID = ?", entity.ID), nil)
 	assert.Equal(t, 2, logs.Len())
 	logs.Next()

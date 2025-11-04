@@ -28,7 +28,7 @@ func PrepareTables(t *testing.T, registry Registry, entities ...any) (orm Contex
 	registry.RegisterLocalCache(DefaultPoolCode, 0)
 
 	registry.RegisterEntity(entities...)
-	engine, err := registry.Validate(1)
+	engine, err := registry.Validate()
 	if err != nil {
 		if t != nil {
 			assert.NoError(t, err)
@@ -127,9 +127,17 @@ func (m *MockDBClient) QueryContext(context context.Context, query string, args 
 }
 
 func runAsyncConsumer(ctx Context) error {
-	backgroundConsumer := NewBackgroundConsumer(ctx)
-	backgroundConsumer.DisableBlockMode()
-	backgroundConsumer.blockTime = time.Millisecond
-	backgroundConsumer.Digest()
+	lazyFlashConsumer := NewLazyFlashConsumer(ctx)
+	lazyFlashConsumer.DisableBlockMode()
+	lazyFlashConsumer.blockTime = time.Millisecond
+	lazyFlashConsumer.Digest()
+	return nil
+}
+
+func runLogTablesConsumer(ctx Context) error {
+	lazyFlashConsumer := NewLogTablesConsumer(ctx)
+	lazyFlashConsumer.DisableBlockMode()
+	lazyFlashConsumer.blockTime = time.Millisecond
+	lazyFlashConsumer.Digest()
 	return nil
 }
