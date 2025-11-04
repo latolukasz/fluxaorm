@@ -33,7 +33,7 @@ func NewDirtyStreamConsumer(ctx Context, stream string, handler DirtyStreamEvent
 	c.ctx = ctx.(*ormImplementation)
 	c.block = true
 	c.blockTime = time.Second * 30
-	c.stream = stream
+	c.stream = "dirty_" + stream
 	c.handler = handler
 	return c
 }

@@ -61,7 +61,7 @@ func TestDirty(t *testing.T) {
 	assert.Equal(t, uint64(0), orm.GetEventBroker().GetStreamStatistics("dirty_Deleted").Len)
 
 	processed := 0
-	consumerAll := NewDirtyStreamConsumer(orm, "dirty_All", func(event *DirtyStreamEvent) {
+	consumerAll := NewDirtyStreamConsumer(orm, "All", func(event *DirtyStreamEvent) {
 		if processed == 0 {
 			assert.Equal(t, "fluxaorm.dirtyEntity", event.EntityName)
 			assert.Equal(t, entity.ID, event.ID)
@@ -96,7 +96,7 @@ func TestDirty(t *testing.T) {
 	assert.Equal(t, uint64(0), orm.GetEventBroker().GetStreamStatistics("dirty_Deleted").Len)
 
 	processed = 0
-	consumerAll = NewDirtyStreamConsumer(orm, "dirty_All", func(event *DirtyStreamEvent) {
+	consumerAll = NewDirtyStreamConsumer(orm, "All", func(event *DirtyStreamEvent) {
 		assert.Equal(t, "fluxaorm.dirtyEntity", event.EntityName)
 		assert.Equal(t, entity.ID, event.ID)
 		assert.Equal(t, Update, event.Operation)
@@ -122,7 +122,7 @@ func TestDirty(t *testing.T) {
 	assert.Equal(t, uint64(0), orm.GetEventBroker().GetStreamStatistics("dirty_Deleted").Len)
 
 	processed = 0
-	consumerAll = NewDirtyStreamConsumer(orm, "dirty_All", func(event *DirtyStreamEvent) {
+	consumerAll = NewDirtyStreamConsumer(orm, "All", func(event *DirtyStreamEvent) {
 		assert.Equal(t, "fluxaorm.dirtyEntity2", event.EntityName)
 		assert.Equal(t, entity2.ID, event.ID)
 		assert.Equal(t, Delete, event.Operation)
@@ -148,7 +148,7 @@ func TestDirty(t *testing.T) {
 	assert.Equal(t, uint64(1), orm.GetEventBroker().GetStreamStatistics("dirty_Deleted").Len)
 
 	processed = 0
-	consumerAll = NewDirtyStreamConsumer(orm, "dirty_All", func(event *DirtyStreamEvent) {
+	consumerAll = NewDirtyStreamConsumer(orm, "All", func(event *DirtyStreamEvent) {
 		assert.Equal(t, "fluxaorm.dirtyEntity", event.EntityName)
 		assert.Equal(t, entity.ID, event.ID)
 		assert.Equal(t, Delete, event.Operation)
