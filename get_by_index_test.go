@@ -69,7 +69,7 @@ func testGetByIndex(t *testing.T, local, redis bool) {
 	}
 	assert.NoError(t, orm.FlushWithCheck())
 
-	rows = GetByIndex[getByIndexEntity](orm, nil, "Name", nil)
+	rows = GetByIndex[getByIndexEntity](orm, NewPager(1, 5), "Name", nil)
 	assert.Equal(t, 5, rows.Len())
 	rows.Next()
 	e := rows.Entity()
@@ -85,13 +85,13 @@ func testGetByIndex(t *testing.T, local, redis bool) {
 	e = rows.Entity()
 	assert.Equal(t, entities[5].ID, e.ID)
 
-	rows = GetByIndex[getByIndexEntity](orm, nil, "Age", 10, nil)
+	rows = GetByIndex[getByIndexEntity](orm, NewPager(1, 100), "Age", 10, nil)
 	assert.Equal(t, 5, rows.Len())
 	rows.Next()
 	e = rows.Entity()
 	assert.Equal(t, entities[0].ID, e.ID)
 	loggerDB.Clear()
-	rows = GetByIndex[getByIndexEntity](orm, nil, "Age", 10, nil)
+	rows = GetByIndex[getByIndexEntity](orm, NewPager(1, 100), "Age", 10, nil)
 	assert.Equal(t, 5, rows.Len())
 	if local || redis {
 		assert.Len(t, loggerDB.Logs, 0)

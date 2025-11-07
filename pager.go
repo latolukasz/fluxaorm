@@ -27,17 +27,21 @@ func (pager *Pager) IncrementPage() {
 }
 
 func (pager *Pager) paginateSlice(items []uint64) []uint64 {
+	start, end := pager.cutsSlice(len(items))
+	return items[start:end]
+}
+func (pager *Pager) cutsSlice(len int) (int, int) {
 	start := (pager.CurrentPage - 1) * pager.PageSize
-	if start >= len(items) {
-		return []uint64{}
+	if start >= len {
+		return 0, 0
 	}
 
 	end := start + pager.PageSize
-	if end > len(items) {
-		end = len(items)
+	if end > len {
+		end = len
 	}
 
-	return items[start:end]
+	return start, end
 }
 
 func (pager *Pager) String() string {

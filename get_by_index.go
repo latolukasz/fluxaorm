@@ -212,8 +212,11 @@ func getCachedByColumns[E any](ctx Context, pager *Pager, indexName string, inde
 		values.Reset()
 		rc.SAdd(ctx, redisSetKey, idsForRedis...)
 	}
-	if pager != nil {
-		values.setIndex((pager.CurrentPage - 1) * pager.PageSize)
+	if pager != nil && values.Len() > 0 {
+		valuesIterator := values.(*entityIterator[E])
+		valuesIterator.ids = pager.paginateSlice(valuesIterator.ids)
+		start, end := pager.cutsSlice(len(valuesIterator.rows))
+		valuesIterator.rows = valuesIterator.rows[start:end]
 	}
 
 	return values, total

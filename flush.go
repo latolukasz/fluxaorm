@@ -204,9 +204,7 @@ func (orm *ormImplementation) handleDeletes(async bool, schema *entitySchema, op
 		}
 		rc, hasRedisCache := schema.GetRedisCache()
 		if hasRedisCache {
-			if idAsString == "" {
-				idAsString = strconv.FormatUint(operation.ID(), 10)
-			}
+			idAsString = strconv.FormatUint(operation.ID(), 10)
 			cacheKey := schema.getCacheKey() + ":" + idAsString
 			orm.RedisPipeLine(rc.GetCode()).Del(cacheKey)
 			orm.RedisPipeLine(rc.GetCode()).LPush(cacheKey, "")
@@ -228,10 +226,7 @@ func (orm *ormImplementation) handleDeletes(async bool, schema *entitySchema, op
 					lc.removeList(orm, refColumn, id.(uint64))
 				})
 			}
-			if idAsString == "" {
-				idAsString = strconv.FormatUint(operation.ID(), 10)
-			}
-			redisSetKey := schema.cacheKey + ":" + refColumn + ":" + idAsString
+			redisSetKey := schema.cacheKey + ":" + refColumn + ":" + strconv.FormatUint(id.(uint64), 10)
 			orm.RedisPipeLine(schema.getForcedRedisCode()).SRem(redisSetKey, strconv.FormatUint(deleteFlush.ID(), 10))
 		}
 		if schema.cacheAll {
@@ -261,10 +256,7 @@ func (orm *ormImplementation) handleDeletes(async bool, schema *entitySchema, op
 					lc.removeList(orm, key, id)
 				})
 			}
-			if idAsString == "" {
-				idAsString = strconv.FormatUint(operation.ID(), 10)
-			}
-			redisSetKey := schema.cacheKey + ":" + key + ":" + idAsString
+			redisSetKey := schema.cacheKey + ":" + key + ":" + strconv.FormatUint(id, 10)
 			orm.RedisPipeLine(schema.getForcedRedisCode()).SRem(redisSetKey, strconv.FormatUint(deleteFlush.ID(), 10))
 		}
 		rsPoolCode := schema.redisSearchIndexPoolCode
