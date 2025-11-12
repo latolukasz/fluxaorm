@@ -194,6 +194,10 @@ type RedisSearchQuery struct {
 	Tags    string
 }
 
+func NewRedisSearchQuery() *RedisSearchQuery {
+	return &RedisSearchQuery{}
+}
+
 func (q *RedisSearchQuery) AddSortBy(fieldName string, desc bool) {
 	q.SortBy = append(q.SortBy, RedisSearchSortBy{fieldName, desc})
 }
@@ -269,7 +273,7 @@ func RedisSearch[E any](ctx Context, query *RedisSearchQuery, pager *Pager) (res
 
 func RedisSearchOne[E any](ctx Context, query *RedisSearchQuery) (entity *E, found bool) {
 	if query == nil {
-		query = &RedisSearchQuery{}
+		query = NewRedisSearchQuery()
 	}
 	ids, total := RedisSearchIDs[E](ctx, query, NewPager(1, 1))
 	if total == 0 {
