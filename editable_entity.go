@@ -357,7 +357,7 @@ func initNewEntity(elem reflect.Value, fields *tableFields) {
 		}
 	}
 	for k, i := range fields.sliceStringsSets {
-		def := fields.enums[k]
+		def := fields.sets[k]
 		if def.required {
 			f := elem.Field(i)
 			if f.Len() == 0 {
