@@ -916,8 +916,8 @@ func testFlushUpdate(t *testing.T, async, local, redis bool) {
 	assert.True(t, *entity.BoolNullable)
 	assert.Equal(t, 12.23, *entity.FloatNullable)
 	assert.Equal(t, float32(12.24), *entity.Float32Nullable)
-	assert.Equal(t, []testEnum{testEnumDefinition.B, testEnumDefinition.C}, entity.SetNullable)
-	assert.Equal(t, []testEnum{testEnumDefinition.A, testEnumDefinition.C}, entity.SetNotNull)
+	assert.Equal(t, []testSet{testSetDefinition.E, testSetDefinition.F}, entity.SetNullable)
+	assert.Equal(t, []testSet{testSetDefinition.D, testSetDefinition.F}, entity.SetNotNull)
 	assert.Equal(t, testEnumDefinition.C, entity.EnumNullable)
 	assert.Equal(t, testEnumDefinition.A, entity.EnumNotNull)
 	assert.Equal(t, []byte("test binary"), entity.Blob)
@@ -959,7 +959,7 @@ func testFlushUpdate(t *testing.T, async, local, redis bool) {
 		assert.Equal(t, i+1, *entity.IntNullableArray[i])
 		assert.True(t, *entity.BoolNullableArray[i])
 		assert.Equal(t, float32(i+1), *entity.Float32NullableArray[i])
-		assert.Equal(t, []testEnum{testEnumDefinition.B, testEnumDefinition.C}, entity.SetNullableArray[i])
+		assert.Equal(t, []testSet{testSetDefinition.E, testSetDefinition.F}, entity.SetNullableArray[i])
 		assert.Equal(t, testEnumDefinition.C, entity.EnumNullableArray[i])
 		assert.Equal(t, []byte(fmt.Sprintf("Test %d", i)), entity.BlobArray[i])
 		assert.True(t, entity.BoolArray[i])
@@ -1061,12 +1061,12 @@ func testFlushUpdate(t *testing.T, async, local, redis bool) {
 	// same set
 	editedEntity = EditEntity(orm, editedEntity)
 	editedEntity.SetNullable = []testSet{testSetDefinition.E, testSetDefinition.F}
-	editedEntity.SetNotNull = []testSet{testSetDefinition.E, testSetDefinition.D}
+	editedEntity.SetNotNull = []testSet{testSetDefinition.D, testSetDefinition.F}
 	assert.NoError(t, testFlush(orm, async))
 	assert.Len(t, loggerDB.Logs, 0)
 	editedEntity = EditEntity(orm, editedEntity)
-	editedEntity.SetNullable = []testSet{testSetDefinition.E, testSetDefinition.E, testSetDefinition.E}
-	editedEntity.SetNotNull = []testSet{testSetDefinition.E, testSetDefinition.D, testSetDefinition.D}
+	editedEntity.SetNullable = []testSet{testSetDefinition.E, testSetDefinition.F}
+	editedEntity.SetNotNull = []testSet{testSetDefinition.D, testSetDefinition.F}
 	assert.NoError(t, testFlush(orm, async))
 	assert.Len(t, loggerDB.Logs, 0)
 

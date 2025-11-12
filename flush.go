@@ -296,7 +296,7 @@ func (orm *ormImplementation) handleDeletes(async bool, schema *entitySchema, op
 					return err
 				}
 			}
-			after, err := p.EntityFlush(schema, deleteFlush.getValue(), bind, nil, orm.engine)
+			after, err := p.EntityFlush(schema, deleteFlush.getValue(), operation.ID(), bind, nil, orm.engine)
 			if err != nil {
 				return err
 			}
@@ -346,7 +346,7 @@ func (orm *ormImplementation) handleInserts(async bool, schema *entitySchema, op
 		if len(orm.engine.pluginFlush) > 0 {
 			elem := insert.getValue().Elem()
 			for _, p := range orm.engine.pluginFlush {
-				after, err := p.EntityFlush(schema, elem, nil, bind, orm.engine)
+				after, err := p.EntityFlush(schema, elem, insert.ID(), nil, bind, orm.engine)
 				if err != nil {
 					return err
 				}
@@ -523,7 +523,7 @@ func (orm *ormImplementation) handleUpdates(async bool, schema *entitySchema, op
 		}
 		if len(orm.engine.pluginFlush) > 0 {
 			for _, p := range orm.engine.pluginFlush {
-				after, err := p.EntityFlush(schema, elem, oldBind, newBind, orm.engine)
+				after, err := p.EntityFlush(schema, elem, operation.ID(), oldBind, newBind, orm.engine)
 				if err != nil {
 					return err
 				}

@@ -2,10 +2,11 @@ package modified
 
 import (
 	"fmt"
-	"github.com/latolukasz/fluxaorm"
 	"reflect"
 	"strings"
 	"time"
+
+	"github.com/latolukasz/fluxaorm"
 
 	"github.com/pkg/errors"
 )
@@ -91,7 +92,7 @@ func (p *plugin) ValidateEntitySchema(schema fluxaorm.EntitySchemaSetter) error 
 	return nil
 }
 
-func (p *plugin) EntityFlush(schema fluxaorm.EntitySchema, entity reflect.Value, before, after fluxaorm.Bind, _ fluxaorm.Engine) (fluxaorm.PostFlushAction, error) {
+func (p *plugin) EntityFlush(schema fluxaorm.EntitySchema, entity reflect.Value, _ uint64, before, after fluxaorm.Bind, _ fluxaorm.Engine) (fluxaorm.PostFlushAction, error) {
 	if after == nil && before != nil {
 		return nil, nil
 	}

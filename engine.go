@@ -57,6 +57,7 @@ type engineImplementation struct {
 	dbServers                    map[string]DB
 	redisServers                 map[string]RedisCache
 	options                      map[string]any
+	pluginsInitNewEntity         []PluginInitNewEntity
 	pluginFlush                  []PluginInterfaceEntityFlush
 	asyncTemporaryIsQueueRunning bool
 }

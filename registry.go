@@ -214,6 +214,10 @@ func (r *registry) Validate() (Engine, error) {
 		if isInterface {
 			e.pluginFlush = append(e.pluginFlush, pluginInterfaceEntityFlush)
 		}
+		pluginInterfaceEntityInitNewEntity, isInterface := plugin.(PluginInitNewEntity)
+		if isInterface {
+			e.pluginsInitNewEntity = append(e.pluginsInitNewEntity, pluginInterfaceEntityInitNewEntity)
+		}
 	}
 	for key, value := range r.options {
 		e.registry.options[key] = value

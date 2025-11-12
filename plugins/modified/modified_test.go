@@ -1,9 +1,10 @@
 package modified
 
 import (
-	"github.com/latolukasz/fluxaorm"
 	"testing"
 	"time"
+
+	"github.com/latolukasz/fluxaorm"
 
 	"github.com/stretchr/testify/assert"
 )

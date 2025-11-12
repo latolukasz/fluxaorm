@@ -247,7 +247,6 @@ func NewEntityFromSource(ctx Context, entity any) {
 	insertable.schema = schema
 	value := reflect.ValueOf(entity)
 	elem := value.Elem()
-	initNewEntity(elem, schema.fields)
 	insertable.entity = value.Interface()
 	f := elem.Field(0)
 	id := f.Uint()
@@ -257,6 +256,7 @@ func NewEntityFromSource(ctx Context, entity any) {
 	insertable.id = id
 	f.SetUint(id)
 	insertable.value = value
+	initNewEntity(schema, ctx.Engine().(*engineImplementation), elem, schema.fields)
 	ctx.trackEntity(insertable)
 }
 
@@ -270,7 +270,6 @@ func newEntityInsertable(ctx Context, schema *entitySchema, id uint64) *insertab
 	entity.schema = schema
 	value := reflect.New(schema.t)
 	elem := value.Elem()
-	initNewEntity(elem, schema.fields)
 	entity.entity = value.Interface()
 	if id == 0 {
 		id = schema.uuid(ctx)
@@ -278,6 +277,7 @@ func newEntityInsertable(ctx Context, schema *entitySchema, id uint64) *insertab
 	entity.id = id
 	elem.Field(0).SetUint(id)
 	entity.value = value
+	initNewEntity(schema, ctx.Engine().(*engineImplementation), elem, schema.fields)
 	ctx.trackEntity(entity)
 	return entity
 }
@@ -348,7 +348,7 @@ func (orm *ormImplementation) EditEntity(entity any) any {
 	return writable.entity
 }
 
-func initNewEntity(elem reflect.Value, fields *tableFields) {
+func initNewEntity(schema *entitySchema, engine *engineImplementation, elem reflect.Value, fields *tableFields) {
 	for k, i := range fields.stringsEnums {
 		def := fields.enums[k]
 		f := elem.Field(i)
@@ -365,6 +365,11 @@ func initNewEntity(elem reflect.Value, fields *tableFields) {
 				setValues.Index(0).SetString(def.defaultValue)
 				f.Set(setValues)
 			}
+		}
+	}
+	if len(engine.pluginsInitNewEntity) > 0 {
+		for _, p := range engine.pluginsInitNewEntity {
+			p.InitNewEntity(schema, elem)
 		}
 	}
 }
