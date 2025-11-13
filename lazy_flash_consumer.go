@@ -46,7 +46,7 @@ func (r *LazyFlashConsumer) SetBlockTime(ttl time.Duration) {
 func (r *LazyFlashConsumer) Digest() bool {
 	r.consumer = r.ctx.GetEventBroker().Consumer(r.ctx, LazyChannelName).(*eventsConsumer)
 	r.consumer.eventConsumerBase = r.eventConsumerBase
-	return r.consumer.Consume(500, func(events []Event) {
+	return r.consumer.ConsumeSingle(500, func(events []Event) {
 		for _, e := range events {
 			r.handleLazyFlush(e)
 		}

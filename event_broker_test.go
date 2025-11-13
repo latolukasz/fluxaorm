@@ -34,7 +34,7 @@ func TestRedisStreamGroupConsumerClean(t *testing.T) {
 	consumer1.(*eventsConsumer).blockTime = time.Millisecond
 	consumer1.DisableBlockMode()
 
-	consumer1.Consume(1, func(events []Event) {})
+	consumer1.ConsumeSingle(1, func(events []Event) {})
 	time.Sleep(time.Millisecond * 20)
 	assert.Equal(t, int64(0), ctx.Engine().Redis(DefaultPoolCode).XLen(ctx, "test-stream"))
 
@@ -42,7 +42,7 @@ func TestRedisStreamGroupConsumerClean(t *testing.T) {
 		eventFlusher.Publish("test-stream", testEvent{fmt.Sprintf("a%d", i)})
 	}
 	eventFlusher.Flush()
-	consumer1.Consume(100, func(events []Event) {})
+	consumer1.ConsumeSingle(100, func(events []Event) {})
 	time.Sleep(time.Millisecond * 200)
 	assert.Equal(t, int64(0), ctx.Engine().Redis(DefaultPoolCode).XLen(ctx, "test-stream"))
 }
@@ -60,8 +60,8 @@ func TestRedisStreamGroupConsumerAutoScaled(t *testing.T) {
 	consumer := broker.Consumer(ctx, "test-stream")
 	consumer.(*eventsConsumer).blockTime = time.Millisecond
 	consumer.DisableBlockMode()
-	consumer.Consume(1, func(events []Event) {})
-	consumer.Consume(1, func(events []Event) {})
+	consumer.ConsumeSingle(1, func(events []Event) {})
+	consumer.ConsumeSingle(1, func(events []Event) {})
 	type testEvent struct {
 		Name string
 	}
@@ -81,7 +81,7 @@ func TestRedisStreamGroupConsumerAutoScaled(t *testing.T) {
 		consumer := broker.Consumer(ctx, "test-stream")
 		consumer.(*eventsConsumer).blockTime = time.Millisecond
 		consumer.DisableBlockMode()
-		consumed1 = consumer.Consume(5, func(events []Event) {
+		consumed1 = consumer.ConsumeMany(5, func(events []Event) {
 			iterations1 = true
 			time.Sleep(time.Millisecond * 100)
 		})
@@ -92,15 +92,15 @@ func TestRedisStreamGroupConsumerAutoScaled(t *testing.T) {
 		consumer := broker.Consumer(ctx, "test-stream")
 		consumer.(*eventsConsumer).blockTime = time.Millisecond
 		consumer.DisableBlockMode()
-		consumed2 = consumer.Consume(5, func(events []Event) {
+		consumed2 = consumer.ConsumeMany(5, func(events []Event) {
 			iterations2 = true
 		})
 	}()
 	wg.Wait()
 	assert.True(t, iterations1)
-	assert.False(t, iterations2)
+	assert.True(t, iterations2)
 	assert.True(t, consumed1)
-	assert.False(t, consumed2)
+	assert.True(t, consumed2)
 
 	ctx.Engine().Redis(DefaultPoolCode).FlushDB(ctx)
 	for i := 1; i <= 10; i++ {
@@ -117,7 +117,7 @@ func TestRedisStreamGroupConsumerAutoScaled(t *testing.T) {
 		consumer := broker.Consumer(ctx, "test-stream")
 		consumer.(*eventsConsumer).blockTime = time.Millisecond
 		consumer.DisableBlockMode()
-		consumed1 = consumer.ConsumeMany(1, 5, func(events []Event) {
+		consumed1 = consumer.ConsumeMany(5, func(events []Event) {
 			iterations1 = true
 			time.Sleep(time.Millisecond * 100)
 			assert.NotEmpty(t, events[0].ID())
@@ -129,7 +129,7 @@ func TestRedisStreamGroupConsumerAutoScaled(t *testing.T) {
 		consumer := broker.Consumer(ctx, "test-stream")
 		consumer.(*eventsConsumer).blockTime = time.Millisecond
 		consumer.DisableBlockMode()
-		consumed2 = consumer.ConsumeMany(2, 5, func(events []Event) {
+		consumed2 = consumer.ConsumeMany(5, func(events []Event) {
 			iterations2 = true
 		})
 	}()
@@ -147,21 +147,11 @@ func TestRedisStreamGroupConsumerAutoScaled(t *testing.T) {
 	consumer.(*eventsConsumer).blockTime = time.Millisecond
 	consumer.DisableBlockMode()
 	assert.PanicsWithError(t, "stop", func() {
-		consumed2 = consumer.ConsumeMany(1, 3, func(events []Event) {
+		consumed2 = consumer.ConsumeMany(3, func(events []Event) {
 			panic(errors.New("stop"))
 		})
 	})
 	pending := ctx.Engine().Redis(DefaultPoolCode).XPending(ctx, "test-stream", consumerGroupName)
 	assert.Len(t, pending.Consumers, 1)
-	assert.Equal(t, int64(3), pending.Consumers["consumer-1"])
-
-	consumer.Claim(1, 2)
-	pending = ctx.Engine().Redis(DefaultPoolCode).XPending(ctx, "test-stream", consumerGroupName)
-	assert.Len(t, pending.Consumers, 1)
-	assert.Equal(t, int64(3), pending.Consumers["consumer-2"])
-	consumer.Claim(7, 2)
-
-	consumer = broker.Consumer(ctx, "test-stream")
-	consumer.(*eventsConsumer).blockTime = time.Millisecond
-	consumer.DisableBlockMode()
+	assert.Equal(t, int64(3), pending.Consumers[consumer.Name()])
 }

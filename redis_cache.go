@@ -78,6 +78,7 @@ type RedisCache interface {
 	XGroupDestroy(ctx Context, stream, group string) int64
 	XRead(ctx Context, a *redis.XReadArgs) []redis.XStream
 	XDel(ctx Context, stream string, ids ...string) int64
+	XAutoClaim(ctx Context, a *redis.XAutoClaimArgs) (messages []redis.XMessage, start string)
 	XGroupDelConsumer(ctx Context, stream, group, consumer string) int64
 	XReadGroup(ctx Context, a *redis.XReadGroupArgs) (streams []redis.XStream)
 	XPending(ctx Context, stream, group string) *redis.XPending
@@ -929,6 +930,18 @@ func (r *redisCache) XDel(ctx Context, stream string, ids ...string) int64 {
 	}
 	checkError(err)
 	return deleted
+}
+
+func (r *redisCache) XAutoClaim(ctx Context, a *redis.XAutoClaimArgs) (messages []redis.XMessage, start string) {
+	hasLogger, _ := ctx.getRedisLoggers()
+	startTime := getNow(hasLogger)
+	req := r.client.XAutoClaim(ctx.Context(), a)
+	messages, start, err := req.Result()
+	if hasLogger {
+		r.fillLogFields(ctx, req, startTime, false, err)
+	}
+	checkError(err)
+	return messages, start
 }
 
 func (r *redisCache) XGroupDelConsumer(ctx Context, stream, group, consumer string) int64 {

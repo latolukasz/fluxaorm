@@ -76,7 +76,7 @@ func TestDirty(t *testing.T) {
 		processed++
 	})
 	consumerAll.DisableBlockMode()
-	consumerAll.Digest(1, 100)
+	consumerAll.Digest(100)
 	assert.Equal(t, uint64(0), orm.GetEventBroker().GetStreamStatistics("dirty_All").Len)
 	assert.Equal(t, 2, processed)
 
@@ -104,7 +104,7 @@ func TestDirty(t *testing.T) {
 		processed++
 	})
 	consumerAll.DisableBlockMode()
-	consumerAll.Digest(1, 100)
+	consumerAll.Digest(100)
 	assert.Equal(t, uint64(0), orm.GetEventBroker().GetStreamStatistics("dirty_All").Len)
 	assert.Equal(t, 1, processed)
 
@@ -130,7 +130,7 @@ func TestDirty(t *testing.T) {
 		processed++
 	})
 	consumerAll.DisableBlockMode()
-	consumerAll.Digest(1, 100)
+	consumerAll.Digest(100)
 	assert.Equal(t, uint64(0), orm.GetEventBroker().GetStreamStatistics("dirty_All").Len)
 	assert.Equal(t, 1, processed)
 
@@ -156,7 +156,7 @@ func TestDirty(t *testing.T) {
 		processed++
 	})
 	consumerAll.DisableBlockMode()
-	consumerAll.Digest(1, 100)
+	consumerAll.Digest(100)
 	assert.Equal(t, uint64(0), orm.GetEventBroker().GetStreamStatistics("dirty_All").Len)
 	assert.Equal(t, 1, processed)
 }

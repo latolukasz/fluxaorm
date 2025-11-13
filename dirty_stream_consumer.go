@@ -42,11 +42,11 @@ func (r *LogTablesConsumer) DirtyStreamConsumer(ttl time.Duration) {
 	r.eventConsumerBase.SetBlockTime(ttl)
 }
 
-func (r *DirtyStreamConsumer) Digest(nr, count int) bool {
+func (r *DirtyStreamConsumer) Digest(count int) bool {
 	r.consumer = r.ctx.GetEventBroker().Consumer(r.ctx, r.stream).(*eventsConsumer)
 	r.consumer.eventConsumerBase = r.eventConsumerBase
 	returnedEvents := make([]*DirtyStreamEvent, 0, count)
-	return r.consumer.ConsumeMany(nr, count, func(events []Event) {
+	return r.consumer.ConsumeMany(count, func(events []Event) {
 		returnedEvents = returnedEvents[:0]
 		toACK := 0
 		for _, e := range events {
