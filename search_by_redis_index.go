@@ -324,7 +324,11 @@ func (e *entitySchema) ReindexRedisIndex(ctx Context) {
 		columns[i-1] = columnName
 		i++
 	}
-	where += " FROM `" + e.GetTableName() + "` WHERE ID > ? ORDER BY ID LIMIT 0, 3000"
+	where += " FROM `" + e.GetTableName() + "` WHERE ID > ?"
+	if e.hasFakeDelete {
+		where += " AND FakeDelete = 0"
+	}
+	where += " ORDER BY ID ASC"
 	pStmt, pClose := e.GetDB().Prepare(ctx, where)
 	defer pClose()
 	for {
