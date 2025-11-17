@@ -215,9 +215,8 @@ func (r *eventsConsumer) ConsumeMany(count int, handler EventConsumerHandler) bo
 }
 
 func (r *eventsConsumer) consume(autoClaim bool, name string, count int, handler EventConsumerHandler) (finished bool) {
-	r.redis.XGroupCreateMkStream(r.ctx, r.stream, r.group, "0")
-
 	ctx := r.ctx.CloneWithContext(context.Background())
+	r.redis.XGroupCreateMkStream(r.ctx, r.stream, r.group, "0")
 	attributes := &consumeAttributes{
 		Pending:   true,
 		BlockTime: -1,
