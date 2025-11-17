@@ -34,7 +34,7 @@ type redisSearchEntity struct {
 }
 
 type redisSearchCustom struct {
-	ID   uint64 `orm:"noDB;redisCache;redisSearch=default"`
+	ID   uint64 `orm:"virtual;redisCache;redisSearch=default"`
 	Age  uint8  `orm:"searchable;sortable"`
 	Name string `orm:"searchable"`
 }

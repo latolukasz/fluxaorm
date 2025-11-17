@@ -150,7 +150,7 @@ func (orm *ormImplementation) ClearFlush() {
 }
 
 func (orm *ormImplementation) handleDeletes(async bool, schema *entitySchema, operations []EntityFlush) error {
-	if !schema.noDB {
+	if !schema.virtual {
 		var args []any
 		if !async {
 			args = make([]any, len(operations))
@@ -406,7 +406,7 @@ func (orm *ormImplementation) handleInserts(async bool, schema *entitySchema, op
 		if !async || i == 0 {
 			sql += ")"
 		}
-		if async && !schema.noDB {
+		if async && !schema.virtual {
 			asyncData[0] = sql
 			asyncData[1] = schema.mysqlPoolCode
 			orm.RedisPipeLine(getRedisForStream(orm, LazyChannelName).GetCode()).XAdd(LazyChannelName, createEventSlice(asyncData, nil))
@@ -503,7 +503,7 @@ func (orm *ormImplementation) handleInserts(async bool, schema *entitySchema, op
 			}
 		}
 	}
-	if !async && !schema.noDB {
+	if !async && !schema.virtual {
 		orm.appendDBAction(schema, func(db DBBase) {
 			db.Exec(orm, sql, args...)
 		})
@@ -608,7 +608,7 @@ func (orm *ormImplementation) handleUpdates(async bool, schema *entitySchema, op
 		} else {
 			args[k] = update.ID()
 		}
-		if !schema.noDB {
+		if !schema.virtual {
 			if async {
 				asyncArgs[0] = sql
 				asyncArgs[1] = schema.mysqlPoolCode

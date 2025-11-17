@@ -42,7 +42,7 @@ type EntitySchemaSetter interface {
 
 type EntitySchemaShared interface {
 	GetTableName() string
-	IsNoDB() bool
+	IsVirtual() bool
 	GetType() reflect.Type
 	GetColumns() []string
 	GetTag(field, key, trueValue, defaultValue string) string
@@ -88,7 +88,7 @@ type fieldGetter func(reflect.Value) any
 
 type entitySchema struct {
 	index                     uint64
-	noDB                      bool
+	virtual                   bool
 	tableName                 string
 	archived                  bool
 	mysqlPoolCode             string
@@ -222,8 +222,8 @@ func (e *entitySchema) GetTableName() string {
 	return e.tableName
 }
 
-func (e *entitySchema) IsNoDB() bool {
-	return e.noDB
+func (e *entitySchema) IsVirtual() bool {
+	return e.virtual
 }
 
 func (e *entitySchema) GetType() reflect.Type {
@@ -236,7 +236,7 @@ func (e *entitySchema) DropTable(ctx Context) {
 }
 
 func (e *entitySchema) TruncateTable(ctx Context) {
-	if e.noDB {
+	if e.virtual {
 		return
 	}
 	pool := e.GetDB()
@@ -249,7 +249,7 @@ func (e *entitySchema) TruncateTable(ctx Context) {
 }
 
 func (e *entitySchema) UpdateSchema(ctx Context) {
-	if e.noDB {
+	if e.virtual {
 		return
 	}
 	pool := e.GetDB()
@@ -314,7 +314,7 @@ func (e *entitySchema) init(registry *registry, entityType reflect.Type) error {
 	e.t = entityType
 	e.tSlice = reflect.SliceOf(reflect.PtrTo(entityType))
 	e.tags = extractTags(registry, entityType, "")
-	e.noDB = e.getTag("noDB", "true", "") == "true"
+	e.virtual = e.getTag("virtual", "true", "") == "true"
 	e.options = make(map[string]any)
 	e.references = make(map[string]referenceDefinition)
 	e.cachedReferences = make(map[string]referenceDefinition)
@@ -489,8 +489,8 @@ func (e *entitySchema) init(registry *registry, entityType reflect.Type) error {
 	}
 	e.redisCacheName = redisCacheName
 	e.hasRedisCache = redisCacheName != ""
-	if e.noDB && !e.hasRedisCache && !e.hasLocalCache {
-		return fmt.Errorf("entity '%s' has no cache pool defined", e.t.String())
+	if e.virtual && !e.hasRedisCache && !e.hasLocalCache {
+		return fmt.Errorf("virtual entity '%s' has no cache pool defined", e.t.String())
 	}
 	e.cacheKey = cacheKey
 	e.uniqueIndexes = make(map[string]indexDefinition)
@@ -801,7 +801,7 @@ func (e *entitySchema) Option(key string) any {
 }
 
 func (e *entitySchema) uuid(ctx Context) uint64 {
-	if e.noDB {
+	if e.virtual {
 		return 0
 	}
 	r := ctx.Engine().Redis(e.getForcedRedisCode())

@@ -125,7 +125,7 @@ func getAlters(ctx Context) (preAlters, alters, postAlters []Alter) {
 	alters = make([]Alter, 0)
 	for _, schemaInterface := range ctx.Engine().Registry().Entities() {
 		schema := schemaInterface.(*entitySchema)
-		if schema.noDB {
+		if schema.virtual {
 			continue
 		}
 		db := schema.GetDB()

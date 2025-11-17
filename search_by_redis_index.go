@@ -93,7 +93,7 @@ func (a RedisSearchAlter) Exec(ctx Context) {
 		return
 	}
 	ctx.Engine().Redis(a.Pool).FTCreate(ctx, a.IndexName, a.indexOptions, a.indexSchema...)
-	if !a.schema.IsNoDB() {
+	if !a.schema.IsVirtual() {
 		a.schema.ReindexRedisIndex(ctx)
 	}
 }
@@ -143,7 +143,7 @@ func getRedisIndexAlter(ctx Context, schema *entitySchema, r RedisCache) (alter 
 		return nil, false
 	}
 	alter.IndexDefinition = schema.createRedisSearchIndexDefinition(alter.IndexName)
-	if !schema.noDB {
+	if !schema.virtual {
 		query := fmt.Sprintf("SELECT COUNT(ID) FROM `%s`", schema.GetTableName())
 		total := uint64(0)
 		schema.GetDB().QueryRow(ctx, NewWhere(query), &total)
@@ -295,8 +295,8 @@ func (e *entitySchema) ReindexRedisIndex(ctx Context) {
 	if e.redisSearchIndexName == "" {
 		return
 	}
-	if e.noDB {
-		panic(fmt.Errorf("entity %s is marked with noDB tag and can't be reindexed", e.GetType().Name()))
+	if e.virtual {
+		panic(fmt.Errorf("virtual entity %s can't be reindexed", e.GetType().Name()))
 		return
 	}
 	lastIDRedisKey := "lastID:" + e.redisSearchIndexName
