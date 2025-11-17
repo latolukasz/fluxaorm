@@ -42,6 +42,7 @@ type EntitySchemaSetter interface {
 
 type EntitySchemaShared interface {
 	GetTableName() string
+	IsNoDB() bool
 	GetType() reflect.Type
 	GetColumns() []string
 	GetTag(field, key, trueValue, defaultValue string) string
@@ -87,6 +88,7 @@ type fieldGetter func(reflect.Value) any
 
 type entitySchema struct {
 	index                     uint64
+	noDB                      bool
 	tableName                 string
 	archived                  bool
 	mysqlPoolCode             string
@@ -220,6 +222,10 @@ func (e *entitySchema) GetTableName() string {
 	return e.tableName
 }
 
+func (e *entitySchema) IsNoDB() bool {
+	return e.noDB
+}
+
 func (e *entitySchema) GetType() reflect.Type {
 	return e.t
 }
@@ -230,6 +236,9 @@ func (e *entitySchema) DropTable(ctx Context) {
 }
 
 func (e *entitySchema) TruncateTable(ctx Context) {
+	if e.noDB {
+		return
+	}
 	pool := e.GetDB()
 	if e.archived {
 		_ = pool.Exec(ctx, fmt.Sprintf("DROP TABLE `%s`.`%s`", pool.GetConfig().GetDatabaseName(), e.tableName))
@@ -240,6 +249,9 @@ func (e *entitySchema) TruncateTable(ctx Context) {
 }
 
 func (e *entitySchema) UpdateSchema(ctx Context) {
+	if e.noDB {
+		return
+	}
 	pool := e.GetDB()
 	alters, has := e.GetSchemaChanges(ctx)
 	if has {
@@ -302,6 +314,7 @@ func (e *entitySchema) init(registry *registry, entityType reflect.Type) error {
 	e.t = entityType
 	e.tSlice = reflect.SliceOf(reflect.PtrTo(entityType))
 	e.tags = extractTags(registry, entityType, "")
+	e.noDB = e.getTag("noDB", "true", "") == "true"
 	e.options = make(map[string]any)
 	e.references = make(map[string]referenceDefinition)
 	e.cachedReferences = make(map[string]referenceDefinition)
@@ -323,7 +336,7 @@ func (e *entitySchema) init(registry *registry, entityType reflect.Type) error {
 	e.cacheAll = e.getTag("cacheAll", "true", "") == "true"
 	redisCacheName := e.getTag("redisCache", DefaultPoolCode, "")
 	if redisCacheName != "" {
-		_, has = registry.redisPools[redisCacheName]
+		_, has := registry.redisPools[redisCacheName]
 		if !has {
 			return fmt.Errorf("redis pool '%s' not found", redisCacheName)
 		}
@@ -476,6 +489,9 @@ func (e *entitySchema) init(registry *registry, entityType reflect.Type) error {
 	}
 	e.redisCacheName = redisCacheName
 	e.hasRedisCache = redisCacheName != ""
+	if e.noDB && !e.hasRedisCache && !e.hasLocalCache {
+		return fmt.Errorf("entity '%s' has no cache pool defined", e.t.String())
+	}
 	e.cacheKey = cacheKey
 	e.uniqueIndexes = make(map[string]indexDefinition)
 	e.cachedIndexes = make(map[string]indexDefinition)
@@ -503,7 +519,7 @@ func (e *entitySchema) init(registry *registry, entityType reflect.Type) error {
 	redisCode := e.getTag("redisSearch", DefaultPoolCode, "")
 	if redisCode != "" {
 		e.redisSearchIndexName = redisSearchIndexPrefix + e.tableName
-		_, has = registry.redisPools[redisCode]
+		_, has := registry.redisPools[redisCode]
 		if !has {
 			return fmt.Errorf("redis pool '%s' not found", redisCode)
 		}
@@ -785,6 +801,9 @@ func (e *entitySchema) Option(key string) any {
 }
 
 func (e *entitySchema) uuid(ctx Context) uint64 {
+	if e.noDB {
+		return 0
+	}
 	r := ctx.Engine().Redis(e.getForcedRedisCode())
 	id := r.Incr(ctx, e.uuidCacheKey)
 	if id == 1 {

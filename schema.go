@@ -125,6 +125,9 @@ func getAlters(ctx Context) (preAlters, alters, postAlters []Alter) {
 	alters = make([]Alter, 0)
 	for _, schemaInterface := range ctx.Engine().Registry().Entities() {
 		schema := schemaInterface.(*entitySchema)
+		if schema.noDB {
+			continue
+		}
 		db := schema.GetDB()
 		tablesInEntities[db.GetConfig().GetCode()][schema.GetTableName()] = true
 		pre, middle, post := getSchemaChanges(ctx, schema)

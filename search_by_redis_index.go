@@ -2,11 +2,12 @@ package fluxaorm
 
 import (
 	"fmt"
-	"github.com/redis/go-redis/v9"
 	"sort"
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/redis/go-redis/v9"
 )
 
 const max_redis_search_limit = 100000
@@ -92,7 +93,9 @@ func (a RedisSearchAlter) Exec(ctx Context) {
 		return
 	}
 	ctx.Engine().Redis(a.Pool).FTCreate(ctx, a.IndexName, a.indexOptions, a.indexSchema...)
-	a.schema.ReindexRedisIndex(ctx)
+	if !a.schema.IsNoDB() {
+		a.schema.ReindexRedisIndex(ctx)
+	}
 }
 
 func getRedisIndexAlter(ctx Context, schema *entitySchema, r RedisCache) (alter *RedisSearchAlter, has bool) {
@@ -140,10 +143,12 @@ func getRedisIndexAlter(ctx Context, schema *entitySchema, r RedisCache) (alter 
 		return nil, false
 	}
 	alter.IndexDefinition = schema.createRedisSearchIndexDefinition(alter.IndexName)
-	query := fmt.Sprintf("SELECT COUNT(ID) FROM `%s`", schema.GetTableName())
-	total := uint64(0)
-	schema.GetDB().QueryRow(ctx, NewWhere(query), &total)
-	alter.DocumentsInDB = total
+	if !schema.noDB {
+		query := fmt.Sprintf("SELECT COUNT(ID) FROM `%s`", schema.GetTableName())
+		total := uint64(0)
+		schema.GetDB().QueryRow(ctx, NewWhere(query), &total)
+		alter.DocumentsInDB = total
+	}
 	return
 }
 
@@ -288,6 +293,10 @@ func RedisSearchOne[E any](ctx Context, query *RedisSearchQuery) (entity *E, fou
 
 func (e *entitySchema) ReindexRedisIndex(ctx Context) {
 	if e.redisSearchIndexName == "" {
+		return
+	}
+	if e.noDB {
+		panic(fmt.Errorf("entity %s is marked with noDB tag and can't be reindexed", e.GetType().Name()))
 		return
 	}
 	lastIDRedisKey := "lastID:" + e.redisSearchIndexName

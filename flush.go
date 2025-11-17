@@ -2,10 +2,11 @@ package fluxaorm
 
 import (
 	"fmt"
-	"github.com/go-sql-driver/mysql"
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/go-sql-driver/mysql"
 
 	"github.com/puzpuzpuz/xsync/v2"
 
@@ -149,31 +150,33 @@ func (orm *ormImplementation) ClearFlush() {
 }
 
 func (orm *ormImplementation) handleDeletes(async bool, schema *entitySchema, operations []EntityFlush) error {
-	var args []any
-	if !async {
-		args = make([]any, len(operations))
-	}
-	sql := "DELETE FROM `" + schema.GetTableName() + "` WHERE ID IN ("
-	if async {
-		for i, operation := range operations {
-			if i > 0 {
-				sql += ","
+	if !schema.noDB {
+		var args []any
+		if !async {
+			args = make([]any, len(operations))
+		}
+		sql := "DELETE FROM `" + schema.GetTableName() + "` WHERE ID IN ("
+		if async {
+			for i, operation := range operations {
+				if i > 0 {
+					sql += ","
+				}
+				sql += strconv.FormatUint(operation.ID(), 10)
 			}
-			sql += strconv.FormatUint(operation.ID(), 10)
+		} else {
+			sql += "?" + strings.Repeat(",?", len(operations)-1)
 		}
-	} else {
-		sql += "?" + strings.Repeat(",?", len(operations)-1)
-	}
-	sql += ")"
-	if !async {
-		for i, operation := range operations {
-			args[i] = operation.ID()
+		sql += ")"
+		if !async {
+			for i, operation := range operations {
+				args[i] = operation.ID()
+			}
+			orm.appendDBAction(schema, func(db DBBase) {
+				db.Exec(orm, sql, args...)
+			})
+		} else {
+			orm.RedisPipeLine(getRedisForStream(orm, LazyChannelName).GetCode()).XAdd(LazyChannelName, createEventSlice([]any{sql, schema.mysqlPoolCode}, nil))
 		}
-		orm.appendDBAction(schema, func(db DBBase) {
-			db.Exec(orm, sql, args...)
-		})
-	} else {
-		orm.RedisPipeLine(getRedisForStream(orm, LazyChannelName).GetCode()).XAdd(LazyChannelName, createEventSlice([]any{sql, schema.mysqlPoolCode}, nil))
 	}
 
 	lc, hasLocalCache := schema.GetLocalCache()
@@ -403,7 +406,7 @@ func (orm *ormImplementation) handleInserts(async bool, schema *entitySchema, op
 		if !async || i == 0 {
 			sql += ")"
 		}
-		if async {
+		if async && !schema.noDB {
 			asyncData[0] = sql
 			asyncData[1] = schema.mysqlPoolCode
 			orm.RedisPipeLine(getRedisForStream(orm, LazyChannelName).GetCode()).XAdd(LazyChannelName, createEventSlice(asyncData, nil))
@@ -500,7 +503,7 @@ func (orm *ormImplementation) handleInserts(async bool, schema *entitySchema, op
 			}
 		}
 	}
-	if !async {
+	if !async && !schema.noDB {
 		orm.appendDBAction(schema, func(db DBBase) {
 			db.Exec(orm, sql, args...)
 		})
@@ -605,16 +608,17 @@ func (orm *ormImplementation) handleUpdates(async bool, schema *entitySchema, op
 		} else {
 			args[k] = update.ID()
 		}
-		if async {
-			asyncArgs[0] = sql
-			asyncArgs[1] = schema.mysqlPoolCode
-			orm.RedisPipeLine(getRedisForStream(orm, LazyChannelName).GetCode()).XAdd(LazyChannelName, createEventSlice(asyncArgs, nil))
-		} else {
-			orm.appendDBAction(schema, func(db DBBase) {
-				db.Exec(orm, sql, args...)
-			})
+		if !schema.noDB {
+			if async {
+				asyncArgs[0] = sql
+				asyncArgs[1] = schema.mysqlPoolCode
+				orm.RedisPipeLine(getRedisForStream(orm, LazyChannelName).GetCode()).XAdd(LazyChannelName, createEventSlice(asyncArgs, nil))
+			} else {
+				orm.appendDBAction(schema, func(db DBBase) {
+					db.Exec(orm, sql, args...)
+				})
+			}
 		}
-
 		logTableSchema, hasLogTable := orm.engine.registry.entityLogSchemas[schema.t]
 		if hasLogTable && !orm.engine.registry.disableLogTables {
 			data := make([]any, 8)

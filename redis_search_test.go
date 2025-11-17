@@ -33,6 +33,12 @@ type redisSearchEntity struct {
 	CreatedNull   *time.Time                            `orm:"searchable"`
 }
 
+type redisSearchCustom struct {
+	ID   uint64 `orm:"noDB;redisCache;redisSearch=default"`
+	Age  uint8  `orm:"searchable;sortable"`
+	Name string `orm:"searchable"`
+}
+
 type redisSearchEntityReference struct {
 	ID   uint64 `orm:"localCache"`
 	Name string `orm:"required"`
@@ -40,7 +46,8 @@ type redisSearchEntityReference struct {
 
 func TestRedisSearch(t *testing.T) {
 	var entity *redisSearchEntity
-	orm := PrepareTables(t, NewRegistry(), entity, redisSearchEntityReference{})
+	reg := NewRegistry()
+	orm := PrepareTables(t, reg, entity, redisSearchEntityReference{}, redisSearchCustom{})
 	schema := GetEntitySchema[redisSearchEntity](orm)
 	r := orm.Engine().Redis(schema.GetRedisSearchPoolCode())
 
@@ -84,7 +91,7 @@ func TestRedisSearch(t *testing.T) {
 	// Reindex
 	orm.Engine().Redis(DefaultPoolCode).FlushDB(orm)
 	redisSearchAlters := GetRedisSearchAlters(orm)
-	assert.Len(t, redisSearchAlters, 1)
+	assert.Len(t, redisSearchAlters, 2)
 	for _, alter := range redisSearchAlters {
 		alter.Exec(orm)
 	}
@@ -130,6 +137,41 @@ func TestRedisSearch(t *testing.T) {
 		RedisSearchIDs[redisSearchEntityReference](orm, query, nil)
 	})
 
+	custom := NewEntity[redisSearchCustom](orm)
+	assert.Equal(t, uint64(0), custom.ID)
+	custom.ID = 1
+	custom.Age = 18
+	custom.Name = "Custom 1"
+	assert.NoError(t, orm.FlushWithCheck())
+
+	query = NewRedisSearchQuery()
+	query.AddFilterNumber("Age", 18)
+	rows, total := RedisSearch[redisSearchCustom](orm, query, nil)
+	assert.Equal(t, 1, total)
+	assert.Equal(t, 1, rows.Len())
+	assert.True(t, rows.Next())
+	row := rows.Entity()
+	assert.Equal(t, uint8(18), row.Age)
+	assert.Equal(t, "Custom 1", row.Name)
+
+	custom = EditEntity(orm, custom)
+	custom.Age = 20
+	assert.NoError(t, orm.FlushWithCheck())
+	query = NewRedisSearchQuery()
+	query.AddFilterNumber("Age", 20)
+	rows, total = RedisSearch[redisSearchCustom](orm, query, nil)
+	assert.Equal(t, 1, total)
+	assert.Equal(t, 1, rows.Len())
+	assert.True(t, rows.Next())
+	row = rows.Entity()
+	assert.Equal(t, uint8(20), row.Age)
+	assert.Equal(t, "Custom 1", row.Name)
+
+	DeleteEntity(orm, custom)
+	assert.NoError(t, orm.FlushWithCheck())
+	rows, total = RedisSearch[redisSearchCustom](orm, query, nil)
+	assert.Equal(t, 0, total)
+	assert.Equal(t, 0, rows.Len())
 }
 
 func testRedisSearchResults(t *testing.T, r RedisCache, orm Context, schema EntitySchema, ids []uint64, now time.Time, idsReferences []uint64) {
