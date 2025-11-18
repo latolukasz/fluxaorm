@@ -79,6 +79,7 @@ type EntitySchema interface {
 	uuid(ctx Context) uint64
 	getForcedRedisCode() string
 	ReindexRedisIndex(ctx Context)
+	ClearCache(ctx Context) int
 }
 
 type columnAttrToStringSetter func(v any, fromBind bool) (string, error)
@@ -1078,6 +1079,34 @@ func (e *entitySchema) DeleteEntity(ctx Context, source any) {
 	toRemove.id = toRemove.value.Field(0).Uint()
 	toRemove.schema = schema
 	ctx.trackEntity(toRemove)
+}
+
+func (e *entitySchema) ClearCache(ctx Context) int {
+	if e.hasLocalCache {
+		e.localCache.Clear(ctx)
+	}
+	if !e.hasRedisCache {
+		return 0
+	}
+	r := ctx.Engine().Redis(e.redisCacheName)
+	script := `
+local cursor = '0'
+local deleted = 0
+
+repeat
+  local result = redis.call('SCAN', cursor, 'MATCH', KEYS[1], 'COUNT', 1000)
+  cursor = result[1]
+  local keys = result[2]
+
+  if #keys > 0 then
+    deleted = deleted + redis.call('UNLINK', unpack(keys))
+  end
+until cursor == '0'
+
+return deleted
+`
+	res := r.Eval(ctx, script, []string{e.getCacheKey() + ":*"})
+	return int(res.(int64))
 }
 
 func (e *entitySchema) search(ctx Context, where Where, pager *Pager, withCount bool) (results EntityAnonymousIterator, totalRows int) {
