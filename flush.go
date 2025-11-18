@@ -197,6 +197,9 @@ func (orm *ormImplementation) handleDeletes(async bool, schema *entitySchema, op
 				hField, hasKey := buildUniqueKeyHSetField(schema, indexColumns, bind, nil)
 				if hasKey {
 					orm.RedisPipeLine(cache.GetConfig().GetCode()).HDel(hSetKey, hField)
+					if schema.cacheTTL > 0 {
+						orm.RedisPipeLine(cache.GetConfig().GetCode()).Expire(hSetKey, time.Duration(schema.cacheTTL)*time.Second)
+					}
 				}
 			}
 		}
@@ -211,6 +214,9 @@ func (orm *ormImplementation) handleDeletes(async bool, schema *entitySchema, op
 			cacheKey := schema.getCacheKey() + ":" + idAsString
 			orm.RedisPipeLine(rc.GetCode()).Del(cacheKey)
 			orm.RedisPipeLine(rc.GetCode()).LPush(cacheKey, "")
+			if schema.cacheTTL > 0 {
+				orm.RedisPipeLine(rc.GetCode()).Expire(cacheKey, time.Duration(schema.cacheTTL)*time.Second)
+			}
 		}
 		for columnName := range schema.cachedReferences {
 			if bind == nil {
@@ -231,6 +237,9 @@ func (orm *ormImplementation) handleDeletes(async bool, schema *entitySchema, op
 			}
 			redisSetKey := schema.cacheKey + ":" + refColumn + ":" + strconv.FormatUint(id.(uint64), 10)
 			orm.RedisPipeLine(schema.getForcedRedisCode()).SRem(redisSetKey, strconv.FormatUint(deleteFlush.ID(), 10))
+			if schema.cacheTTL > 0 {
+				orm.RedisPipeLine(schema.getForcedRedisCode()).Expire(redisSetKey, time.Duration(schema.cacheTTL)*time.Second)
+			}
 		}
 		if schema.cacheAll {
 			if schema.hasLocalCache {
@@ -240,6 +249,9 @@ func (orm *ormImplementation) handleDeletes(async bool, schema *entitySchema, op
 			}
 			redisSetKey := schema.cacheKey + ":" + cacheAllFakeReferenceKey
 			orm.RedisPipeLine(schema.getForcedRedisCode()).SRem(redisSetKey, strconv.FormatUint(deleteFlush.ID(), 10))
+			if schema.cacheTTL > 0 {
+				orm.RedisPipeLine(schema.getForcedRedisCode()).Expire(redisSetKey, time.Duration(schema.cacheTTL)*time.Second)
+			}
 		}
 		for indexName, def := range schema.cachedIndexes {
 			if bind == nil {
@@ -261,11 +273,18 @@ func (orm *ormImplementation) handleDeletes(async bool, schema *entitySchema, op
 			}
 			redisSetKey := schema.cacheKey + ":" + key + ":" + strconv.FormatUint(id, 10)
 			orm.RedisPipeLine(schema.getForcedRedisCode()).SRem(redisSetKey, strconv.FormatUint(deleteFlush.ID(), 10))
+			if schema.cacheTTL > 0 {
+				orm.RedisPipeLine(schema.getForcedRedisCode()).Expire(redisSetKey, time.Duration(schema.cacheTTL)*time.Second)
+			}
 		}
 		rsPoolCode := schema.redisSearchIndexPoolCode
 		if rsPoolCode != "" {
 			rsPool := orm.RedisPipeLine(rsPoolCode)
-			rsPool.Del(schema.redisSearchIndexPrefix + strconv.FormatUint(deleteFlush.ID(), 10))
+			rsKey := schema.redisSearchIndexPrefix + strconv.FormatUint(deleteFlush.ID(), 10)
+			rsPool.Del(rsKey)
+			if schema.cacheTTL > 0 {
+				rsPool.Expire(rsKey, time.Duration(schema.cacheTTL)*time.Second)
+			}
 		}
 
 		logTableSchema, hasLogTable := orm.engine.registry.entityLogSchemas[schema.t]
@@ -368,6 +387,9 @@ func (orm *ormImplementation) handleInserts(async bool, schema *entitySchema, op
 					continue
 				}
 				orm.RedisPipeLine(cache.GetConfig().GetCode()).HSet(hSetKey, hField, strconv.FormatUint(insert.ID(), 10))
+				if schema.cacheTTL > 0 {
+					orm.RedisPipeLine(cache.GetConfig().GetCode()).Expire(hSetKey, time.Duration(schema.cacheTTL)*time.Second)
+				}
 			}
 		}
 		var asyncData []any
@@ -447,6 +469,9 @@ func (orm *ormImplementation) handleInserts(async bool, schema *entitySchema, op
 			}
 			redisSetKey := schema.cacheKey + ":" + refColumn + ":" + strconv.FormatUint(id.(uint64), 10)
 			orm.RedisPipeLine(schema.getForcedRedisCode()).SAdd(redisSetKey, strconv.FormatUint(insert.ID(), 10))
+			if schema.cacheTTL > 0 {
+				orm.RedisPipeLine(schema.getForcedRedisCode()).Expire(redisSetKey, time.Duration(schema.cacheTTL)*time.Second)
+			}
 		}
 		if schema.cacheAll {
 			if schema.hasLocalCache {
@@ -456,6 +481,9 @@ func (orm *ormImplementation) handleInserts(async bool, schema *entitySchema, op
 			}
 			redisSetKey := schema.cacheKey + ":" + cacheAllFakeReferenceKey
 			orm.RedisPipeLine(schema.getForcedRedisCode()).SAdd(redisSetKey, strconv.FormatUint(insert.ID(), 10))
+			if schema.cacheTTL > 0 {
+				orm.RedisPipeLine(schema.getForcedRedisCode()).Expire(redisSetKey, time.Duration(schema.cacheTTL)*time.Second)
+			}
 		}
 		for indexName, def := range schema.cachedIndexes {
 			indexAttributes := make([]any, len(def.Columns))
@@ -471,11 +499,19 @@ func (orm *ormImplementation) handleInserts(async bool, schema *entitySchema, op
 			}
 			redisSetKey := schema.cacheKey + ":" + key + ":" + strconv.FormatUint(id, 10)
 			orm.RedisPipeLine(schema.getForcedRedisCode()).SAdd(redisSetKey, strconv.FormatUint(insert.ID(), 10))
+			if schema.cacheTTL > 0 {
+				orm.RedisPipeLine(schema.getForcedRedisCode()).Expire(redisSetKey, time.Duration(schema.cacheTTL)*time.Second)
+			}
 		}
 		var idAsString string
 		if hasRedisCache {
 			idAsString = strconv.FormatUint(bind["ID"].(uint64), 10)
-			orm.RedisPipeLine(rc.GetCode()).RPush(schema.getCacheKey()+":"+idAsString, convertBindToRedisValue(bind, schema)...)
+			listKey := schema.getCacheKey() + ":" + idAsString
+			orm.RedisPipeLine(rc.GetCode()).Del(listKey)
+			orm.RedisPipeLine(rc.GetCode()).RPush(listKey, convertBindToRedisValue(bind, schema)...)
+			if schema.cacheTTL > 0 {
+				orm.RedisPipeLine(rc.GetCode()).Expire(listKey, time.Duration(schema.cacheTTL)*time.Second)
+			}
 		}
 		rsPoolCode := schema.redisSearchIndexPoolCode
 		if rsPoolCode != "" {
@@ -490,7 +526,11 @@ func (orm *ormImplementation) handleInserts(async bool, schema *entitySchema, op
 				values[k+1] = def.convertBindToHashValue(bind[column])
 				k += 2
 			}
-			rsPool.HSet(schema.redisSearchIndexPrefix+idAsString, values...)
+			rsKey := schema.redisSearchIndexPrefix + idAsString
+			rsPool.HSet(rsKey, values...)
+			if schema.cacheTTL > 0 {
+				rsPool.Expire(rsKey, time.Duration(schema.cacheTTL)*time.Second)
+			}
 		}
 		if len(schema.dirtyAdded) > 0 {
 			rsPool := orm.RedisPipeLine(schema.getForcedRedisCode())
@@ -508,7 +548,6 @@ func (orm *ormImplementation) handleInserts(async bool, schema *entitySchema, op
 			db.Exec(orm, sql, args...)
 		})
 	}
-
 	return nil
 }
 
@@ -551,12 +590,20 @@ func (orm *ormImplementation) handleUpdates(async bool, schema *entitySchema, op
 				}
 				hSetKey := schema.getCacheKey() + ":" + indexName
 				hField, hasKey := buildUniqueKeyHSetField(schema, definition.Columns, newBind, forcedNew)
+				expireSet := false
 				if hasKey {
 					orm.RedisPipeLine(cache.GetConfig().GetCode()).HSet(hSetKey, hField, strconv.FormatUint(update.ID(), 10))
+					if schema.cacheTTL > 0 {
+						orm.RedisPipeLine(cache.GetConfig().GetCode()).Expire(hSetKey, time.Duration(schema.cacheTTL)*time.Second)
+						expireSet = true
+					}
 				}
 				hFieldOld, hasKey := buildUniqueKeyHSetField(schema, definition.Columns, oldBind, forcedOld)
 				if hasKey {
 					orm.RedisPipeLine(cache.GetConfig().GetCode()).HDel(hSetKey, hFieldOld)
+					if schema.cacheTTL > 0 && !expireSet {
+						orm.RedisPipeLine(cache.GetConfig().GetCode()).Expire(hSetKey, time.Duration(schema.cacheTTL)*time.Second)
+					}
 				}
 			}
 		}
@@ -674,6 +721,9 @@ func (orm *ormImplementation) handleUpdates(async bool, schema *entitySchema, op
 				index := int64(schema.columnMapping[column] + 1)
 				p.LSet(rKey, index, convertBindValueToRedisValue(val))
 			}
+			if schema.cacheTTL > 0 {
+				p.Expire(rKey, time.Duration(schema.cacheTTL)*time.Second)
+			}
 		}
 		rsPoolCode := schema.redisSearchIndexPoolCode
 		if rsPoolCode != "" {
@@ -687,7 +737,11 @@ func (orm *ormImplementation) handleUpdates(async bool, schema *entitySchema, op
 						if idAsString == "" {
 							idAsString = strconv.FormatUint(update.ID(), 10)
 						}
-						rsPool.Del(schema.redisSearchIndexPrefix + idAsString)
+						rsKey := schema.redisSearchIndexPrefix + idAsString
+						rsPool.Del(rsKey)
+						if schema.cacheTTL > 0 {
+							rsPool.Expire(rsKey, time.Duration(schema.cacheTTL)*time.Second)
+						}
 					} else {
 						values := make([]any, 0)
 						bind := make(Bind)
@@ -706,7 +760,11 @@ func (orm *ormImplementation) handleUpdates(async bool, schema *entitySchema, op
 							if idAsString == "" {
 								idAsString = strconv.FormatUint(update.ID(), 10)
 							}
-							rsPool.HSet(schema.redisSearchIndexPrefix+idAsString, values...)
+							rsKey := schema.redisSearchIndexPrefix + idAsString
+							rsPool.HSet(rsKey, values...)
+							if schema.cacheTTL > 0 {
+								rsPool.Expire(rsKey, time.Duration(schema.cacheTTL)*time.Second)
+							}
 						}
 					}
 				}
@@ -725,7 +783,11 @@ func (orm *ormImplementation) handleUpdates(async bool, schema *entitySchema, op
 					if idAsString == "" {
 						idAsString = strconv.FormatUint(update.ID(), 10)
 					}
-					rsPool.HSet(schema.redisSearchIndexPrefix+idAsString, values...)
+					rsKey := schema.redisSearchIndexPrefix + idAsString
+					rsPool.HSet(rsKey, values...)
+					if schema.cacheTTL > 0 {
+						rsPool.Expire(rsKey, time.Duration(schema.cacheTTL)*time.Second)
+					}
 				}
 			}
 		}
@@ -754,6 +816,9 @@ func (orm *ormImplementation) handleUpdates(async bool, schema *entitySchema, op
 				}
 				redisSetKey := schema.cacheKey + ":" + refColumn + ":" + strconv.FormatUint(oldAsInt, 10)
 				orm.RedisPipeLine(schema.getForcedRedisCode()).SRem(redisSetKey, strconv.FormatUint(update.ID(), 10))
+				if schema.cacheTTL > 0 {
+					orm.RedisPipeLine(schema.getForcedRedisCode()).Expire(redisSetKey, time.Duration(schema.cacheTTL)*time.Second)
+				}
 			}
 			if newAsInt > 0 {
 				if schema.hasLocalCache {
@@ -763,6 +828,9 @@ func (orm *ormImplementation) handleUpdates(async bool, schema *entitySchema, op
 				}
 				redisSetKey := schema.cacheKey + ":" + refColumn + ":" + strconv.FormatUint(newAsInt, 10)
 				orm.RedisPipeLine(schema.getForcedRedisCode()).SAdd(redisSetKey, strconv.FormatUint(update.ID(), 10))
+				if schema.cacheTTL > 0 {
+					orm.RedisPipeLine(schema.getForcedRedisCode()).Expire(redisSetKey, time.Duration(schema.cacheTTL)*time.Second)
+				}
 			}
 		}
 		for indexName, def := range schema.cachedIndexes {
@@ -796,6 +864,9 @@ func (orm *ormImplementation) handleUpdates(async bool, schema *entitySchema, op
 			redisSetKey := schema.cacheKey + ":" + key + ":" + strconv.FormatUint(id, 10)
 			idAsString := strconv.FormatUint(update.ID(), 10)
 			orm.RedisPipeLine(schema.getForcedRedisCode()).SAdd(redisSetKey, idAsString)
+			if schema.cacheTTL > 0 {
+				orm.RedisPipeLine(schema.getForcedRedisCode()).Expire(redisSetKey, time.Duration(schema.cacheTTL)*time.Second)
+			}
 
 			indexAttributes = indexAttributes[0:len(def.Columns)]
 			for j, indexColumn := range def.Columns {
@@ -814,6 +885,9 @@ func (orm *ormImplementation) handleUpdates(async bool, schema *entitySchema, op
 			}
 			redisSetKey = schema.cacheKey + ":" + key2 + ":" + strconv.FormatUint(id2, 10)
 			orm.RedisPipeLine(schema.getForcedRedisCode()).SRem(redisSetKey, idAsString)
+			if schema.cacheTTL > 0 {
+				orm.RedisPipeLine(schema.getForcedRedisCode()).Expire(redisSetKey, time.Duration(schema.cacheTTL)*time.Second)
+			}
 		}
 		fakeDeleted := false
 		if schema.hasFakeDelete {

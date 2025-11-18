@@ -89,6 +89,7 @@ type fieldGetter func(reflect.Value) any
 type entitySchema struct {
 	index                     uint64
 	virtual                   bool
+	cacheTTL                  int
 	tableName                 string
 	archived                  bool
 	mysqlPoolCode             string
@@ -315,6 +316,15 @@ func (e *entitySchema) init(registry *registry, entityType reflect.Type) error {
 	e.tSlice = reflect.SliceOf(reflect.PtrTo(entityType))
 	e.tags = extractTags(registry, entityType, "")
 	e.virtual = e.getTag("virtual", "true", "") == "true"
+	userTTL := e.getTag("ttl", "", "")
+	if userTTL != "" {
+		ttl, err := strconv.Atoi(userTTL)
+		if err != nil {
+			return fmt.Errorf("invalid ttl '%s' for entity '%s'", userTTL, entityType.Name())
+		}
+		e.cacheTTL = ttl
+	}
+
 	e.options = make(map[string]any)
 	e.references = make(map[string]referenceDefinition)
 	e.cachedReferences = make(map[string]referenceDefinition)

@@ -64,7 +64,7 @@ var testSetDefinition = struct {
 }
 
 type flushEntity struct {
-	ID                        uint16 `orm:"localCache;redisCache"`
+	ID                        uint16 `orm:"localCache;redisCache;ttl=30"`
 	City                      string `orm:"unique=city;length=40"`
 	Name                      string `orm:"unique=name;required"`
 	StringArray               [2]string
