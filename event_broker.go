@@ -1,7 +1,6 @@
 package fluxaorm
 
 import (
-	"context"
 	"crypto/rand"
 	"encoding/binary"
 	"fmt"
@@ -59,7 +58,8 @@ func (ev *event) Unserialize(value interface{}) {
 
 type EventBroker interface {
 	Publish(stream string, body interface{}, meta ...string) (id string)
-	Consumer(ctx Context, stream string) EventsConsumer
+	ConsumerSingle(ctx Context, stream string) EventsConsumer
+	ConsumerMany(ctx Context, stream string) EventsConsumer
 	NewFlusher() EventFlusher
 	GetStreamsStatistics(stream ...string) []*RedisStreamStatistics
 	GetStreamStatistics(stream string) *RedisStreamStatistics
@@ -147,15 +147,22 @@ func getRedisForStream(orm *ormImplementation, stream string) RedisCache {
 type EventConsumerHandler func([]Event)
 
 type EventsConsumer interface {
-	ConsumeSingle(count int, handler EventConsumerHandler) bool
-	ConsumeMany(count int, handler EventConsumerHandler) bool
-	DisableBlockMode()
-	SetBlockTime(ttl time.Duration)
-	SetAutoClaimTime(timeout time.Duration)
+	Consume(count int, blockTime time.Duration, handler EventConsumerHandler)
+	AutoClaim(count int, minIdle time.Duration, handler EventConsumerHandler)
+	Cleanup()
 	Name() string
 }
 
-func (eb *eventBroker) Consumer(ctx Context, stream string) EventsConsumer {
+func (eb *eventBroker) ConsumerSingle(ctx Context, stream string) EventsConsumer {
+	r := getRedisForStream(eb.ctx, stream)
+	return &eventsConsumer{
+		eventConsumerBase: eventConsumerBase{name: "consumer-single", lastID: "0", firstRun: true, many: false, ctx: ctx.(*ormImplementation)},
+		redis:             r,
+		stream:            stream,
+		group:             consumerGroupName}
+}
+
+func (eb *eventBroker) ConsumerMany(ctx Context, stream string) EventsConsumer {
 	r := getRedisForStream(eb.ctx, stream)
 	var nr uint64
 	err := binary.Read(rand.Reader, binary.LittleEndian, &nr)
@@ -164,18 +171,19 @@ func (eb *eventBroker) Consumer(ctx Context, stream string) EventsConsumer {
 	}
 	name := "consumer-" + time.Now().UTC().Format("2006_01_02_15_04_05") + "-" + strconv.FormatUint(nr, 10)
 	return &eventsConsumer{
-		eventConsumerBase: eventConsumerBase{name: name, ctx: ctx.(*ormImplementation), block: true, blockTime: time.Second * 5, autoClaimTime: time.Minute * 10},
+		eventConsumerBase: eventConsumerBase{name: name, firstRun: true, lastID: "0", many: true, ctx: ctx.(*ormImplementation)},
 		redis:             r,
 		stream:            stream,
 		group:             consumerGroupName}
 }
 
 type eventConsumerBase struct {
-	ctx           *ormImplementation
-	block         bool
-	blockTime     time.Duration
-	autoClaimTime time.Duration
-	name          string
+	ctx         *ormImplementation
+	name        string
+	many        bool
+	firstRun    bool
+	initialized bool
+	lastID      string
 }
 
 type eventsConsumer struct {
@@ -185,162 +193,111 @@ type eventsConsumer struct {
 	group  string
 }
 
-func (b *eventConsumerBase) DisableBlockMode() {
-	b.block = false
-}
-
-func (b *eventConsumerBase) SetBlockTime(ttl time.Duration) {
-	b.blockTime = ttl
-}
-
-func (b *eventConsumerBase) SetAutoClaimTime(timeout time.Duration) {
-	b.autoClaimTime = timeout
-}
-
 func (b *eventConsumerBase) Name() string {
 	return b.name
 }
 
-func (r *eventsConsumer) ConsumeSingle(count int, handler EventConsumerHandler) bool {
-	return r.consume(false, r.getName(1), count, handler)
+func (r *eventsConsumer) Cleanup() {
+	r.redis.XGroupDelConsumer(r.ctx, r.stream, r.group, r.name)
 }
 
-func (r *eventsConsumer) ConsumeMany(count int, handler EventConsumerHandler) bool {
-	var nr uint64
-	err := binary.Read(rand.Reader, binary.LittleEndian, &nr)
-	if err != nil {
-		panic(err)
+func (r *eventsConsumer) Consume(count int, blockTime time.Duration, handler EventConsumerHandler) {
+	if r.firstRun {
+		r.consume(count, blockTime, handler)
 	}
-	return r.consume(true, r.getName(nr), count, handler)
+	r.consume(count, blockTime, handler)
 }
 
-func (r *eventsConsumer) consume(autoClaim bool, name string, count int, handler EventConsumerHandler) (finished bool) {
-	ctx := r.ctx.CloneWithContext(context.Background())
-	r.redis.XGroupCreateMkStream(r.ctx, r.stream, r.group, "0")
+func (r *eventsConsumer) initIfNeeded() {
+	if !r.initialized {
+		r.redis.XGroupCreateMkStream(r.ctx, r.stream, r.group, "0")
+		r.initialized = true
+	}
+}
+
+func (r *eventsConsumer) consume(count int, blockTime time.Duration, handler EventConsumerHandler) {
+	r.initIfNeeded()
 	attributes := &consumeAttributes{
-		Pending:   true,
-		BlockTime: -1,
-		Name:      name,
+		BlockTime: blockTime,
 		Count:     count,
 		Handler:   handler,
-		LastID:    "0",
 	}
-	var ticker *time.Ticker
-	if autoClaim {
-		ticker = time.NewTicker(time.Minute * 5)
-	} else {
-		ticker = time.NewTicker(time.Hour * 24)
-	}
-	defer ticker.Stop()
-	for {
-		select {
-		case <-r.ctx.Context().Done():
-			if autoClaim {
-				r.redis.XGroupDelConsumer(ctx, r.stream, r.group, name)
-			}
-			return true
-		case <-ticker.C:
-			if !autoClaim {
-				continue
-			}
-			r.digestKeys(ctx, attributes, name, true)
-		default:
-			if r.digest(ctx, attributes, name) {
-				if autoClaim {
-					r.redis.XGroupDelConsumer(ctx, r.stream, r.group, name)
-				}
-				return true
-			}
-		}
-	}
+	r.digest(attributes)
 }
 
 type consumeAttributes struct {
-	Pending   bool
 	BlockTime time.Duration
 	Stop      chan bool
-	Name      string
 	Count     int
 	Handler   EventConsumerHandler
-	LastID    string
 }
 
-func (r *eventsConsumer) digest(ctx Context, attributes *consumeAttributes, name string) (stop bool) {
-	finished := r.digestKeys(ctx, attributes, name, false)
-	if !r.block && finished {
-		return true
+func (r *eventsConsumer) AutoClaim(count int, minIdle time.Duration, handler EventConsumerHandler) {
+	r.initIfNeeded()
+	a := &redis.XAutoClaimArgs{
+		Stream:   r.stream,
+		Group:    r.group,
+		Consumer: r.name,
+		MinIdle:  minIdle,
+		Start:    "0-0",
+		Count:    int64(count),
 	}
-	return false
-}
-
-func (r *eventsConsumer) digestKeys(ctx Context, attributes *consumeAttributes, consumerName string, autoClaim bool) (finished bool) {
-
-	if autoClaim {
-		a := &redis.XAutoClaimArgs{
-			Stream:   r.stream,
-			Group:    r.group,
-			Consumer: consumerName,
-			MinIdle:  r.autoClaimTime,
-			Count:    int64(attributes.Count),
-		}
-		for {
-			messages, _ := r.redis.XAutoClaim(ctx, a)
-			if len(messages) > 0 {
-				events := make([]Event, len(messages))
-				i := 0
-				for _, message := range messages {
-					events[i] = &event{stream: r.stream, message: message, consumer: r}
-					i++
-				}
-				r.digestEvents(ctx, attributes, events)
-			}
-			if len(messages) < 100 {
-				return true
-			}
-		}
-	} else {
-		lastID := ">"
-		if attributes.Pending {
-			lastID = attributes.LastID
-		}
-		a := &redis.XReadGroupArgs{Consumer: attributes.Name, Group: r.group, Streams: []string{r.stream, lastID},
-			Count: int64(attributes.Count), Block: attributes.BlockTime}
-		results := r.redis.XReadGroup(ctx, a)
-		totalMessages := 0
-		for _, row := range results {
-			l := len(row.Messages)
-			if l > 0 {
-				totalMessages += l
-				if attributes.Pending {
-					attributes.LastID = row.Messages[l-1].ID
-				}
-			}
-		}
-		if totalMessages == 0 {
-			if attributes.Pending {
-				attributes.Pending = false
-				if r.block {
-					attributes.BlockTime = r.blockTime
-				}
-				return false
-			}
-			return true
-		}
-		events := make([]Event, totalMessages)
-		i := 0
-		for _, row := range results {
-			for _, message := range row.Messages {
-				events[i] = &event{stream: row.Stream, message: message, consumer: r}
+	for {
+		messages, _ := r.redis.XAutoClaim(r.ctx, a)
+		if len(messages) > 0 {
+			events := make([]Event, len(messages))
+			i := 0
+			for _, message := range messages {
+				events[i] = &event{stream: r.stream, message: message, consumer: r}
 				i++
 			}
+			r.digestEvents(r.ctx, handler, events)
 		}
-		r.digestEvents(ctx, attributes, events)
+		if len(messages) < 1000 {
+			return
+		}
 	}
-	return false
 }
 
-func (r *eventsConsumer) digestEvents(ctx Context, attributes *consumeAttributes, events []Event) {
-	attributes.Handler(events)
+func (r *eventsConsumer) digest(attributes *consumeAttributes) {
+	lastID := ">"
+	block := attributes.BlockTime
+	if r.firstRun {
+		lastID = r.lastID
+		block = -1
+	}
+	a := &redis.XReadGroupArgs{Consumer: r.name, Group: r.group, Streams: []string{r.stream, lastID},
+		Count: int64(attributes.Count), Block: block}
+	results := r.redis.XReadGroup(r.ctx, a)
+	totalMessages := 0
+	for _, row := range results {
+		l := len(row.Messages)
+		if l > 0 {
+			totalMessages += l
+			if r.firstRun {
+				r.lastID = row.Messages[l-1].ID
+			}
+		}
+	}
+	if totalMessages == 0 {
+		r.firstRun = false
+	}
+	events := make([]Event, totalMessages)
+	i := 0
+	for _, row := range results {
+		for _, message := range row.Messages {
+			events[i] = &event{stream: row.Stream, message: message, consumer: r}
+			i++
+		}
+	}
+	r.digestEvents(r.ctx, attributes.Handler, events)
+}
+
+func (r *eventsConsumer) digestEvents(ctx Context, handler EventConsumerHandler, events []Event) {
+	if len(events) == 0 {
+		return
+	}
+	handler(events)
 	var toAck map[string][]string
 	for _, ev := range events {
 		ev := ev.(*event)
@@ -355,13 +312,6 @@ func (r *eventsConsumer) digestEvents(ctx Context, attributes *consumeAttributes
 		r.redis.XAck(ctx, stream, r.group, ids...)
 		r.redis.XDel(ctx, stream, ids...)
 	}
-}
-
-func (r *eventsConsumer) getName(nr uint64) string {
-	if nr == 1 {
-		return "consumer-single"
-	}
-	return r.name
 }
 
 func (r *eventsConsumer) incrementID(id string) string {

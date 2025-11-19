@@ -128,16 +128,12 @@ func (m *MockDBClient) QueryContext(context context.Context, query string, args 
 
 func runAsyncConsumer(ctx Context) error {
 	lazyFlashConsumer := NewLazyFlashConsumer(ctx)
-	lazyFlashConsumer.DisableBlockMode()
-	lazyFlashConsumer.blockTime = time.Millisecond
-	lazyFlashConsumer.Digest()
+	lazyFlashConsumer.Consume(time.Millisecond)
 	return nil
 }
 
 func runLogTablesConsumer(ctx Context) error {
-	lazyFlashConsumer := NewLogTablesConsumer(ctx)
-	lazyFlashConsumer.DisableBlockMode()
-	lazyFlashConsumer.blockTime = time.Millisecond
-	lazyFlashConsumer.Digest()
+	lazyFlashConsumer := NewLogTablesConsumerSingle(ctx)
+	lazyFlashConsumer.Consume(100, time.Millisecond)
 	return nil
 }

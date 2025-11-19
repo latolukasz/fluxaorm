@@ -19,64 +19,60 @@ func (ds *DirtyStreamEvent) ACK() {
 	ds.ack = true
 }
 
-type DirtyStreamEventHandler func(event *DirtyStreamEvent)
+type DirtyStreamEventHandler func(events []*DirtyStreamEvent)
 
 type DirtyStreamConsumer struct {
-	eventConsumerBase
 	consumer *eventsConsumer
-	stream   string
 	handler  DirtyStreamEventHandler
 }
 
-func NewDirtyStreamConsumer(ctx Context, stream string, handler DirtyStreamEventHandler) *DirtyStreamConsumer {
+func NewDirtyStreamConsumerSingle(ctx Context, stream string, handler DirtyStreamEventHandler) *DirtyStreamConsumer {
 	c := &DirtyStreamConsumer{}
-	c.ctx = ctx.(*ormImplementation)
-	c.block = true
-	c.blockTime = time.Second * 30
-	c.stream = "dirty_" + stream
+	c.consumer = ctx.GetEventBroker().ConsumerSingle(ctx, "dirty_"+stream).(*eventsConsumer)
 	c.handler = handler
 	return c
 }
 
-func (r *LogTablesConsumer) DirtyStreamConsumer(ttl time.Duration) {
-	r.eventConsumerBase.SetBlockTime(ttl)
+func NewDirtyStreamConsumerMany(ctx Context, stream string, handler DirtyStreamEventHandler) *DirtyStreamConsumer {
+	c := &DirtyStreamConsumer{}
+	c.consumer = ctx.GetEventBroker().ConsumerMany(ctx, "dirty_"+stream).(*eventsConsumer)
+	c.handler = handler
+	return c
 }
 
-func (r *DirtyStreamConsumer) Digest(count int) bool {
-	r.consumer = r.ctx.GetEventBroker().Consumer(r.ctx, r.stream).(*eventsConsumer)
-	r.consumer.eventConsumerBase = r.eventConsumerBase
-	returnedEvents := make([]*DirtyStreamEvent, 0, count)
-	return r.consumer.ConsumeMany(count, func(events []Event) {
+func (r *DirtyStreamConsumer) Consume(count int, blockTime time.Duration) {
+	r.consumer.Consume(count, blockTime, r.eventsHandler(count))
+}
+
+func (r *DirtyStreamConsumer) AutoClaim(count int, minIdle time.Duration) {
+	r.consumer.AutoClaim(count, minIdle, r.eventsHandler(count))
+}
+
+func (r *DirtyStreamConsumer) Cleanup() {
+	r.consumer.Cleanup()
+}
+
+func (r *DirtyStreamConsumer) eventsHandler(count int) func(events []Event) {
+	return func(events []Event) {
+		returnedEvents := make([]*DirtyStreamEvent, 0, count)
 		returnedEvents = returnedEvents[:0]
-		toACK := 0
 		for _, e := range events {
 			dirtyEvent := r.handleEvent(e)
 			if dirtyEvent == nil {
 				continue
 			}
-			r.handler(dirtyEvent)
-			if !dirtyEvent.ack {
-				toACK++
-			}
 			returnedEvents = append(returnedEvents, dirtyEvent)
 		}
-		if toACK == 0 {
+		if len(returnedEvents) == 0 {
 			return
-		} else if toACK == 1 {
-			returnedEvents[0].ACK()
-		} else {
-			ids := make([]string, toACK)
-			i := 0
-			for _, v := range returnedEvents {
-				if !v.ack {
-					ids[i] = v.event.ID()
-					i++
-				}
-			}
-			r.consumer.redis.XAck(r.ctx, r.stream, consumerGroupName, ids...)
-			r.consumer.redis.XDel(r.ctx, r.stream, ids...)
 		}
-	})
+		r.handler(returnedEvents)
+		for _, v := range returnedEvents {
+			if !v.ack {
+				v.ACK()
+			}
+		}
+	}
 }
 
 func (r *DirtyStreamConsumer) handleEvent(event Event) *DirtyStreamEvent {
@@ -100,7 +96,7 @@ func (r *DirtyStreamConsumer) handleEvent(event Event) *DirtyStreamEvent {
 		event.Ack()
 		return nil
 	}
-	schema := r.ctx.Engine().Registry().EntitySchema(entity)
+	schema := r.consumer.ctx.Engine().Registry().EntitySchema(entity)
 	if schema == nil {
 		event.Ack()
 	}

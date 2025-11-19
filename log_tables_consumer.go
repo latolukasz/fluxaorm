@@ -21,30 +21,39 @@ type LogQueueValue struct {
 }
 
 type LogTablesConsumer struct {
-	eventConsumerBase
 	consumer *eventsConsumer
 }
 
-func NewLogTablesConsumer(ctx Context) *LogTablesConsumer {
+func NewLogTablesConsumerSingle(ctx Context) *LogTablesConsumer {
 	c := &LogTablesConsumer{}
-	c.ctx = ctx.(*ormImplementation)
-	c.block = true
-	c.blockTime = time.Second * 30
+	c.consumer = ctx.GetEventBroker().ConsumerSingle(ctx, LogChannelName).(*eventsConsumer)
 	return c
 }
 
-func (r *LogTablesConsumer) SetBlockTime(ttl time.Duration) {
-	r.eventConsumerBase.SetBlockTime(ttl)
+func NewLogTablesConsumerMany(ctx Context) *LogTablesConsumer {
+	c := &LogTablesConsumer{}
+	c.consumer = ctx.GetEventBroker().ConsumerMany(ctx, LogChannelName).(*eventsConsumer)
+	return c
 }
 
-func (r *LogTablesConsumer) Digest() bool {
-	r.consumer = r.ctx.GetEventBroker().Consumer(r.ctx, LogChannelName).(*eventsConsumer)
-	r.consumer.eventConsumerBase = r.eventConsumerBase
-	return r.consumer.ConsumeSingle(500, func(events []Event) {
+func (r *LogTablesConsumer) Consume(count int, blockTime time.Duration) {
+	r.consumer.Consume(count, blockTime, func(events []Event) {
 		for _, e := range events {
 			r.handleLogTable(e)
 		}
 	})
+}
+
+func (r *LogTablesConsumer) AutoClaim(count int, minIdle time.Duration) {
+	r.consumer.AutoClaim(count, minIdle, func(events []Event) {
+		for _, e := range events {
+			r.handleLogTable(e)
+		}
+	})
+}
+
+func (r *LogTablesConsumer) Cleanup() {
+	r.consumer.Cleanup()
 }
 
 func (r *LogTablesConsumer) handleLogTable(event Event) {
@@ -73,13 +82,13 @@ func (r *LogTablesConsumer) handleLogTable(event Event) {
 		event.Ack()
 		return
 	}
-	db := r.ctx.Engine().DB(dbCode)
+	db := r.consumer.ctx.Engine().DB(dbCode)
 	if db == nil {
 		event.Ack()
 		return
 	}
 	args := lazyEvent[1 : len(lazyEvent)-1]
-	db.Exec(r.ctx, sql, args...)
+	db.Exec(r.consumer.ctx, sql, args...)
 	event.Ack()
 	event.Ack()
 }

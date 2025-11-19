@@ -27,26 +27,17 @@ var mySQLErrorCodesToSkip = []uint16{
 }
 
 type LazyFlashConsumer struct {
-	eventConsumerBase
 	consumer *eventsConsumer
 }
 
 func NewLazyFlashConsumer(ctx Context) *LazyFlashConsumer {
 	c := &LazyFlashConsumer{}
-	c.ctx = ctx.(*ormImplementation)
-	c.block = true
-	c.blockTime = time.Second * 30
+	c.consumer = ctx.GetEventBroker().ConsumerSingle(ctx, LazyChannelName).(*eventsConsumer)
 	return c
 }
 
-func (r *LazyFlashConsumer) SetBlockTime(ttl time.Duration) {
-	r.eventConsumerBase.SetBlockTime(ttl)
-}
-
-func (r *LazyFlashConsumer) Digest() bool {
-	r.consumer = r.ctx.GetEventBroker().Consumer(r.ctx, LazyChannelName).(*eventsConsumer)
-	r.consumer.eventConsumerBase = r.eventConsumerBase
-	return r.consumer.ConsumeSingle(500, func(events []Event) {
+func (r *LazyFlashConsumer) Consume(blockTime time.Duration) {
+	r.consumer.Consume(500, blockTime, func(events []Event) {
 		for _, e := range events {
 			r.handleLazyFlush(e)
 		}
@@ -58,7 +49,7 @@ func (r *LazyFlashConsumer) handleLazyFlush(event Event) {
 		if rec := recover(); rec != nil {
 			asMySQLError, isMySQLError := rec.(*mysql.MySQLError)
 			if isMySQLError && slices.Contains(mySQLErrorCodesToSkip, asMySQLError.Number) {
-				r.ctx.GetEventBroker().Publish(LazyErrorsChannelName, event)
+				r.consumer.ctx.GetEventBroker().Publish(LazyErrorsChannelName, event)
 				return
 			}
 			panic(rec)
@@ -80,15 +71,15 @@ func (r *LazyFlashConsumer) handleLazyFlush(event Event) {
 		event.Ack()
 		return
 	}
-	db := r.ctx.Engine().DB(dbCode)
+	db := r.consumer.ctx.Engine().DB(dbCode)
 	if db == nil {
 		event.Ack()
 		return
 	}
 	if len(lazyEvent) > 2 {
-		db.Exec(r.ctx, sql, lazyEvent[2:]...)
+		db.Exec(r.consumer.ctx, sql, lazyEvent[2:]...)
 	} else {
-		db.Exec(r.ctx, sql)
+		db.Exec(r.consumer.ctx, sql)
 	}
 	event.Ack()
 }

@@ -2,6 +2,7 @@ package fluxaorm
 
 import (
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 )
@@ -61,22 +62,20 @@ func TestDirty(t *testing.T) {
 	assert.Equal(t, uint64(0), orm.GetEventBroker().GetStreamStatistics("dirty_Deleted").Len)
 
 	processed := 0
-	consumerAll := NewDirtyStreamConsumer(orm, "All", func(event *DirtyStreamEvent) {
-		if processed == 0 {
-			assert.Equal(t, "fluxaorm.dirtyEntity", event.EntityName)
-			assert.Equal(t, entity.ID, event.ID)
-			assert.Equal(t, Insert, event.Operation)
-			assert.Len(t, event.Bind, 7)
-		} else if processed == 1 {
-			assert.Equal(t, "fluxaorm.dirtyEntity2", event.EntityName)
-			assert.Equal(t, entity2.ID, event.ID)
-			assert.Equal(t, Insert, event.Operation)
-			assert.Len(t, event.Bind, 3)
-		}
-		processed++
+	consumerAll := NewDirtyStreamConsumerSingle(orm, "All", func(events []*DirtyStreamEvent) {
+		assert.Equal(t, "fluxaorm.dirtyEntity", events[0].EntityName)
+		assert.Equal(t, entity.ID, events[0].ID)
+		assert.Equal(t, Insert, events[0].Operation)
+		assert.Len(t, events[0].Bind, 7)
+
+		assert.Equal(t, "fluxaorm.dirtyEntity2", events[1].EntityName)
+		assert.Equal(t, entity2.ID, events[1].ID)
+		assert.Equal(t, Insert, events[1].Operation)
+		assert.Len(t, events[1].Bind, 3)
+		processed = len(events)
 	})
-	consumerAll.DisableBlockMode()
-	consumerAll.Digest(100)
+	consumerAll.Consume(100, time.Millisecond)
+	consumerAll.Cleanup()
 	assert.Equal(t, uint64(0), orm.GetEventBroker().GetStreamStatistics("dirty_All").Len)
 	assert.Equal(t, 2, processed)
 
@@ -96,15 +95,15 @@ func TestDirty(t *testing.T) {
 	assert.Equal(t, uint64(0), orm.GetEventBroker().GetStreamStatistics("dirty_Deleted").Len)
 
 	processed = 0
-	consumerAll = NewDirtyStreamConsumer(orm, "All", func(event *DirtyStreamEvent) {
-		assert.Equal(t, "fluxaorm.dirtyEntity", event.EntityName)
-		assert.Equal(t, entity.ID, event.ID)
-		assert.Equal(t, Update, event.Operation)
-		assert.Len(t, event.Bind, 2)
-		processed++
+	consumerAll = NewDirtyStreamConsumerSingle(orm, "All", func(events []*DirtyStreamEvent) {
+		assert.Equal(t, "fluxaorm.dirtyEntity", events[0].EntityName)
+		assert.Equal(t, entity.ID, events[0].ID)
+		assert.Equal(t, Update, events[0].Operation)
+		assert.Len(t, events[0].Bind, 2)
+		processed = len(events)
 	})
-	consumerAll.DisableBlockMode()
-	consumerAll.Digest(100)
+	consumerAll.Consume(100, time.Millisecond)
+	consumerAll.Cleanup()
 	assert.Equal(t, uint64(0), orm.GetEventBroker().GetStreamStatistics("dirty_All").Len)
 	assert.Equal(t, 1, processed)
 
@@ -122,15 +121,15 @@ func TestDirty(t *testing.T) {
 	assert.Equal(t, uint64(0), orm.GetEventBroker().GetStreamStatistics("dirty_Deleted").Len)
 
 	processed = 0
-	consumerAll = NewDirtyStreamConsumer(orm, "All", func(event *DirtyStreamEvent) {
-		assert.Equal(t, "fluxaorm.dirtyEntity2", event.EntityName)
-		assert.Equal(t, entity2.ID, event.ID)
-		assert.Equal(t, Delete, event.Operation)
-		assert.Len(t, event.Bind, 3)
-		processed++
+	consumerAll = NewDirtyStreamConsumerMany(orm, "All", func(events []*DirtyStreamEvent) {
+		assert.Equal(t, "fluxaorm.dirtyEntity2", events[0].EntityName)
+		assert.Equal(t, entity2.ID, events[0].ID)
+		assert.Equal(t, Delete, events[0].Operation)
+		assert.Len(t, events[0].Bind, 3)
+		processed = len(events)
 	})
-	consumerAll.DisableBlockMode()
-	consumerAll.Digest(100)
+	consumerAll.Consume(100, time.Millisecond)
+	consumerAll.Cleanup()
 	assert.Equal(t, uint64(0), orm.GetEventBroker().GetStreamStatistics("dirty_All").Len)
 	assert.Equal(t, 1, processed)
 
@@ -148,15 +147,16 @@ func TestDirty(t *testing.T) {
 	assert.Equal(t, uint64(1), orm.GetEventBroker().GetStreamStatistics("dirty_Deleted").Len)
 
 	processed = 0
-	consumerAll = NewDirtyStreamConsumer(orm, "All", func(event *DirtyStreamEvent) {
-		assert.Equal(t, "fluxaorm.dirtyEntity", event.EntityName)
-		assert.Equal(t, entity.ID, event.ID)
-		assert.Equal(t, Delete, event.Operation)
-		assert.Len(t, event.Bind, 1)
-		processed++
+	consumerAll = NewDirtyStreamConsumerMany(orm, "All", func(events []*DirtyStreamEvent) {
+		assert.Equal(t, "fluxaorm.dirtyEntity", events[0].EntityName)
+		assert.Equal(t, entity.ID, events[0].ID)
+		assert.Equal(t, Delete, events[0].Operation)
+		assert.Len(t, events[0].Bind, 1)
+		processed = len(events)
 	})
-	consumerAll.DisableBlockMode()
-	consumerAll.Digest(100)
+	consumerAll.AutoClaim(100, time.Millisecond)
+	consumerAll.Consume(100, time.Millisecond)
+	consumerAll.Cleanup()
 	assert.Equal(t, uint64(0), orm.GetEventBroker().GetStreamStatistics("dirty_All").Len)
 	assert.Equal(t, 1, processed)
 }
