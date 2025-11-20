@@ -264,7 +264,8 @@ func prepareScanForFields(fields *tableFields, start int, pointers []any) int {
 }
 
 func searchRow[E any](ctx Context, where Where) (entity *E, found bool) {
-	schema := getEntitySchema[E](ctx)
+	schema, err := getEntitySchema[E](ctx)
+	checkError(err)
 	pool := schema.GetDB()
 	whereQuery := where.String()
 
@@ -305,7 +306,8 @@ func searchRow[E any](ctx Context, where Where) (entity *E, found bool) {
 }
 
 func search[E any](ctx Context, where Where, pager *Pager, withCount bool) (results EntityIterator[E], totalRows int) {
-	schema := getEntitySchema[E](ctx)
+	schema, err := getEntitySchema[E](ctx)
+	checkError(err)
 	if schema.hasLocalCache {
 		ids, total := SearchIDsWithCount[E](ctx, where, pager)
 		if total == 0 {

@@ -12,7 +12,8 @@ func Copy[E any](ctx Context, source E) E {
 }
 
 func copyToEdit(ctx Context, source any) *editableEntity {
-	schema := getEntitySchemaFromSource(ctx, source)
+	schema, err := getEntitySchemaFromSource(ctx, source)
+	checkError(err)
 	value := reflect.New(schema.t)
 	writable := &editableEntity{}
 	writable.ctx = ctx

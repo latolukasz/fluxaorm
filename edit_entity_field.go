@@ -12,7 +12,10 @@ func EditEntityField(ctx Context, entity any, field string, value any) error {
 }
 
 func editEntityField(ctx Context, entity any, field string, value any, fakeDelete bool) error {
-	schema := getEntitySchemaFromSource(ctx, entity)
+	schema, err := getEntitySchemaFromSource(ctx, entity)
+	if err != nil {
+		return err
+	}
 	setter, has := schema.fieldBindSetters[field]
 	if !has {
 		return &BindError{field, "unknown field"}

@@ -18,21 +18,23 @@ import (
 const redisSearchIndexPrefix = "orm:"
 
 func GetEntitySchema[E any](ctx Context) EntitySchema {
-	return getEntitySchema[E](ctx)
+	e, err := getEntitySchema[E](ctx)
+	checkError(err)
+	return e
 }
 
-func getEntitySchema[E any](ctx Context) *entitySchema {
+func getEntitySchema[E any](ctx Context) (*entitySchema, error) {
 	var entity E
 	return getEntitySchemaFromSource(ctx, entity)
 }
 
-func getEntitySchemaFromSource(ctx Context, source any) *entitySchema {
+func getEntitySchemaFromSource(ctx Context, source any) (*entitySchema, error) {
 	ci := ctx.(*ormImplementation)
 	schema, has := ci.engine.registry.entitySchemasQuickMap[reflect.TypeOf(source)]
 	if !has {
-		panic(fmt.Errorf("entity '%T' is not registered", source))
+		return nil, fmt.Errorf("entity '%T' is not registered", source)
 	}
-	return schema
+	return schema, nil
 }
 
 type EntitySchemaSetter interface {
@@ -473,7 +475,11 @@ func (e *entitySchema) init(registry *registry, entityType reflect.Type) error {
 	e.fieldDefinitions = make(map[string]schemaFieldAttributes)
 	e.fieldSetters = make(map[string]fieldSetter)
 	e.fieldGetters = make(map[string]fieldGetter)
-	e.fields = e.buildTableFields(entityType, registry, 0, "", nil, e.tags, "")
+	fields, err := e.buildTableFields(entityType, registry, 0, "", nil, e.tags, "")
+	if err != nil {
+		return err
+	}
+	e.fields = fields
 	e.columnNames, e.fieldsQuery = e.fields.buildColumnNames("")
 	if len(e.fieldsQuery) > 0 {
 		e.fieldsQuery = e.fieldsQuery[1:]
@@ -701,7 +707,7 @@ func (e *entitySchema) init(registry *registry, entityType reflect.Type) error {
 		e.redisSearchIndexPrefix = e.redisSearchIndexName + ":"
 	}
 
-	err := e.validateIndexes(uniqueIndices, indices)
+	err = e.validateIndexes(uniqueIndices, indices)
 	if err != nil {
 		return err
 	}
@@ -840,7 +846,7 @@ func (e *entitySchema) initUUID(ctx Context) error {
 	lockName := e.uuidCacheKey + ":lock"
 	lock, obtained := r.GetLocker().Obtain(ctx, lockName, time.Minute, time.Second*5)
 	if !obtained {
-		panic(errors.New("uuid lock timeout"))
+		return errors.New("uuid lock timeout")
 	}
 	defer lock.Release(ctx)
 	now, has, err = r.Get(ctx, e.uuidCacheKey)
@@ -1160,7 +1166,7 @@ func (e *entitySchema) search(ctx Context, where Where, pager *Pager, withCount 
 }
 
 func (e *entitySchema) buildTableFields(t reflect.Type, registry *registry,
-	start int, prefix string, parents []int, schemaTags map[string]map[string]string, extraPrefix string) *tableFields {
+	start int, prefix string, parents []int, schemaTags map[string]map[string]string, extraPrefix string) (*tableFields, error) {
 	fields := &tableFields{t: t, prefix: prefix, fields: make(map[int]reflect.StructField)}
 	fields.forcedOldBid = make(map[int]bool)
 	fields.arrays = make(map[int]int)
@@ -1265,7 +1271,10 @@ func (e *entitySchema) buildTableFields(t reflect.Type, registry *registry,
 			if fType.Implements(reflect.TypeOf((*structGetter)(nil)).Elem()) {
 				e.buildStructJSONField(attributes)
 			} else if k == "struct" {
-				e.buildStructField(attributes, registry, schemaTags)
+				err := e.buildStructField(attributes, registry, schemaTags)
+				if err != nil {
+					return nil, err
+				}
 			} else if fType.Implements(reflect.TypeOf((*EnumValues)(nil)).Elem()) {
 				definition := reflect.New(fType).Interface().(EnumValues).EnumValues()
 				e.buildEnumField(attributes, fType.String(), definition)
@@ -1278,11 +1287,11 @@ func (e *entitySchema) buildTableFields(t reflect.Type, registry *registry,
 					fields.forcedOldBid[i] = true
 				}
 			} else {
-				panic(fmt.Errorf("%s field %s type %s is not supported", e.t.String(), f.Name, f.Type.String()))
+				return nil, fmt.Errorf("%s field %s type %s is not supported", e.t.String(), f.Name, f.Type.String())
 			}
 		}
 	}
-	return fields
+	return fields, nil
 }
 
 type schemaFieldAttributes struct {
@@ -1875,7 +1884,7 @@ func (e *entitySchema) buildTimeField(attributes schemaFieldAttributes) {
 }
 
 func (e *entitySchema) buildStructField(attributes schemaFieldAttributes, registry *registry,
-	schemaTags map[string]map[string]string) {
+	schemaTags map[string]map[string]string) error {
 	var parents []int
 	if attributes.Parents != nil {
 		parents = append(parents, attributes.Parents...)
@@ -1890,7 +1899,10 @@ func (e *entitySchema) buildStructField(attributes schemaFieldAttributes, regist
 			}
 			newParents = append(newParents, (i+1)*-1)
 			extraPrefix := fmt.Sprintf("_%d_", i+1)
-			subFields := e.buildTableFields(attributes.Field.Type.Elem(), registry, 0, attributes.Field.Name, newParents, schemaTags, extraPrefix)
+			subFields, err := e.buildTableFields(attributes.Field.Type.Elem(), registry, 0, attributes.Field.Name, newParents, schemaTags, extraPrefix)
+			if err != nil {
+				return err
+			}
 			if i == 0 {
 				attributes.Fields.structsFieldsArray = append(attributes.Fields.structsFieldsArray, subFields)
 			}
@@ -1901,9 +1913,13 @@ func (e *entitySchema) buildStructField(attributes schemaFieldAttributes, regist
 		if !attributes.Field.Anonymous {
 			subPrefix = attributes.Field.Name
 		}
-		subFields := e.buildTableFields(attributes.Field.Type, registry, 0, subPrefix, parents, schemaTags, "")
+		subFields, err := e.buildTableFields(attributes.Field.Type, registry, 0, subPrefix, parents, schemaTags, "")
+		if err != nil {
+			return err
+		}
 		attributes.Fields.structsFields = append(attributes.Fields.structsFields, subFields)
 	}
+	return nil
 }
 
 func extractTags(registry *registry, entityType reflect.Type, prefix string) (fields map[string]map[string]string) {

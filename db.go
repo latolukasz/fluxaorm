@@ -441,7 +441,7 @@ func (db *dbImplementation) QueryRow(ctx Context, query Where, toFill ...any) (f
 		if hasLogger {
 			db.fillLogFields(ctx, "SELECT", message, start, err)
 		}
-		panic(err)
+		checkError(err)
 	}
 	if hasLogger {
 		db.fillLogFields(ctx, "SELECT", message, start, nil)

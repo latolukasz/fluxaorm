@@ -30,9 +30,7 @@ func (e *DuplicateKeyError) Error() string {
 
 func (orm *ormImplementation) Flush() {
 	err := orm.flush(false)
-	if err != nil {
-		panic(err)
-	}
+	checkError(err)
 }
 
 func (orm *ormImplementation) FlushWithCheck() error {
@@ -175,7 +173,11 @@ func (orm *ormImplementation) handleDeletes(async bool, schema *entitySchema, op
 				db.Exec(orm, sql, args...)
 			})
 		} else {
-			orm.RedisPipeLine(getRedisForStream(orm, LazyChannelName).GetCode()).XAdd(LazyChannelName, createEventSlice([]any{sql, schema.mysqlPoolCode}, nil))
+			r, err := getRedisForStream(orm, LazyChannelName)
+			if err != nil {
+				return err
+			}
+			orm.RedisPipeLine(r.GetCode()).XAdd(LazyChannelName, createEventSlice([]any{sql, schema.mysqlPoolCode}, nil))
 		}
 	}
 
@@ -309,7 +311,11 @@ func (orm *ormImplementation) handleDeletes(async bool, schema *entitySchema, op
 			asJSON, _ := jsoniter.ConfigFastest.MarshalToString(bind)
 			data[5] = asJSON
 			data[6] = logTableSchema.mysqlPoolCode
-			orm.RedisPipeLine(getRedisForStream(orm, LogChannelName).GetCode()).XAdd(LogChannelName, createEventSlice(data, nil))
+			r, err := getRedisForStream(orm, LogChannelName)
+			if err != nil {
+				return err
+			}
+			orm.RedisPipeLine(r.GetCode()).XAdd(LogChannelName, createEventSlice(data, nil))
 		}
 		for _, p := range orm.engine.pluginFlush {
 			if bind == nil {
@@ -431,7 +437,11 @@ func (orm *ormImplementation) handleInserts(async bool, schema *entitySchema, op
 		if async && !schema.virtual {
 			asyncData[0] = sql
 			asyncData[1] = schema.mysqlPoolCode
-			orm.RedisPipeLine(getRedisForStream(orm, LazyChannelName).GetCode()).XAdd(LazyChannelName, createEventSlice(asyncData, nil))
+			r, err := getRedisForStream(orm, LazyChannelName)
+			if err != nil {
+				return err
+			}
+			orm.RedisPipeLine(r.GetCode()).XAdd(LazyChannelName, createEventSlice(asyncData, nil))
 		}
 		logTableSchema, hasLogTable := orm.engine.registry.entityLogSchemas[schema.t]
 		if hasLogTable && !orm.engine.registry.disableLogTables {
@@ -449,7 +459,11 @@ func (orm *ormImplementation) handleInserts(async bool, schema *entitySchema, op
 			asJSON, _ := jsoniter.ConfigFastest.MarshalToString(bind)
 			data[5] = asJSON
 			data[6] = logTableSchema.mysqlPoolCode
-			orm.RedisPipeLine(getRedisForStream(orm, LogChannelName).GetCode()).XAdd(LogChannelName, createEventSlice(data, nil))
+			r, err := getRedisForStream(orm, LogChannelName)
+			if err != nil {
+				return err
+			}
+			orm.RedisPipeLine(r.GetCode()).XAdd(LogChannelName, createEventSlice(data, nil))
 		}
 		if hasLocalCache {
 			orm.flushPostActions = append(orm.flushPostActions, func(_ Context) {
@@ -659,7 +673,11 @@ func (orm *ormImplementation) handleUpdates(async bool, schema *entitySchema, op
 			if async {
 				asyncArgs[0] = sql
 				asyncArgs[1] = schema.mysqlPoolCode
-				orm.RedisPipeLine(getRedisForStream(orm, LazyChannelName).GetCode()).XAdd(LazyChannelName, createEventSlice(asyncArgs, nil))
+				r, err := getRedisForStream(orm, LazyChannelName)
+				if err != nil {
+					return err
+				}
+				orm.RedisPipeLine(r.GetCode()).XAdd(LazyChannelName, createEventSlice(asyncArgs, nil))
 			} else {
 				orm.appendDBAction(schema, func(db DBBase) {
 					db.Exec(orm, sql, args...)
@@ -684,7 +702,11 @@ func (orm *ormImplementation) handleUpdates(async bool, schema *entitySchema, op
 			asJSON, _ = jsoniter.ConfigFastest.MarshalToString(newBind)
 			data[6] = asJSON
 			data[7] = logTableSchema.mysqlPoolCode
-			orm.RedisPipeLine(getRedisForStream(orm, LogChannelName).GetCode()).XAdd(LogChannelName, createEventSlice(data, nil))
+			r, err := getRedisForStream(orm, LogChannelName)
+			if err != nil {
+				return err
+			}
+			orm.RedisPipeLine(r.GetCode()).XAdd(LogChannelName, createEventSlice(data, nil))
 		}
 
 		if update.getEntity() == nil {
@@ -986,9 +1008,7 @@ func buildUniqueKeyHSetField(schema *entitySchema, indexColumns []string, bind, 
 			hasInBind = true
 		}
 		asString, err := schema.columnAttrToStringSetters[column](bindValue, true)
-		if err != nil {
-			panic(err)
-		}
+		checkError(err)
 		hField += asString
 	}
 	if hasNil || !hasInBind {

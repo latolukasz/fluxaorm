@@ -14,10 +14,8 @@ func GetByReference[E any, I ID](ctx Context, pager *Pager, referenceName string
 		return nil
 	}
 	var e E
-	schema := ctx.(*ormImplementation).engine.registry.entitySchemas[reflect.TypeOf(e)]
-	if schema == nil {
-		panic(fmt.Errorf("entity '%T' is not registered", e))
-	}
+	schema, err := getEntitySchemaFromSource(ctx, e)
+	checkError(err)
 	def, has := schema.references[referenceName]
 	if !has {
 		panic(fmt.Errorf("unknow reference name `%s`", referenceName))
@@ -34,10 +32,8 @@ func GetByReferenceWithCount[E any, I ID](ctx Context, pager *Pager, referenceNa
 		return nil, 0
 	}
 	var e E
-	schema := ctx.(*ormImplementation).engine.registry.entitySchemas[reflect.TypeOf(e)]
-	if schema == nil {
-		panic(fmt.Errorf("entity '%T' is not registered", e))
-	}
+	schema, err := getEntitySchemaFromSource(ctx, e)
+	checkError(err)
 	def, has := schema.references[referenceName]
 	if !has {
 		panic(fmt.Errorf("unknow reference name `%s`", referenceName))

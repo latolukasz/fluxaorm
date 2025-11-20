@@ -101,7 +101,8 @@ func (ef *eventFlusher) Publish(stream string, body interface{}, meta ...string)
 func (ef *eventFlusher) Flush() {
 	grouped := make(map[RedisCache]map[string][][]string)
 	for stream, events := range ef.events {
-		r := getRedisForStream(ef.eb.ctx, stream)
+		r, err := getRedisForStream(ef.eb.ctx, stream)
+		checkError(err)
 		if grouped[r] == nil {
 			grouped[r] = make(map[string][][]string)
 		}
@@ -133,15 +134,19 @@ func (eb *eventBroker) NewFlusher() EventFlusher {
 }
 
 func (eb *eventBroker) Publish(stream string, body interface{}, meta ...string) (id string, err error) {
-	return getRedisForStream(eb.ctx, stream).xAdd(eb.ctx, stream, createEventSlice(body, meta))
+	r, err := getRedisForStream(eb.ctx, stream)
+	if err != nil {
+		return "", err
+	}
+	return r.xAdd(eb.ctx, stream, createEventSlice(body, meta))
 }
 
-func getRedisForStream(orm *ormImplementation, stream string) RedisCache {
+func getRedisForStream(orm *ormImplementation, stream string) (RedisCache, error) {
 	pool, has := orm.engine.registry.redisStreamPools[stream]
 	if !has {
-		panic(fmt.Errorf("unregistered stream %s", stream))
+		return nil, fmt.Errorf("unregistered stream %s", stream)
 	}
-	return orm.Engine().Redis(pool)
+	return orm.Engine().Redis(pool), nil
 }
 
 type EventConsumerHandler func([]Event)
@@ -154,7 +159,8 @@ type EventsConsumer interface {
 }
 
 func (eb *eventBroker) ConsumerSingle(ctx Context, stream string) EventsConsumer {
-	r := getRedisForStream(eb.ctx, stream)
+	r, err := getRedisForStream(eb.ctx, stream)
+	checkError(err)
 	return &eventsConsumer{
 		eventConsumerBase: eventConsumerBase{name: "consumer-single", lastID: "0", firstRun: true, many: false, ctx: ctx.(*ormImplementation)},
 		redis:             r,
@@ -163,12 +169,11 @@ func (eb *eventBroker) ConsumerSingle(ctx Context, stream string) EventsConsumer
 }
 
 func (eb *eventBroker) ConsumerMany(ctx Context, stream string) EventsConsumer {
-	r := getRedisForStream(eb.ctx, stream)
+	r, err := getRedisForStream(eb.ctx, stream)
+	checkError(err)
 	var nr uint64
-	err := binary.Read(rand.Reader, binary.LittleEndian, &nr)
-	if err != nil {
-		panic(err)
-	}
+	err = binary.Read(rand.Reader, binary.LittleEndian, &nr)
+	checkError(err)
 	name := "consumer-" + time.Now().UTC().Format("2006_01_02_15_04_05") + "-" + strconv.FormatUint(nr, 10)
 	return &eventsConsumer{
 		eventConsumerBase: eventConsumerBase{name: name, firstRun: true, lastID: "0", many: true, ctx: ctx.(*ormImplementation)},

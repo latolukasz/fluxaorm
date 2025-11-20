@@ -8,10 +8,8 @@ import (
 
 func GetByUniqueIndex[E any](ctx Context, indexName string, attributes ...any) (entity *E, found bool) {
 	var e E
-	schema := ctx.(*ormImplementation).engine.registry.entitySchemas[reflect.TypeOf(e)]
-	if schema == nil {
-		panic(fmt.Errorf("entity '%T' is not registered", e))
-	}
+	schema, err := getEntitySchemaFromSource(ctx, e)
+	checkError(err)
 	definition, has := schema.uniqueIndexes[indexName]
 	if !has {
 		panic(fmt.Errorf("unknown index name `%s`", indexName))
@@ -58,9 +56,7 @@ func GetByUniqueIndex[E any](ctx Context, indexName string, attributes ...any) (
 	for i, attribute := range attributes {
 		setter := schema.fieldBindSetters[definition.Columns[i]]
 		bind, err := setter(attribute)
-		if err != nil {
-			panic(err)
-		}
+		checkError(err)
 		attributes[i] = bind
 	}
 	entity, found = SearchOne[E](ctx, definition.CreteWhere(false, attributes))

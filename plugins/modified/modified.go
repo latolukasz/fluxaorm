@@ -29,19 +29,19 @@ type schemaOptions struct {
 	OptionalModified bool
 }
 
-func New(addedAtField, modifiedAtField string) any {
+func New(addedAtField, modifiedAtField string) (any, error) {
 	addedAtField = strings.TrimSpace(addedAtField)
 	modifiedAtField = strings.TrimSpace(modifiedAtField)
 	if addedAtField == "" && modifiedAtField == "" {
-		panic(errors.New("at least one column name must be defined"))
+		return nil, errors.New("at least one column name must be defined")
 	}
 	if addedAtField != "" && strings.ToUpper(addedAtField[0:1]) != addedAtField[0:1] {
-		panic(fmt.Errorf("addedAt field '%s' must be public", addedAtField))
+		return nil, fmt.Errorf("addedAt field '%s' must be public", addedAtField)
 	}
 	if modifiedAtField != "" && strings.ToUpper(modifiedAtField[0:1]) != modifiedAtField[0:1] {
-		panic(fmt.Errorf("modifiedAtField field '%s' must be public", modifiedAtField))
+		return nil, fmt.Errorf("modifiedAtField field '%s' must be public", modifiedAtField)
 	}
-	return &plugin{addedAtField: addedAtField, modifiedAtField: modifiedAtField}
+	return &plugin{addedAtField: addedAtField, modifiedAtField: modifiedAtField}, nil
 }
 
 type plugin struct {

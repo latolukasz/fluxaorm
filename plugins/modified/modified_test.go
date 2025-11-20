@@ -51,7 +51,9 @@ func TestPlugin(t *testing.T) {
 	assert.Equal(t, "2022-02-03", entity.AddedAtDate.Format(time.DateOnly))
 
 	registry = fluxaorm.NewRegistry()
-	registry.RegisterPlugin(New("AddedAtTime", "ModifiedAtTime"))
+	p, err := New("AddedAtTime", "ModifiedAtTime")
+	assert.NoError(t, err)
+	registry.RegisterPlugin(p)
 	engine = fluxaorm.PrepareTables(t, registry, testPluginModifiedEntity{})
 	now = time.Now().UTC()
 	entity = fluxaorm.NewEntity[testPluginModifiedEntity](engine)
@@ -73,7 +75,9 @@ func TestPlugin(t *testing.T) {
 	assert.Equal(t, "2022-02-03 04:05:06", entity.AddedAtTime.Format(time.DateTime))
 
 	registry = fluxaorm.NewRegistry()
-	registry.RegisterPlugin(New("AddedAtTimeOptional", "ModifiedAtTimeOptional"))
+	p, err = New("AddedAtTimeOptional", "ModifiedAtTimeOptional")
+	assert.NoError(t, err)
+	registry.RegisterPlugin(p)
 	engine = fluxaorm.PrepareTables(t, registry, testPluginModifiedEntity{})
 	now = time.Now().UTC()
 	entity = fluxaorm.NewEntity[testPluginModifiedEntity](engine)
@@ -95,7 +99,9 @@ func TestPlugin(t *testing.T) {
 	assert.Equal(t, "2022-02-03 04:05:06", entity.AddedAtTimeOptional.Format(time.DateTime))
 
 	registry = fluxaorm.NewRegistry()
-	registry.RegisterPlugin(New("AddedAtDateOptional", "ModifiedAtDateOptional"))
+	p, err = New("AddedAtDateOptional", "ModifiedAtDateOptional")
+	assert.NoError(t, err)
+	registry.RegisterPlugin(p)
 	engine = fluxaorm.PrepareTables(t, registry, testPluginModifiedEntity{})
 	now = time.Now().UTC()
 	entity = fluxaorm.NewEntity[testPluginModifiedEntity](engine)
@@ -109,7 +115,9 @@ func TestPlugin(t *testing.T) {
 	assert.Nil(t, entity.ModifiedAtDateOptional)
 
 	registry = fluxaorm.NewRegistry()
-	registry.RegisterPlugin(New("AddedAtTimeOptional", "ModifiedAtTimeOptional"))
+	p, err = New("AddedAtTimeOptional", "ModifiedAtTimeOptional")
+	assert.NoError(t, err)
+	registry.RegisterPlugin(p)
 	engine = fluxaorm.PrepareTables(t, registry, testPluginModifiedEntity{})
 	now = time.Now().UTC()
 	entity = fluxaorm.NewEntity[testPluginModifiedEntity](engine)
@@ -136,7 +144,9 @@ func TestPlugin(t *testing.T) {
 	assert.Equal(t, entity.ModifiedAtTimeOptional.Format(time.DateTime), later.Format(time.DateTime))
 
 	registry = fluxaorm.NewRegistry()
-	registry.RegisterPlugin(New("Invalid", "Invalid"))
+	p, err = New("Invalid", "Invalid")
+	assert.NoError(t, err)
+	registry.RegisterPlugin(p)
 	engine = fluxaorm.PrepareTables(t, registry, testPluginModifiedEntity{})
 	now = time.Now().UTC()
 	entity = fluxaorm.NewEntity[testPluginModifiedEntity](engine)
@@ -146,7 +156,9 @@ func TestPlugin(t *testing.T) {
 	assert.Equal(t, "e", entity.Name)
 
 	registry = fluxaorm.NewRegistry()
-	registry.RegisterPlugin(New("AddedAtIgnored", "AddedAtIgnored"))
+	p, err = New("AddedAtIgnored", "AddedAtIgnored")
+	assert.NoError(t, err)
+	registry.RegisterPlugin(p)
 	engine = fluxaorm.PrepareTables(t, registry, testPluginModifiedEntity{})
 	now = time.Now().UTC()
 	entity = fluxaorm.NewEntity[testPluginModifiedEntity](engine)
@@ -156,7 +168,9 @@ func TestPlugin(t *testing.T) {
 	assert.Equal(t, "f", entity.Name)
 
 	registry = fluxaorm.NewRegistry()
-	registry.RegisterPlugin(New("Name", "Name"))
+	p, err = New("Name", "Name")
+	assert.NoError(t, err)
+	registry.RegisterPlugin(p)
 	engine = fluxaorm.PrepareTables(t, registry, testPluginModifiedEntity{})
 	now = time.Now().UTC()
 	entity = fluxaorm.NewEntity[testPluginModifiedEntity](engine)
@@ -168,13 +182,12 @@ func TestPlugin(t *testing.T) {
 	fluxaorm.DeleteEntity(engine, entity)
 	assert.NoError(t, engine.FlushWithCheck())
 
-	assert.PanicsWithError(t, "at least one column name must be defined", func() {
-		New("", "")
-	})
-	assert.PanicsWithError(t, "addedAt field 'a' must be public", func() {
-		New("a", "b")
-	})
-	assert.PanicsWithError(t, "modifiedAtField field 'b' must be public", func() {
-		New("A", "b")
-	})
+	_, err = New("", "")
+	assert.EqualError(t, err, "at least one column name must be defined")
+
+	_, err = New("a", "b")
+	assert.EqualError(t, err, "addedAt field 'a' must be public")
+
+	_, err = New("A", "b")
+	assert.EqualError(t, err, "modifiedAtField field 'b' must be public")
 }

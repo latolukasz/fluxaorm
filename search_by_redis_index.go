@@ -270,7 +270,8 @@ func RedisSearchIDs[E any](ctx Context, query *RedisSearchQuery, pager *Pager) (
 
 func RedisSearch[E any](ctx Context, query *RedisSearchQuery, pager *Pager) (results EntityIterator[E], totalRows int) {
 	ids, totalRows := redisSearchIDs(ctx, GetEntitySchema[E](ctx), query, pager)
-	schema := getEntitySchema[E](ctx)
+	schema, err := getEntitySchema[E](ctx)
+	checkError(err)
 	if schema.hasLocalCache {
 		if totalRows == 0 {
 			return &emptyResultsIterator[E]{}, 0
@@ -482,9 +483,7 @@ func redisSearchIDs(ctx Context, schema EntitySchema, query *RedisSearchQuery, p
 	for i, doc := range res.Docs {
 		lastPart := doc.ID[strings.LastIndex(doc.ID, ":")+1:]
 		id, err := strconv.ParseUint(lastPart, 10, 64)
-		if err != nil {
-			panic(err)
-		}
+		checkError(err)
 		ids[i] = id
 	}
 	return ids, total

@@ -44,10 +44,8 @@ func (d indexDefinition) CreteWhere(hasNil bool, attributes []any) Where {
 
 func GetByIndex[E any](ctx Context, pager *Pager, indexName string, attributes ...any) EntityIterator[E] {
 	var e E
-	schema := ctx.(*ormImplementation).engine.registry.entitySchemas[reflect.TypeOf(e)]
-	if schema == nil {
-		panic(fmt.Errorf("entity '%T' is not registered", e))
-	}
+	schema, err := getEntitySchemaFromSource(ctx, e)
+	checkError(err)
 	def, has := schema.indexes[indexName]
 	if !has {
 		panic(fmt.Errorf("unknow index name `%s`", indexName))
@@ -63,9 +61,7 @@ func GetByIndex[E any](ctx Context, pager *Pager, indexName string, attributes .
 		}
 		setter := schema.fieldBindSetters[def.Columns[i]]
 		bind, err := setter(attribute)
-		if err != nil {
-			panic(err)
-		}
+		checkError(err)
 		attributes[i] = bind
 	}
 	if !def.Cached {
@@ -77,10 +73,8 @@ func GetByIndex[E any](ctx Context, pager *Pager, indexName string, attributes .
 
 func GetByIndexWithCount[E any](ctx Context, pager *Pager, indexName string, attributes ...any) (res EntityIterator[E], total int) {
 	var e E
-	schema := ctx.(*ormImplementation).engine.registry.entitySchemas[reflect.TypeOf(e)]
-	if schema == nil {
-		panic(fmt.Errorf("entity '%T' is not registered", e))
-	}
+	schema, err := getEntitySchemaFromSource(ctx, e)
+	checkError(err)
 	def, has := schema.indexes[indexName]
 	if !has {
 		panic(fmt.Errorf("unknow index name `%s`", indexName))
@@ -96,9 +90,7 @@ func GetByIndexWithCount[E any](ctx Context, pager *Pager, indexName string, att
 		}
 		setter := schema.fieldBindSetters[def.Columns[i]]
 		bind, err := setter(attribute)
-		if err != nil {
-			panic(err)
-		}
+		checkError(err)
 		attributes[i] = bind
 	}
 	if !def.Cached {

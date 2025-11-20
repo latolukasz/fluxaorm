@@ -97,7 +97,7 @@ func TestFakeDelete(t *testing.T) {
 	rows = GetByIndex[testFakeDeleteEntity](orm, nil, "AgeCached", 3)
 	assert.Equal(t, 0, rows.Len())
 
-	row = MustByID[testFakeDeleteEntity](orm, entity3.ID)
+	row, _ = GetByID[testFakeDeleteEntity](orm, entity3.ID)
 	row = EditEntity(orm, row)
 	row.FakeDelete = false
 	assert.NoError(t, orm.FlushWithCheck())

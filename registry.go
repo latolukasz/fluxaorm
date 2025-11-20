@@ -285,9 +285,6 @@ func (r *registry) RegisterEntity(entity ...any) {
 		if t.Kind() == reflect.Ptr {
 			t = t.Elem()
 		}
-		if t.Kind().String() != "struct" {
-			panic(fmt.Errorf("invalid entity definition, must be struct, %T provided", e))
-		}
 		name := t.String()
 		if strings.Index(name, "[") > 0 {
 			logEntity, isLogEntity := reflect.New(t).Interface().(logEntityInterface)

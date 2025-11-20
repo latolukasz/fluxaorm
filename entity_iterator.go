@@ -386,19 +386,20 @@ func (ei *entityIterator[E]) AllIDs() []uint64 {
 }
 
 func (ei *entityIterator[E]) LoadReference(columns ...string) {
-	loadReference(ei, ei.orm, ei.schema, columns...)
+	err := loadReference(ei, ei.orm, ei.schema, columns...)
+	checkError(err)
 }
 
-func loadReference(iterator iteratorBase, orm *ormImplementation, schema *entitySchema, columns ...string) {
+func loadReference(iterator iteratorBase, orm *ormImplementation, schema *entitySchema, columns ...string) error {
 	if iterator.Len() <= 1 {
-		return
+		return nil
 	}
 	var ids []uint64
 	for _, row := range columns {
 		fields := strings.Split(row, "/")
 		reference, has := schema.references[fields[0]]
 		if !has {
-			panic(fmt.Errorf("invalid reference name %s", row))
+			return fmt.Errorf("invalid reference name %s", row)
 		}
 		index := iterator.Index()
 		iterator.setIndex(-1)
@@ -420,7 +421,7 @@ func loadReference(iterator iteratorBase, orm *ormImplementation, schema *entity
 		}
 		iterator.setIndex(index)
 		if len(ids) <= 1 {
-			return
+			return nil
 		}
 		refSchema := orm.Engine().Registry().EntitySchema(reference.Type).(*entitySchema)
 		var subRefs string
@@ -429,6 +430,7 @@ func loadReference(iterator iteratorBase, orm *ormImplementation, schema *entity
 		}
 		warmup(orm, refSchema, ids, subRefs)
 	}
+	return nil
 }
 
 func (eia *entityAnonymousIteratorAdvanced) LoadReference(columns ...string) {

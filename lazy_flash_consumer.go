@@ -49,7 +49,8 @@ func (r *LazyFlashConsumer) handleLazyFlush(event Event) {
 		if rec := recover(); rec != nil {
 			asMySQLError, isMySQLError := rec.(*mysql.MySQLError)
 			if isMySQLError && slices.Contains(mySQLErrorCodesToSkip, asMySQLError.Number) {
-				r.consumer.ctx.GetEventBroker().Publish(LazyErrorsChannelName, event)
+				_, err := r.consumer.ctx.GetEventBroker().Publish(LazyErrorsChannelName, event)
+				checkError(err)
 				return
 			}
 			panic(rec)

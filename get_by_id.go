@@ -1,26 +1,15 @@
 package fluxaorm
 
 import (
-	"fmt"
 	"reflect"
 	"strconv"
 )
 
-func MustByID[E any, I ID](ctx Context, id I) *E {
-	entity, found := GetByID[E](ctx, id)
-	if !found {
-		panic(fmt.Errorf("entity withd ID %d not found", id))
-	}
-	return entity
-}
-
 func GetByID[E any, I ID](ctx Context, id I) (entity *E, found bool) {
 	var e E
 	cE := ctx.(*ormImplementation)
-	schema := cE.engine.registry.entitySchemas[reflect.TypeOf(e)]
-	if schema == nil {
-		panic(fmt.Errorf("entity '%T' is not registered", e))
-	}
+	schema, err := getEntitySchemaFromSource(ctx, e)
+	checkError(err)
 	value, found := getByID(cE, uint64(id), schema)
 	if value == nil {
 		return nil, false

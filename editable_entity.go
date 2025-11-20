@@ -233,7 +233,9 @@ func (e *editableEntity) SourceEntity() any {
 }
 
 func NewEntity[E any](ctx Context) *E {
-	return newEntity(ctx, getEntitySchema[E](ctx)).(*E)
+	schema, err := getEntitySchema[E](ctx)
+	checkError(err)
+	return newEntity(ctx, schema).(*E)
 }
 
 func (orm *ormImplementation) NewEntity(entity any) {
@@ -241,7 +243,8 @@ func (orm *ormImplementation) NewEntity(entity any) {
 }
 
 func NewEntityFromSource(ctx Context, entity any) {
-	schema := getEntitySchemaFromSource(ctx, entity)
+	schema, err := getEntitySchemaFromSource(ctx, entity)
+	checkError(err)
 	insertable := &insertableEntity{}
 	insertable.ctx = ctx
 	insertable.schema = schema
@@ -261,7 +264,9 @@ func NewEntityFromSource(ctx Context, entity any) {
 }
 
 func NewEntityWithID[E any, I ID](ctx Context, id I) *E {
-	return newEntityInsertable(ctx, getEntitySchema[E](ctx), uint64(id)).entity.(*E)
+	schema, err := getEntitySchema[E](ctx)
+	checkError(err)
+	return newEntityInsertable(ctx, schema, uint64(id)).entity.(*E)
 }
 
 func newEntityInsertable(ctx Context, schema *entitySchema, id uint64) *insertableEntity {
@@ -287,12 +292,11 @@ func newEntity(ctx Context, schema *entitySchema) any {
 }
 
 func DeleteEntity[E any](ctx Context, source *E) {
-	schema := getEntitySchema[E](ctx)
+	schema, err := getEntitySchema[E](ctx)
+	checkError(err)
 	if schema.hasFakeDelete {
-		err := editEntityField(ctx, source, "FakeDelete", true, true)
-		if err != nil {
-			panic(err)
-		}
+		err = editEntityField(ctx, source, "FakeDelete", true, true)
+		checkError(err)
 		return
 	}
 	toRemove := &removableEntity{}
@@ -313,14 +317,13 @@ func (orm *ormImplementation) DeleteEntity(entity any) {
 }
 
 func (orm *ormImplementation) deleteEntity(entity any, force bool) {
-	schema := getEntitySchemaFromSource(orm, entity)
+	schema, err := getEntitySchemaFromSource(orm, entity)
+	checkError(err)
 	value := reflect.ValueOf(entity).Elem()
 	id := value.Field(0).Uint()
 	if schema.hasFakeDelete && !force {
 		err := editEntityField(orm, entity, "FakeDelete", true, true)
-		if err != nil {
-			panic(err)
-		}
+		checkError(err)
 		return
 	}
 	toRemove := &removableEntity{}
@@ -375,7 +378,9 @@ func initNewEntity(schema *entitySchema, engine *engineImplementation, elem refl
 }
 
 func IsDirty[E any, I ID](ctx Context, id I) (oldValues, newValues Bind, hasChanges bool) {
-	return isDirty(ctx, getEntitySchema[E](ctx), uint64(id))
+	schema, err := getEntitySchema[E](ctx)
+	checkError(err)
+	return isDirty(ctx, schema, uint64(id))
 }
 
 func isDirty(ctx Context, schema *entitySchema, id uint64) (oldValues, newValues Bind, hasChanges bool) {

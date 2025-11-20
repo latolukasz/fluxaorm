@@ -10,7 +10,8 @@ func GetByIDs[E any](ctx Context, ids ...uint64) EntityIterator[E] {
 }
 
 func getByIDs[E any](orm *ormImplementation, ids []uint64) EntityIterator[E] {
-	schema := getEntitySchema[E](orm)
+	schema, err := getEntitySchema[E](orm)
+	checkError(err)
 	if len(ids) == 0 {
 		return &emptyResultsIterator[E]{}
 	}

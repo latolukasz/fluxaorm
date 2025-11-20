@@ -5,7 +5,8 @@ import (
 )
 
 func GetEntityFieldDefinition[E any](ctx Context, field string) (t reflect.Type, tags map[string]string) {
-	schema := getEntitySchema[E](ctx)
+	schema, err := getEntitySchema[E](ctx)
+	checkError(err)
 	if schema == nil {
 		return nil, nil
 	}
@@ -21,7 +22,8 @@ func GetEntityField(ctx Context, entity any, field string) any {
 }
 
 func GetEntityFields(ctx Context, entity any, field ...string) map[string]any {
-	schema := getEntitySchemaFromSource(ctx, entity)
+	schema, err := getEntitySchemaFromSource(ctx, entity)
+	checkError(err)
 	if schema == nil {
 		return nil
 	}
@@ -38,7 +40,8 @@ func GetEntityFields(ctx Context, entity any, field ...string) map[string]any {
 }
 
 func getEntityField(ctx Context, entity any, field string) any {
-	schema := getEntitySchemaFromSource(ctx, entity)
+	schema, err := getEntitySchemaFromSource(ctx, entity)
+	checkError(err)
 	getter, has := schema.fieldGetters[field]
 	if !has {
 		return nil
