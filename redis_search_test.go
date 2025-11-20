@@ -104,7 +104,8 @@ func TestRedisSearch(t *testing.T) {
 	DeleteEntity(orm, e)
 	assert.NoError(t, orm.FlushWithCheck())
 
-	res := r.FTSearch(orm, schema.GetRedisSearchIndexName(), "*", &redis.FTSearchOptions{NoContent: true})
+	res, err := r.FTSearch(orm, schema.GetRedisSearchIndexName(), "*", &redis.FTSearchOptions{NoContent: true})
+	assert.NoError(t, err)
 	assert.NotNil(t, res)
 	assert.Equal(t, 9, res.Total)
 
@@ -175,14 +176,16 @@ func TestRedisSearch(t *testing.T) {
 }
 
 func testRedisSearchResults(t *testing.T, r RedisCache, orm Context, schema EntitySchema, ids []uint64, now time.Time, idsReferences []uint64) {
-	info, found := r.FTInfo(orm, schema.GetRedisSearchIndexName())
+	info, found, err := r.FTInfo(orm, schema.GetRedisSearchIndexName())
+	assert.NoError(t, err)
 	assert.True(t, found)
 	assert.Equal(t, 10, info.NumDocs)
 	assert.Equal(t, 0, info.IndexErrors.IndexingFailures)
 	for _, field := range info.FieldStatistics {
 		assert.Equal(t, 0, field.IndexErrors.IndexingFailures)
 	}
-	res := r.FTSearch(orm, schema.GetRedisSearchIndexName(), "*", &redis.FTSearchOptions{NoContent: true})
+	res, err := r.FTSearch(orm, schema.GetRedisSearchIndexName(), "*", &redis.FTSearchOptions{NoContent: true})
+	assert.NoError(t, err)
 	assert.NotNil(t, res)
 	assert.Equal(t, 10, res.Total)
 	query := NewRedisSearchQuery()

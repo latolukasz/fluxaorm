@@ -79,7 +79,7 @@ type EntitySchema interface {
 	uuid(ctx Context) uint64
 	getForcedRedisCode() string
 	ReindexRedisIndex(ctx Context)
-	ClearCache(ctx Context) int
+	ClearCache(ctx Context) (int, error)
 }
 
 type columnAttrToStringSetter func(v any, fromBind bool) (string, error)
@@ -816,21 +816,26 @@ func (e *entitySchema) uuid(ctx Context) uint64 {
 		return 0
 	}
 	r := ctx.Engine().Redis(e.getForcedRedisCode())
-	id := r.Incr(ctx, e.uuidCacheKey)
+	id, err := r.Incr(ctx, e.uuidCacheKey)
+	checkError(err)
 	if id == 1 {
-		e.initUUID(ctx)
+		err = e.initUUID(ctx)
+		checkError(err)
 		return e.uuid(ctx)
 	}
 	return uint64(id)
 }
 
-func (e *entitySchema) initUUID(ctx Context) {
+func (e *entitySchema) initUUID(ctx Context) error {
 	r := ctx.Engine().Redis(e.getForcedRedisCode())
 	e.uuidMutex.Lock()
 	defer e.uuidMutex.Unlock()
-	now, has := r.Get(ctx, e.uuidCacheKey)
+	now, has, err := r.Get(ctx, e.uuidCacheKey)
+	if err != nil {
+		return err
+	}
 	if has && now != "1" {
-		return
+		return nil
 	}
 	lockName := e.uuidCacheKey + ":lock"
 	lock, obtained := r.GetLocker().Obtain(ctx, lockName, time.Minute, time.Second*5)
@@ -838,16 +843,20 @@ func (e *entitySchema) initUUID(ctx Context) {
 		panic(errors.New("uuid lock timeout"))
 	}
 	defer lock.Release(ctx)
-	now, has = r.Get(ctx, e.uuidCacheKey)
+	now, has, err = r.Get(ctx, e.uuidCacheKey)
+	if err != nil {
+		return err
+	}
 	if has && now != "1" {
-		return
+		return nil
 	}
 	maxID := int64(0)
 	e.GetDB().QueryRow(ctx, NewWhere("SELECT IFNULL(MAX(ID), 0) FROM `"+e.GetTableName()+"`"), &maxID)
 	if maxID == 0 {
 		maxID = 1
 	}
-	r.IncrBy(ctx, e.uuidCacheKey, maxID)
+	_, err = r.IncrBy(ctx, e.uuidCacheKey, maxID)
+	return err
 }
 
 func (e *entitySchema) getForcedRedisCode() string {
@@ -1081,12 +1090,12 @@ func (e *entitySchema) DeleteEntity(ctx Context, source any) {
 	ctx.trackEntity(toRemove)
 }
 
-func (e *entitySchema) ClearCache(ctx Context) int {
+func (e *entitySchema) ClearCache(ctx Context) (int, error) {
 	if e.hasLocalCache {
 		e.localCache.Clear(ctx)
 	}
 	if !e.hasRedisCache {
-		return 0
+		return 0, nil
 	}
 	r := ctx.Engine().Redis(e.redisCacheName)
 	script := `
@@ -1105,8 +1114,11 @@ until cursor == '0'
 
 return deleted
 `
-	res := r.Eval(ctx, script, []string{e.getCacheKey() + ":*"})
-	return int(res.(int64))
+	res, err := r.Eval(ctx, script, []string{e.getCacheKey() + ":*"})
+	if err != nil {
+		return 0, err
+	}
+	return int(res.(int64)), nil
 }
 
 func (e *entitySchema) search(ctx Context, where Where, pager *Pager, withCount bool) (results EntityAnonymousIterator, totalRows int) {

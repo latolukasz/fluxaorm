@@ -49,7 +49,8 @@ func getByID(orm *ormImplementation, id uint64, schema *entitySchema) (any, bool
 	var cacheKey string
 	if hasRedis {
 		cacheKey = schema.getCacheKey() + ":" + strconv.FormatUint(id, 10)
-		row := cacheRedis.LRange(orm, cacheKey, 0, int64(len(schema.columnNames)+1))
+		row, err := cacheRedis.LRange(orm, cacheKey, 0, int64(len(schema.columnNames)+1))
+		checkError(err)
 		l := len(row)
 		if len(row) > 0 {
 			if l == 1 {

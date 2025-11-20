@@ -32,9 +32,13 @@ func TestRedisStreamGroupConsumerClean(t *testing.T) {
 
 	consumer1 := broker.ConsumerSingle(ctx, "test-stream")
 	consumer1.Consume(1, time.Millisecond, func(events []Event) {})
-	assert.Equal(t, int64(9), ctx.Engine().Redis(DefaultPoolCode).XLen(ctx, "test-stream"))
+	l, err := ctx.Engine().Redis(DefaultPoolCode).XLen(ctx, "test-stream")
+	assert.NoError(t, err)
+	assert.Equal(t, int64(9), l)
 	consumer1.Consume(9, time.Millisecond, func(events []Event) {})
-	assert.Equal(t, int64(0), ctx.Engine().Redis(DefaultPoolCode).XLen(ctx, "test-stream"))
+	l, err = ctx.Engine().Redis(DefaultPoolCode).XLen(ctx, "test-stream")
+	assert.NoError(t, err)
+	assert.Equal(t, int64(0), l)
 	consumer1.Cleanup()
 
 	for i := 1; i <= 10; i++ {
@@ -43,7 +47,9 @@ func TestRedisStreamGroupConsumerClean(t *testing.T) {
 	eventFlusher.Flush()
 	consumer1.Consume(100, time.Millisecond, func(events []Event) {})
 	consumer1.Cleanup()
-	assert.Equal(t, int64(0), ctx.Engine().Redis(DefaultPoolCode).XLen(ctx, "test-stream"))
+	l, err = ctx.Engine().Redis(DefaultPoolCode).XLen(ctx, "test-stream")
+	assert.NoError(t, err)
+	assert.Equal(t, int64(0), l)
 }
 
 func TestRedisStreamGroupConsumerAutoScaled(t *testing.T) {
@@ -135,12 +141,14 @@ func TestRedisStreamGroupConsumerAutoScaled(t *testing.T) {
 			panic(errors.New("stop"))
 		})
 	})
-	pending := ctx.Engine().Redis(DefaultPoolCode).XPending(ctx, "test-stream", consumerGroupName)
+	pending, err := ctx.Engine().Redis(DefaultPoolCode).XPending(ctx, "test-stream", consumerGroupName)
+	assert.NoError(t, err)
 	assert.Len(t, pending.Consumers, 1)
 	assert.Equal(t, int64(3), pending.Consumers[consumer.Name()])
 	consumer = broker.ConsumerMany(ctx, "test-stream")
 	consumer.AutoClaim(3, time.Millisecond, func(events []Event) {
 	})
-	pending = ctx.Engine().Redis(DefaultPoolCode).XPending(ctx, "test-stream", consumerGroupName)
+	pending, err = ctx.Engine().Redis(DefaultPoolCode).XPending(ctx, "test-stream", consumerGroupName)
+	assert.NoError(t, err)
 	assert.Len(t, pending.Consumers, 0)
 }

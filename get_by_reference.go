@@ -68,7 +68,8 @@ func getCachedByReference[E any](ctx Context, pager *Pager, key string, id uint6
 		idAsString := strconv.FormatUint(id, 10)
 		redisSetKey += ":" + idAsString
 	}
-	fromRedis := rc.SMembers(ctx, redisSetKey)
+	fromRedis, err := rc.SMembers(ctx, redisSetKey)
+	checkError(err)
 	if len(fromRedis) > 0 {
 		ids := make([]uint64, len(fromRedis))
 		k := 0

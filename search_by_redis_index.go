@@ -41,7 +41,9 @@ func GetRedisSearchAlters(ctx Context) (alters []RedisSearchAlter) {
 		}
 		indicesInRedis[poolName] = make(map[string]bool)
 		indicesInEntities[poolName] = make(map[string]bool)
-		for _, index := range pool.FTList(ctx) {
+		l, err := pool.FTList(ctx)
+		checkError(err)
+		for _, index := range l {
 			indicesInRedis[poolName][index] = true
 		}
 	}
@@ -65,7 +67,8 @@ func GetRedisSearchAlters(ctx Context) (alters []RedisSearchAlter) {
 			}
 			_, has := indicesInEntities[poolName][indexName]
 			if !has {
-				info, valid := ctx.Engine().Redis(poolName).FTInfo(ctx, indexName)
+				info, valid, err := ctx.Engine().Redis(poolName).FTInfo(ctx, indexName)
+				checkError(err)
 				if valid {
 					alter := RedisSearchAlter{
 						IndexName:       indexName,
@@ -99,7 +102,8 @@ func (a RedisSearchAlter) Exec(ctx Context) {
 }
 
 func getRedisIndexAlter(ctx Context, schema *entitySchema, r RedisCache) (alter *RedisSearchAlter, has bool) {
-	_, isInRedis := r.FTInfo(ctx, schema.redisSearchIndexName)
+	_, isInRedis, err := r.FTInfo(ctx, schema.redisSearchIndexName)
+	checkError(err)
 	rsColumns := make([]*redis.FieldSchema, 0)
 	for _, columnName := range schema.columnNames {
 		def, isSearchable := schema.redisSearchFields[columnName]
@@ -304,7 +308,8 @@ func (e *entitySchema) ReindexRedisIndex(ctx Context) {
 	scanCursor := uint64(0)
 	keysPattern := e.redisSearchIndexPrefix + "*"
 	for {
-		keys, newCursor := r.Scan(ctx, scanCursor, keysPattern, 1000)
+		keys, newCursor, err := r.Scan(ctx, scanCursor, keysPattern, 1000)
+		checkError(err)
 		if len(keys) > 0 {
 			p := ctx.RedisPipeLine(r.GetConfig().GetCode())
 			p.Del(keys...)
@@ -315,7 +320,8 @@ func (e *entitySchema) ReindexRedisIndex(ctx Context) {
 		}
 		scanCursor = newCursor
 	}
-	lastID, hasLastID := r.Get(ctx, lastIDRedisKey)
+	lastID, hasLastID, err := r.Get(ctx, lastIDRedisKey)
+	checkError(err)
 	if !hasLastID {
 		lastID = "0"
 		r.Set(ctx, lastIDRedisKey, lastID, 0)
@@ -466,7 +472,8 @@ func redisSearchIDs(ctx Context, schema EntitySchema, query *RedisSearchQuery, p
 		searchOptions.Limit = max_redis_search_limit
 	}
 
-	res := r.FTSearch(ctx, indexName, q, searchOptions)
+	res, err := r.FTSearch(ctx, indexName, q, searchOptions)
+	checkError(err)
 	total = res.Total
 	if total == 0 {
 		return []uint64{}, total

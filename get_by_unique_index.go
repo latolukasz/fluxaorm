@@ -39,7 +39,8 @@ func GetByUniqueIndex[E any](ctx Context, indexName string, attributes ...any) (
 			cache = ctx.Engine().Redis(DefaultPoolCode)
 		}
 		redisForCache = cache
-		previousID, inUse := cache.HGet(ctx, hSetKey, hField)
+		previousID, inUse, err := cache.HGet(ctx, hSetKey, hField)
+		checkError(err)
 		if inUse {
 			if previousID == "0" {
 				return nil, false
@@ -47,7 +48,8 @@ func GetByUniqueIndex[E any](ctx Context, indexName string, attributes ...any) (
 			id, _ := strconv.ParseUint(previousID, 10, 64)
 			entity, found = GetByID[E](ctx, id)
 			if !found {
-				cache.HDel(ctx, hSetKey, hField)
+				err = cache.HDel(ctx, hSetKey, hField)
+				checkError(err)
 			}
 			return entity, found
 		}

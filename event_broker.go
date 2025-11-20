@@ -57,7 +57,7 @@ func (ev *event) Unserialize(value interface{}) {
 }
 
 type EventBroker interface {
-	Publish(stream string, body interface{}, meta ...string) (id string)
+	Publish(stream string, body interface{}, meta ...string) (id string, err error)
 	ConsumerSingle(ctx Context, stream string) EventsConsumer
 	ConsumerMany(ctx Context, stream string) EventsConsumer
 	NewFlusher() EventFlusher
@@ -132,7 +132,7 @@ func (eb *eventBroker) NewFlusher() EventFlusher {
 	return &eventFlusher{eb: eb, events: make(map[string][][]string)}
 }
 
-func (eb *eventBroker) Publish(stream string, body interface{}, meta ...string) (id string) {
+func (eb *eventBroker) Publish(stream string, body interface{}, meta ...string) (id string, err error) {
 	return getRedisForStream(eb.ctx, stream).xAdd(eb.ctx, stream, createEventSlice(body, meta))
 }
 
@@ -148,7 +148,7 @@ type EventConsumerHandler func([]Event)
 
 type EventsConsumer interface {
 	Consume(count int, blockTime time.Duration, handler EventConsumerHandler)
-	AutoClaim(count int, minIdle time.Duration, handler EventConsumerHandler)
+	AutoClaim(count int, minIdle time.Duration, handler EventConsumerHandler) error
 	Cleanup()
 	Name() string
 }
@@ -232,7 +232,7 @@ type consumeAttributes struct {
 	Handler   EventConsumerHandler
 }
 
-func (r *eventsConsumer) AutoClaim(count int, minIdle time.Duration, handler EventConsumerHandler) {
+func (r *eventsConsumer) AutoClaim(count int, minIdle time.Duration, handler EventConsumerHandler) error {
 	r.initIfNeeded()
 	a := &redis.XAutoClaimArgs{
 		Stream:   r.stream,
@@ -243,7 +243,10 @@ func (r *eventsConsumer) AutoClaim(count int, minIdle time.Duration, handler Eve
 		Count:    int64(count),
 	}
 	for {
-		messages, _ := r.redis.XAutoClaim(r.ctx, a)
+		messages, _, err := r.redis.XAutoClaim(r.ctx, a)
+		if err != nil {
+			return err
+		}
 		if len(messages) > 0 {
 			events := make([]Event, len(messages))
 			i := 0
@@ -254,12 +257,12 @@ func (r *eventsConsumer) AutoClaim(count int, minIdle time.Duration, handler Eve
 			r.digestEvents(r.ctx, handler, events)
 		}
 		if len(messages) < 1000 {
-			return
+			return nil
 		}
 	}
 }
 
-func (r *eventsConsumer) digest(attributes *consumeAttributes) {
+func (r *eventsConsumer) digest(attributes *consumeAttributes) error {
 	lastID := ">"
 	block := attributes.BlockTime
 	if r.firstRun {
@@ -268,7 +271,10 @@ func (r *eventsConsumer) digest(attributes *consumeAttributes) {
 	}
 	a := &redis.XReadGroupArgs{Consumer: r.name, Group: r.group, Streams: []string{r.stream, lastID},
 		Count: int64(attributes.Count), Block: block}
-	results := r.redis.XReadGroup(r.ctx, a)
+	results, err := r.redis.XReadGroup(r.ctx, a)
+	if err != nil {
+		return err
+	}
 	totalMessages := 0
 	for _, row := range results {
 		l := len(row.Messages)
@@ -290,12 +296,12 @@ func (r *eventsConsumer) digest(attributes *consumeAttributes) {
 			i++
 		}
 	}
-	r.digestEvents(r.ctx, attributes.Handler, events)
+	return r.digestEvents(r.ctx, attributes.Handler, events)
 }
 
-func (r *eventsConsumer) digestEvents(ctx Context, handler EventConsumerHandler, events []Event) {
+func (r *eventsConsumer) digestEvents(ctx Context, handler EventConsumerHandler, events []Event) error {
 	if len(events) == 0 {
-		return
+		return nil
 	}
 	handler(events)
 	var toAck map[string][]string
@@ -309,9 +315,16 @@ func (r *eventsConsumer) digestEvents(ctx Context, handler EventConsumerHandler,
 		}
 	}
 	for stream, ids := range toAck {
-		r.redis.XAck(ctx, stream, r.group, ids...)
-		r.redis.XDel(ctx, stream, ids...)
+		_, err := r.redis.XAck(ctx, stream, r.group, ids...)
+		if err != nil {
+			return err
+		}
+		_, err = r.redis.XDel(ctx, stream, ids...)
+		if err != nil {
+			return err
+		}
 	}
+	return nil
 }
 
 func (r *eventsConsumer) incrementID(id string) string {

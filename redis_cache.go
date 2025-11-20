@@ -15,90 +15,90 @@ import (
 )
 
 type RedisCache interface {
-	Set(ctx Context, key string, value any, expiration time.Duration)
-	MSet(ctx Context, pairs ...any)
-	Del(ctx Context, keys ...string)
-	HSet(ctx Context, key string, values ...any)
-	HDel(ctx Context, key string, keys ...string)
-	GetSet(ctx Context, key string, expiration time.Duration, provider func() any) any
-	Info(ctx Context, section ...string) string
+	Set(ctx Context, key string, value any, expiration time.Duration) error
+	MSet(ctx Context, pairs ...any) error
+	Del(ctx Context, keys ...string) error
+	HSet(ctx Context, key string, values ...any) error
+	HDel(ctx Context, key string, keys ...string) error
+	GetSet(ctx Context, key string, expiration time.Duration, provider func() any) (any, error)
+	Info(ctx Context, section ...string) (string, error)
 	GetConfig() RedisPoolConfig
-	Get(ctx Context, key string) (value string, has bool)
-	Eval(ctx Context, script string, keys []string, args ...any) any
-	EvalSha(ctx Context, sha1 string, keys []string, args ...any) (res any, exists bool)
-	SetNX(ctx Context, key string, value any, expiration time.Duration) bool
-	ScriptExists(ctx Context, sha1 string) bool
-	ScriptLoad(ctx Context, script string) string
-	LPush(ctx Context, key string, values ...any) int64
-	LPop(ctx Context, key string) string
-	RPush(ctx Context, key string, values ...any) int64
-	LLen(ctx Context, key string) int64
-	Exists(ctx Context, keys ...string) int64
-	Type(ctx Context, key string) string
-	LRange(ctx Context, key string, start, stop int64) []string
-	LIndex(ctx Context, key string, index int64) (string, bool)
-	LSet(ctx Context, key string, index int64, value any)
-	RPop(ctx Context, key string) (value string, found bool)
-	BLMove(ctx Context, source, destination, srcPos, destPos string, timeout time.Duration) string
-	LMove(ctx Context, source, destination, srcPos, destPos string) string
-	LRem(ctx Context, key string, count int64, value any)
-	Ltrim(ctx Context, key string, start, stop int64)
-	HSetNx(ctx Context, key, field string, value any) bool
-	HMGet(ctx Context, key string, fields ...string) map[string]any
-	HGetAll(ctx Context, key string) map[string]string
-	HGet(ctx Context, key, field string) (value string, has bool)
-	HLen(ctx Context, key string) int64
-	HIncrBy(ctx Context, key, field string, incr int64) int64
-	IncrBy(ctx Context, key string, incr int64) int64
-	Incr(ctx Context, key string) int64
-	IncrWithExpire(ctx Context, key string, expire time.Duration) int64
-	Expire(ctx Context, key string, expiration time.Duration) bool
-	ZAdd(ctx Context, key string, members ...redis.Z) int64
-	ZRevRange(ctx Context, key string, start, stop int64) []string
-	ZRevRangeWithScores(ctx Context, key string, start, stop int64) []redis.Z
-	ZRangeWithScores(ctx Context, key string, start, stop int64) []redis.Z
-	ZRangeArgsWithScores(ctx Context, z redis.ZRangeArgs) []redis.Z
-	ZCard(ctx Context, key string) int64
-	ZCount(ctx Context, key string, min, max string) int64
-	ZScore(ctx Context, key, member string) float64
-	MGet(ctx Context, keys ...string) []any
-	SAdd(ctx Context, key string, members ...any) int64
-	SMembers(ctx Context, key string) []string
-	SIsMember(ctx Context, key string, member any) bool
-	SCard(ctx Context, key string) int64
-	SPop(ctx Context, key string) (string, bool)
-	SPopN(ctx Context, key string, max int64) []string
-	XTrim(ctx Context, stream string, maxLen int64) (deleted int64)
-	XRange(ctx Context, stream, start, stop string, count int64) []redis.XMessage
-	XRevRange(ctx Context, stream, start, stop string, count int64) []redis.XMessage
-	XInfoStream(ctx Context, stream string) *redis.XInfoStream
-	XInfoGroups(ctx Context, stream string) []redis.XInfoGroup
-	XGroupCreate(ctx Context, stream, group, start string) (key string, exists bool)
-	XGroupCreateMkStream(ctx Context, stream, group, start string) (key string, exists bool)
-	XGroupDestroy(ctx Context, stream, group string) int64
-	XRead(ctx Context, a *redis.XReadArgs) []redis.XStream
-	XDel(ctx Context, stream string, ids ...string) int64
-	XAutoClaim(ctx Context, a *redis.XAutoClaimArgs) (messages []redis.XMessage, start string)
-	XGroupDelConsumer(ctx Context, stream, group, consumer string) int64
-	XReadGroup(ctx Context, a *redis.XReadGroupArgs) (streams []redis.XStream)
-	XPending(ctx Context, stream, group string) *redis.XPending
-	XPendingExt(ctx Context, a *redis.XPendingExtArgs) []redis.XPendingExt
-	XLen(ctx Context, stream string) int64
-	XClaim(ctx Context, a *redis.XClaimArgs) []redis.XMessage
-	XClaimJustID(ctx Context, a *redis.XClaimArgs) []string
-	XAck(ctx Context, stream, group string, ids ...string) int64
-	xAdd(ctx Context, stream string, values interface{}) (id string)
-	FlushAll(ctx Context)
-	FlushDB(ctx Context)
-	Scan(ctx Context, cursor uint64, match string, count int64) (keys []string, cursorNext uint64)
+	Get(ctx Context, key string) (value string, has bool, err error)
+	Eval(ctx Context, script string, keys []string, args ...any) (any, error)
+	EvalSha(ctx Context, sha1 string, keys []string, args ...any) (res any, exists bool, err error)
+	SetNX(ctx Context, key string, value any, expiration time.Duration) (bool, error)
+	ScriptExists(ctx Context, sha1 string) (bool, error)
+	ScriptLoad(ctx Context, script string) (string, error)
+	LPush(ctx Context, key string, values ...any) (int64, error)
+	LPop(ctx Context, key string) (string, error)
+	RPush(ctx Context, key string, values ...any) (int64, error)
+	LLen(ctx Context, key string) (int64, error)
+	Exists(ctx Context, keys ...string) (int64, error)
+	Type(ctx Context, key string) (string, error)
+	LRange(ctx Context, key string, start, stop int64) ([]string, error)
+	LIndex(ctx Context, key string, index int64) (string, bool, error)
+	LSet(ctx Context, key string, index int64, value any) error
+	RPop(ctx Context, key string) (value string, found bool, err error)
+	BLMove(ctx Context, source, destination, srcPos, destPos string, timeout time.Duration) (string, error)
+	LMove(ctx Context, source, destination, srcPos, destPos string) (string, error)
+	LRem(ctx Context, key string, count int64, value any) error
+	Ltrim(ctx Context, key string, start, stop int64) error
+	HSetNx(ctx Context, key, field string, value any) (bool, error)
+	HMGet(ctx Context, key string, fields ...string) (map[string]any, error)
+	HGetAll(ctx Context, key string) (map[string]string, error)
+	HGet(ctx Context, key, field string) (value string, has bool, err error)
+	HLen(ctx Context, key string) (int64, error)
+	HIncrBy(ctx Context, key, field string, incr int64) (int64, error)
+	IncrBy(ctx Context, key string, incr int64) (int64, error)
+	Incr(ctx Context, key string) (int64, error)
+	IncrWithExpire(ctx Context, key string, expire time.Duration) (int64, error)
+	Expire(ctx Context, key string, expiration time.Duration) (bool, error)
+	ZAdd(ctx Context, key string, members ...redis.Z) (int64, error)
+	ZRevRange(ctx Context, key string, start, stop int64) ([]string, error)
+	ZRevRangeWithScores(ctx Context, key string, start, stop int64) ([]redis.Z, error)
+	ZRangeWithScores(ctx Context, key string, start, stop int64) ([]redis.Z, error)
+	ZRangeArgsWithScores(ctx Context, z redis.ZRangeArgs) ([]redis.Z, error)
+	ZCard(ctx Context, key string) (int64, error)
+	ZCount(ctx Context, key string, min, max string) (int64, error)
+	ZScore(ctx Context, key, member string) (float64, error)
+	MGet(ctx Context, keys ...string) ([]any, error)
+	SAdd(ctx Context, key string, members ...any) (int64, error)
+	SMembers(ctx Context, key string) ([]string, error)
+	SIsMember(ctx Context, key string, member any) (bool, error)
+	SCard(ctx Context, key string) (int64, error)
+	SPop(ctx Context, key string) (string, bool, error)
+	SPopN(ctx Context, key string, max int64) ([]string, error)
+	XTrim(ctx Context, stream string, maxLen int64) (deleted int64, err error)
+	XRange(ctx Context, stream, start, stop string, count int64) ([]redis.XMessage, error)
+	XRevRange(ctx Context, stream, start, stop string, count int64) ([]redis.XMessage, error)
+	XInfoStream(ctx Context, stream string) (*redis.XInfoStream, error)
+	XInfoGroups(ctx Context, stream string) ([]redis.XInfoGroup, error)
+	XGroupCreate(ctx Context, stream, group, start string) (key string, exists bool, err error)
+	XGroupCreateMkStream(ctx Context, stream, group, start string) (key string, exists bool, err error)
+	XGroupDestroy(ctx Context, stream, group string) (int64, error)
+	XRead(ctx Context, a *redis.XReadArgs) ([]redis.XStream, error)
+	XDel(ctx Context, stream string, ids ...string) (int64, error)
+	XAutoClaim(ctx Context, a *redis.XAutoClaimArgs) (messages []redis.XMessage, start string, err error)
+	XGroupDelConsumer(ctx Context, stream, group, consumer string) (int64, error)
+	XReadGroup(ctx Context, a *redis.XReadGroupArgs) (streams []redis.XStream, err error)
+	XPending(ctx Context, stream, group string) (*redis.XPending, error)
+	XPendingExt(ctx Context, a *redis.XPendingExtArgs) ([]redis.XPendingExt, error)
+	XLen(ctx Context, stream string) (int64, error)
+	XClaim(ctx Context, a *redis.XClaimArgs) ([]redis.XMessage, error)
+	XClaimJustID(ctx Context, a *redis.XClaimArgs) ([]string, error)
+	XAck(ctx Context, stream, group string, ids ...string) (int64, error)
+	xAdd(ctx Context, stream string, values interface{}) (id string, err error)
+	FlushAll(ctx Context) error
+	FlushDB(ctx Context) error
+	Scan(ctx Context, cursor uint64, match string, count int64) (keys []string, cursorNext uint64, err error)
 	GetLocker() *Locker
 	Process(ctx Context, cmd redis.Cmder) error
 	GetCode() string
-	FTList(ctx Context) []string
-	FTDrop(ctx Context, index string, dropDocuments bool)
-	FTSearch(ctx Context, index string, query string, options *redis.FTSearchOptions) redis.FTSearchResult
-	FTCreate(ctx Context, index string, options *redis.FTCreateOptions, schema ...*redis.FieldSchema)
-	FTInfo(ctx Context, index string) (info *redis.FTInfoResult, found bool)
+	FTList(ctx Context) ([]string, error)
+	FTDrop(ctx Context, index string, dropDocuments bool) error
+	FTSearch(ctx Context, index string, query string, options *redis.FTSearchOptions) (redis.FTSearchResult, error)
+	FTCreate(ctx Context, index string, options *redis.FTCreateOptions, schema ...*redis.FieldSchema) error
+	FTInfo(ctx Context, index string) (info *redis.FTInfoResult, found bool, err error)
 	Client() *redis.Client
 }
 
@@ -109,36 +109,47 @@ type redisCache struct {
 	config    RedisPoolConfig
 }
 
-func (r *redisCache) GetSet(ctx Context, key string, expiration time.Duration, provider func() any) any {
-	val, has := r.Get(ctx, key)
+func (r *redisCache) GetSet(ctx Context, key string, expiration time.Duration, provider func() any) (any, error) {
+	val, has, err := r.Get(ctx, key)
+	if err != nil {
+		return nil, err
+	}
 	if !has {
 		userVal := provider()
 		encoded, _ := msgpack.Marshal(userVal)
-		r.Set(ctx, key, string(encoded), expiration)
-		return userVal
+		err = r.Set(ctx, key, string(encoded), expiration)
+		if err != nil {
+			return nil, err
+		}
+		return userVal, nil
 	}
 	var data any
-	_ = msgpack.Unmarshal([]byte(val), &data)
-	return data
+	err = msgpack.Unmarshal([]byte(val), &data)
+	if err != nil {
+		return nil, err
+	}
+	return data, nil
 }
 
-func (r *redisCache) Info(ctx Context, section ...string) string {
+func (r *redisCache) Info(ctx Context, section ...string) (string, error) {
 	hasLogger, _ := ctx.getRedisLoggers()
 	start := getNow(hasLogger)
 	res := r.client.Info(ctx.Context(), section...)
 	val, err := res.Result()
-	checkError(err)
 	if hasLogger {
 		r.fillLogFields(ctx, res, start, false, nil)
 	}
-	return val
+	if err != nil {
+		return "", err
+	}
+	return val, nil
 }
 
 func (r *redisCache) GetConfig() RedisPoolConfig {
 	return r.config
 }
 
-func (r *redisCache) Get(ctx Context, key string) (value string, has bool) {
+func (r *redisCache) Get(ctx Context, key string) (value string, has bool, err error) {
 	hasLogger, _ := ctx.getRedisLoggers()
 	start := getNow(hasLogger)
 	res := r.client.Get(ctx.Context(), key)
@@ -150,16 +161,15 @@ func (r *redisCache) Get(ctx Context, key string) (value string, has bool) {
 		if hasLogger {
 			r.fillLogFields(ctx, res, start, true, err)
 		}
-		checkError(err)
-		return "", false
+		return "", false, err
 	}
 	if hasLogger {
 		r.fillLogFields(ctx, res, start, false, err)
 	}
-	return val, true
+	return val, true, nil
 }
 
-func (r *redisCache) Eval(ctx Context, script string, keys []string, args ...any) any {
+func (r *redisCache) Eval(ctx Context, script string, keys []string, args ...any) (any, error) {
 	hasLogger, _ := ctx.getRedisLoggers()
 	start := getNow(hasLogger)
 	req := r.client.Eval(ctx.Context(), script, keys, args...)
@@ -167,26 +177,34 @@ func (r *redisCache) Eval(ctx Context, script string, keys []string, args ...any
 	if hasLogger {
 		r.fillLogFields(ctx, req, start, false, err)
 	}
-	checkError(err)
-	return res
+	if err != nil {
+		return nil, err
+	}
+	return res, nil
 }
 
-func (r *redisCache) EvalSha(ctx Context, sha1 string, keys []string, args ...any) (res any, exists bool) {
+func (r *redisCache) EvalSha(ctx Context, sha1 string, keys []string, args ...any) (res any, exists bool, err error) {
 	hasLogger, _ := ctx.getRedisLoggers()
 	start := getNow(hasLogger)
 	req := r.client.EvalSha(ctx.Context(), sha1, keys, args...)
-	res, err := req.Result()
+	res, err = req.Result()
 	if hasLogger {
 		r.fillLogFields(ctx, req, start, false, err)
 	}
-	if err != nil && !r.ScriptExists(ctx, sha1) {
-		return nil, false
+	if err != nil {
+		exists, err = r.ScriptExists(ctx, sha1)
+		if err != nil {
+			return nil, false, err
+		}
+		if !exists {
+			return nil, false, nil
+		}
+
 	}
-	checkError(err)
-	return res, true
+	return res, true, nil
 }
 
-func (r *redisCache) ScriptExists(ctx Context, sha1 string) bool {
+func (r *redisCache) ScriptExists(ctx Context, sha1 string) (bool, error) {
 	hasLogger, _ := ctx.getRedisLoggers()
 	start := getNow(hasLogger)
 	req := r.client.ScriptExists(ctx.Context(), sha1)
@@ -194,11 +212,13 @@ func (r *redisCache) ScriptExists(ctx Context, sha1 string) bool {
 	if hasLogger {
 		r.fillLogFields(ctx, req, start, false, err)
 	}
-	checkError(err)
-	return res[0]
+	if err != nil {
+		return false, err
+	}
+	return res[0], nil
 }
 
-func (r *redisCache) ScriptLoad(ctx Context, script string) string {
+func (r *redisCache) ScriptLoad(ctx Context, script string) (string, error) {
 	hasLogger, _ := ctx.getRedisLoggers()
 	start := getNow(hasLogger)
 	req := r.client.ScriptLoad(ctx.Context(), script)
@@ -206,11 +226,13 @@ func (r *redisCache) ScriptLoad(ctx Context, script string) string {
 	if hasLogger {
 		r.fillLogFields(ctx, req, start, false, err)
 	}
-	checkError(err)
-	return res
+	if err != nil {
+		return "", err
+	}
+	return res, nil
 }
 
-func (r *redisCache) Set(ctx Context, key string, value any, expiration time.Duration) {
+func (r *redisCache) Set(ctx Context, key string, value any, expiration time.Duration) error {
 	hasLogger, _ := ctx.getRedisLoggers()
 	start := getNow(hasLogger)
 	req := r.client.Set(ctx.Context(), key, value, expiration)
@@ -218,10 +240,10 @@ func (r *redisCache) Set(ctx Context, key string, value any, expiration time.Dur
 	if hasLogger {
 		r.fillLogFields(ctx, req, start, false, err)
 	}
-	checkError(err)
+	return err
 }
 
-func (r *redisCache) SetNX(ctx Context, key string, value any, expiration time.Duration) bool {
+func (r *redisCache) SetNX(ctx Context, key string, value any, expiration time.Duration) (bool, error) {
 	hasLogger, _ := ctx.getRedisLoggers()
 	start := getNow(hasLogger)
 	req := r.client.SetNX(ctx.Context(), key, value, expiration)
@@ -229,11 +251,10 @@ func (r *redisCache) SetNX(ctx Context, key string, value any, expiration time.D
 	if hasLogger {
 		r.fillLogFields(ctx, req, start, false, err)
 	}
-	checkError(err)
-	return isSet
+	return isSet, err
 }
 
-func (r *redisCache) LPush(ctx Context, key string, values ...any) int64 {
+func (r *redisCache) LPush(ctx Context, key string, values ...any) (int64, error) {
 	hasLogger, _ := ctx.getRedisLoggers()
 	start := getNow(hasLogger)
 	req := r.client.LPush(ctx.Context(), key, values...)
@@ -241,11 +262,10 @@ func (r *redisCache) LPush(ctx Context, key string, values ...any) int64 {
 	if hasLogger {
 		r.fillLogFields(ctx, req, start, false, err)
 	}
-	checkError(err)
-	return val
+	return val, err
 }
 
-func (r *redisCache) LPop(ctx Context, key string) string {
+func (r *redisCache) LPop(ctx Context, key string) (string, error) {
 	hasLogger, _ := ctx.getRedisLoggers()
 	start := getNow(hasLogger)
 	req := r.client.LPop(ctx.Context(), key)
@@ -253,11 +273,10 @@ func (r *redisCache) LPop(ctx Context, key string) string {
 	if hasLogger {
 		r.fillLogFields(ctx, req, start, false, err)
 	}
-	checkError(err)
-	return val
+	return val, err
 }
 
-func (r *redisCache) RPush(ctx Context, key string, values ...any) int64 {
+func (r *redisCache) RPush(ctx Context, key string, values ...any) (int64, error) {
 	hasLogger, _ := ctx.getRedisLoggers()
 	start := getNow(hasLogger)
 	req := r.client.RPush(ctx.Context(), key, values...)
@@ -269,11 +288,10 @@ func (r *redisCache) RPush(ctx Context, key string, values ...any) int64 {
 		}
 		r.fillLogFields(ctx, req, start, false, err)
 	}
-	checkError(err)
-	return val
+	return val, err
 }
 
-func (r *redisCache) LLen(ctx Context, key string) int64 {
+func (r *redisCache) LLen(ctx Context, key string) (int64, error) {
 	hasLogger, _ := ctx.getRedisLoggers()
 	start := getNow(hasLogger)
 	req := r.client.LLen(ctx.Context(), key)
@@ -281,11 +299,10 @@ func (r *redisCache) LLen(ctx Context, key string) int64 {
 	if hasLogger {
 		r.fillLogFields(ctx, req, start, false, err)
 	}
-	checkError(err)
-	return val
+	return val, err
 }
 
-func (r *redisCache) Exists(ctx Context, keys ...string) int64 {
+func (r *redisCache) Exists(ctx Context, keys ...string) (int64, error) {
 	hasLogger, _ := ctx.getRedisLoggers()
 	start := getNow(hasLogger)
 	req := r.client.Exists(ctx.Context(), keys...)
@@ -293,11 +310,10 @@ func (r *redisCache) Exists(ctx Context, keys ...string) int64 {
 	if hasLogger {
 		r.fillLogFields(ctx, req, start, false, err)
 	}
-	checkError(err)
-	return val
+	return val, err
 }
 
-func (r *redisCache) Type(ctx Context, key string) string {
+func (r *redisCache) Type(ctx Context, key string) (string, error) {
 	hasLogger, _ := ctx.getRedisLoggers()
 	start := getNow(hasLogger)
 	req := r.client.Type(ctx.Context(), key)
@@ -305,11 +321,10 @@ func (r *redisCache) Type(ctx Context, key string) string {
 	if hasLogger {
 		r.fillLogFields(ctx, req, start, false, err)
 	}
-	checkError(err)
-	return val
+	return val, err
 }
 
-func (r *redisCache) LRange(ctx Context, key string, start, stop int64) []string {
+func (r *redisCache) LRange(ctx Context, key string, start, stop int64) ([]string, error) {
 	hasLogger, _ := ctx.getRedisLoggers()
 	s := getNow(hasLogger)
 	req := r.client.LRange(ctx.Context(), key, start, stop)
@@ -317,11 +332,10 @@ func (r *redisCache) LRange(ctx Context, key string, start, stop int64) []string
 	if hasLogger {
 		r.fillLogFields(ctx, req, s, false, err)
 	}
-	checkError(err)
-	return val
+	return val, err
 }
 
-func (r *redisCache) LIndex(ctx Context, key string, index int64) (string, bool) {
+func (r *redisCache) LIndex(ctx Context, key string, index int64) (string, bool, error) {
 	hasLogger, _ := ctx.getRedisLoggers()
 	s := getNow(hasLogger)
 	req := r.client.LIndex(ctx.Context(), key, index)
@@ -334,11 +348,13 @@ func (r *redisCache) LIndex(ctx Context, key string, index int64) (string, bool)
 	if hasLogger {
 		r.fillLogFields(ctx, req, s, false, err)
 	}
-	checkError(err)
-	return val, found
+	if err != nil {
+		return "", false, err
+	}
+	return val, found, nil
 }
 
-func (r *redisCache) LSet(ctx Context, key string, index int64, value any) {
+func (r *redisCache) LSet(ctx Context, key string, index int64, value any) error {
 	hasLogger, _ := ctx.getRedisLoggers()
 	start := getNow(hasLogger)
 	req := r.client.LSet(ctx.Context(), key, index, value)
@@ -346,10 +362,10 @@ func (r *redisCache) LSet(ctx Context, key string, index int64, value any) {
 	if hasLogger {
 		r.fillLogFields(ctx, req, start, false, err)
 	}
-	checkError(err)
+	return err
 }
 
-func (r *redisCache) BLMove(ctx Context, source, destination, srcPos, destPos string, timeout time.Duration) string {
+func (r *redisCache) BLMove(ctx Context, source, destination, srcPos, destPos string, timeout time.Duration) (string, error) {
 	hasLogger, _ := ctx.getRedisLoggers()
 	start := getNow(hasLogger)
 	req := r.client.BLMove(ctx.Context(), source, destination, srcPos, destPos, timeout)
@@ -357,11 +373,10 @@ func (r *redisCache) BLMove(ctx Context, source, destination, srcPos, destPos st
 	if hasLogger {
 		r.fillLogFields(ctx, req, start, false, err)
 	}
-	checkError(err)
-	return value
+	return value, err
 }
 
-func (r *redisCache) LMove(ctx Context, source, destination, srcPos, destPos string) string {
+func (r *redisCache) LMove(ctx Context, source, destination, srcPos, destPos string) (string, error) {
 	hasLogger, _ := ctx.getRedisLoggers()
 	start := getNow(hasLogger)
 	req := r.client.LMove(ctx.Context(), source, destination, srcPos, destPos)
@@ -369,11 +384,10 @@ func (r *redisCache) LMove(ctx Context, source, destination, srcPos, destPos str
 	if hasLogger {
 		r.fillLogFields(ctx, req, start, false, err)
 	}
-	checkError(err)
-	return value
+	return value, err
 }
 
-func (r *redisCache) RPop(ctx Context, key string) (value string, found bool) {
+func (r *redisCache) RPop(ctx Context, key string) (value string, found bool, err error) {
 	hasLogger, _ := ctx.getRedisLoggers()
 	start := getNow(hasLogger)
 	req := r.client.RPop(ctx.Context(), key)
@@ -385,16 +399,15 @@ func (r *redisCache) RPop(ctx Context, key string) (value string, found bool) {
 		if hasLogger {
 			r.fillLogFields(ctx, req, start, false, err)
 		}
-		checkError(err)
-		return "", false
+		return "", false, err
 	}
 	if hasLogger {
 		r.fillLogFields(ctx, req, start, false, err)
 	}
-	return val, true
+	return val, true, nil
 }
 
-func (r *redisCache) LRem(ctx Context, key string, count int64, value any) {
+func (r *redisCache) LRem(ctx Context, key string, count int64, value any) error {
 	hasLogger, _ := ctx.getRedisLoggers()
 	start := getNow(hasLogger)
 	req := r.client.LRem(ctx.Context(), key, count, value)
@@ -402,10 +415,10 @@ func (r *redisCache) LRem(ctx Context, key string, count int64, value any) {
 	if hasLogger {
 		r.fillLogFields(ctx, req, start, false, err)
 	}
-	checkError(err)
+	return err
 }
 
-func (r *redisCache) Ltrim(ctx Context, key string, start, stop int64) {
+func (r *redisCache) Ltrim(ctx Context, key string, start, stop int64) error {
 	hasLogger, _ := ctx.getRedisLoggers()
 	s := getNow(hasLogger)
 	req := r.client.LTrim(ctx.Context(), key, start, stop)
@@ -413,10 +426,10 @@ func (r *redisCache) Ltrim(ctx Context, key string, start, stop int64) {
 	if hasLogger {
 		r.fillLogFields(ctx, req, s, false, err)
 	}
-	checkError(err)
+	return err
 }
 
-func (r *redisCache) HSet(ctx Context, key string, values ...any) {
+func (r *redisCache) HSet(ctx Context, key string, values ...any) error {
 	hasLogger, _ := ctx.getRedisLoggers()
 	start := getNow(hasLogger)
 	req := r.client.HSet(ctx.Context(), key, values...)
@@ -424,10 +437,10 @@ func (r *redisCache) HSet(ctx Context, key string, values ...any) {
 	if hasLogger {
 		r.fillLogFields(ctx, req, start, false, err)
 	}
-	checkError(err)
+	return err
 }
 
-func (r *redisCache) HSetNx(ctx Context, key, field string, value any) bool {
+func (r *redisCache) HSetNx(ctx Context, key, field string, value any) (bool, error) {
 	hasLogger, _ := ctx.getRedisLoggers()
 	start := getNow(hasLogger)
 	req := r.client.HSetNX(ctx.Context(), key, field, value)
@@ -435,11 +448,10 @@ func (r *redisCache) HSetNx(ctx Context, key, field string, value any) bool {
 	if hasLogger {
 		r.fillLogFields(ctx, req, start, false, err)
 	}
-	checkError(err)
-	return res
+	return res, err
 }
 
-func (r *redisCache) HDel(ctx Context, key string, fields ...string) {
+func (r *redisCache) HDel(ctx Context, key string, fields ...string) error {
 	hasLogger, _ := ctx.getRedisLoggers()
 	start := getNow(hasLogger)
 	req := r.client.HDel(ctx.Context(), key, fields...)
@@ -447,10 +459,10 @@ func (r *redisCache) HDel(ctx Context, key string, fields ...string) {
 	if hasLogger {
 		r.fillLogFields(ctx, req, start, false, err)
 	}
-	checkError(err)
+	return err
 }
 
-func (r *redisCache) HMGet(ctx Context, key string, fields ...string) map[string]any {
+func (r *redisCache) HMGet(ctx Context, key string, fields ...string) (map[string]any, error) {
 	hasLogger, _ := ctx.getRedisLoggers()
 	start := getNow(hasLogger)
 	req := r.client.HMGet(ctx.Context(), key, fields...)
@@ -466,11 +478,10 @@ func (r *redisCache) HMGet(ctx Context, key string, fields ...string) map[string
 	if hasLogger {
 		r.fillLogFields(ctx, req, start, misses > 0, err)
 	}
-	checkError(err)
-	return results
+	return results, err
 }
 
-func (r *redisCache) HGetAll(ctx Context, key string) map[string]string {
+func (r *redisCache) HGetAll(ctx Context, key string) (map[string]string, error) {
 	hasLogger, _ := ctx.getRedisLoggers()
 	start := getNow(hasLogger)
 	req := r.client.HGetAll(ctx.Context(), key)
@@ -478,11 +489,10 @@ func (r *redisCache) HGetAll(ctx Context, key string) map[string]string {
 	if hasLogger {
 		r.fillLogFields(ctx, req, start, false, err)
 	}
-	checkError(err)
-	return val
+	return val, err
 }
 
-func (r *redisCache) HGet(ctx Context, key, field string) (value string, has bool) {
+func (r *redisCache) HGet(ctx Context, key, field string) (value string, has bool, err error) {
 	hasLogger, _ := ctx.getRedisLoggers()
 	misses := false
 	start := getNow(hasLogger)
@@ -495,11 +505,10 @@ func (r *redisCache) HGet(ctx Context, key, field string) (value string, has boo
 	if hasLogger {
 		r.fillLogFields(ctx, req, start, misses, err)
 	}
-	checkError(err)
-	return val, !misses
+	return val, !misses, err
 }
 
-func (r *redisCache) HLen(ctx Context, key string) int64 {
+func (r *redisCache) HLen(ctx Context, key string) (int64, error) {
 	hasLogger, _ := ctx.getRedisLoggers()
 	start := getNow(hasLogger)
 	req := r.client.HLen(ctx.Context(), key)
@@ -507,11 +516,10 @@ func (r *redisCache) HLen(ctx Context, key string) int64 {
 	if hasLogger {
 		r.fillLogFields(ctx, req, start, false, err)
 	}
-	checkError(err)
-	return val
+	return val, err
 }
 
-func (r *redisCache) HIncrBy(ctx Context, key, field string, incr int64) int64 {
+func (r *redisCache) HIncrBy(ctx Context, key, field string, incr int64) (int64, error) {
 	hasLogger, _ := ctx.getRedisLoggers()
 	start := getNow(hasLogger)
 	req := r.client.HIncrBy(ctx.Context(), key, field, incr)
@@ -519,11 +527,10 @@ func (r *redisCache) HIncrBy(ctx Context, key, field string, incr int64) int64 {
 	if hasLogger {
 		r.fillLogFields(ctx, req, start, false, err)
 	}
-	checkError(err)
-	return val
+	return val, err
 }
 
-func (r *redisCache) IncrBy(ctx Context, key string, incr int64) int64 {
+func (r *redisCache) IncrBy(ctx Context, key string, incr int64) (int64, error) {
 	hasLogger, _ := ctx.getRedisLoggers()
 	start := getNow(hasLogger)
 	req := r.client.IncrBy(ctx.Context(), key, incr)
@@ -531,11 +538,10 @@ func (r *redisCache) IncrBy(ctx Context, key string, incr int64) int64 {
 	if hasLogger {
 		r.fillLogFields(ctx, req, start, false, err)
 	}
-	checkError(err)
-	return val
+	return val, err
 }
 
-func (r *redisCache) Incr(ctx Context, key string) int64 {
+func (r *redisCache) Incr(ctx Context, key string) (int64, error) {
 	hasLogger, _ := ctx.getRedisLoggers()
 	start := getNow(hasLogger)
 	req := r.client.Incr(ctx.Context(), key)
@@ -543,11 +549,10 @@ func (r *redisCache) Incr(ctx Context, key string) int64 {
 	if hasLogger {
 		r.fillLogFields(ctx, req, start, false, err)
 	}
-	checkError(err)
-	return val
+	return val, err
 }
 
-func (r *redisCache) IncrWithExpire(ctx Context, key string, expire time.Duration) int64 {
+func (r *redisCache) IncrWithExpire(ctx Context, key string, expire time.Duration) (int64, error) {
 	hasLogger, _ := ctx.getRedisLoggers()
 	start := getNow(hasLogger)
 	p := r.client.Pipeline()
@@ -557,13 +562,14 @@ func (r *redisCache) IncrWithExpire(ctx Context, key string, expire time.Duratio
 	if hasLogger {
 		r.fillLogFields(ctx, res, start, false, err)
 	}
-	checkError(err)
+	if err != nil {
+		return 0, err
+	}
 	value, err := res.Result()
-	checkError(err)
-	return value
+	return value, err
 }
 
-func (r *redisCache) Expire(ctx Context, key string, expiration time.Duration) bool {
+func (r *redisCache) Expire(ctx Context, key string, expiration time.Duration) (bool, error) {
 	hasLogger, _ := ctx.getRedisLoggers()
 	start := getNow(hasLogger)
 	req := r.client.Expire(ctx.Context(), key, expiration)
@@ -571,11 +577,10 @@ func (r *redisCache) Expire(ctx Context, key string, expiration time.Duration) b
 	if hasLogger {
 		r.fillLogFields(ctx, req, start, false, err)
 	}
-	checkError(err)
-	return val
+	return val, err
 }
 
-func (r *redisCache) ZAdd(ctx Context, key string, members ...redis.Z) int64 {
+func (r *redisCache) ZAdd(ctx Context, key string, members ...redis.Z) (int64, error) {
 	hasLogger, _ := ctx.getRedisLoggers()
 	start := getNow(hasLogger)
 	req := r.client.ZAdd(ctx.Context(), key, members...)
@@ -583,11 +588,10 @@ func (r *redisCache) ZAdd(ctx Context, key string, members ...redis.Z) int64 {
 	if hasLogger {
 		r.fillLogFields(ctx, req, start, false, err)
 	}
-	checkError(err)
-	return val
+	return val, err
 }
 
-func (r *redisCache) ZRevRange(ctx Context, key string, start, stop int64) []string {
+func (r *redisCache) ZRevRange(ctx Context, key string, start, stop int64) ([]string, error) {
 	hasLogger, _ := ctx.getRedisLoggers()
 	startTime := getNow(hasLogger)
 	req := r.client.ZRevRange(ctx.Context(), key, start, stop)
@@ -595,11 +599,10 @@ func (r *redisCache) ZRevRange(ctx Context, key string, start, stop int64) []str
 	if hasLogger {
 		r.fillLogFields(ctx, req, startTime, false, err)
 	}
-	checkError(err)
-	return val
+	return val, err
 }
 
-func (r *redisCache) ZRevRangeWithScores(ctx Context, key string, start, stop int64) []redis.Z {
+func (r *redisCache) ZRevRangeWithScores(ctx Context, key string, start, stop int64) ([]redis.Z, error) {
 	hasLogger, _ := ctx.getRedisLoggers()
 	startTime := getNow(hasLogger)
 	req := r.client.ZRevRangeWithScores(ctx.Context(), key, start, stop)
@@ -607,11 +610,10 @@ func (r *redisCache) ZRevRangeWithScores(ctx Context, key string, start, stop in
 	if hasLogger {
 		r.fillLogFields(ctx, req, startTime, false, err)
 	}
-	checkError(err)
-	return val
+	return val, err
 }
 
-func (r *redisCache) ZRangeWithScores(ctx Context, key string, start, stop int64) []redis.Z {
+func (r *redisCache) ZRangeWithScores(ctx Context, key string, start, stop int64) ([]redis.Z, error) {
 	hasLogger, _ := ctx.getRedisLoggers()
 	startTime := getNow(hasLogger)
 	req := r.client.ZRangeWithScores(ctx.Context(), key, start, stop)
@@ -619,11 +621,10 @@ func (r *redisCache) ZRangeWithScores(ctx Context, key string, start, stop int64
 	if hasLogger {
 		r.fillLogFields(ctx, req, startTime, false, err)
 	}
-	checkError(err)
-	return val
+	return val, err
 }
 
-func (r *redisCache) ZRangeArgsWithScores(ctx Context, z redis.ZRangeArgs) []redis.Z {
+func (r *redisCache) ZRangeArgsWithScores(ctx Context, z redis.ZRangeArgs) ([]redis.Z, error) {
 	hasLogger, _ := ctx.getRedisLoggers()
 	startTime := getNow(hasLogger)
 	req := r.client.ZRangeArgsWithScores(ctx.Context(), z)
@@ -631,11 +632,10 @@ func (r *redisCache) ZRangeArgsWithScores(ctx Context, z redis.ZRangeArgs) []red
 	if hasLogger {
 		r.fillLogFields(ctx, req, startTime, false, err)
 	}
-	checkError(err)
-	return val
+	return val, err
 }
 
-func (r *redisCache) ZCard(ctx Context, key string) int64 {
+func (r *redisCache) ZCard(ctx Context, key string) (int64, error) {
 	hasLogger, _ := ctx.getRedisLoggers()
 	start := getNow(hasLogger)
 	req := r.client.ZCard(ctx.Context(), key)
@@ -643,11 +643,10 @@ func (r *redisCache) ZCard(ctx Context, key string) int64 {
 	if hasLogger {
 		r.fillLogFields(ctx, req, start, false, err)
 	}
-	checkError(err)
-	return val
+	return val, err
 }
 
-func (r *redisCache) ZCount(ctx Context, key string, min, max string) int64 {
+func (r *redisCache) ZCount(ctx Context, key string, min, max string) (int64, error) {
 	hasLogger, _ := ctx.getRedisLoggers()
 	start := getNow(hasLogger)
 	req := r.client.ZCount(ctx.Context(), key, min, max)
@@ -655,11 +654,10 @@ func (r *redisCache) ZCount(ctx Context, key string, min, max string) int64 {
 	if hasLogger {
 		r.fillLogFields(ctx, req, start, false, err)
 	}
-	checkError(err)
-	return val
+	return val, err
 }
 
-func (r *redisCache) ZScore(ctx Context, key, member string) float64 {
+func (r *redisCache) ZScore(ctx Context, key, member string) (float64, error) {
 	hasLogger, _ := ctx.getRedisLoggers()
 	start := getNow(hasLogger)
 	req := r.client.ZScore(ctx.Context(), key, member)
@@ -667,11 +665,10 @@ func (r *redisCache) ZScore(ctx Context, key, member string) float64 {
 	if hasLogger {
 		r.fillLogFields(ctx, req, start, false, err)
 	}
-	checkError(err)
-	return val
+	return val, err
 }
 
-func (r *redisCache) MSet(ctx Context, pairs ...any) {
+func (r *redisCache) MSet(ctx Context, pairs ...any) error {
 	hasLogger, _ := ctx.getRedisLoggers()
 	start := getNow(hasLogger)
 	req := r.client.MSet(ctx.Context(), pairs...)
@@ -679,10 +676,10 @@ func (r *redisCache) MSet(ctx Context, pairs ...any) {
 	if hasLogger {
 		r.fillLogFields(ctx, req, start, false, err)
 	}
-	checkError(err)
+	return err
 }
 
-func (r *redisCache) MGet(ctx Context, keys ...string) []any {
+func (r *redisCache) MGet(ctx Context, keys ...string) ([]any, error) {
 	hasLogger, _ := ctx.getRedisLoggers()
 	start := getNow(hasLogger)
 	req := r.client.MGet(ctx.Context(), keys...)
@@ -698,11 +695,10 @@ func (r *redisCache) MGet(ctx Context, keys ...string) []any {
 	if hasLogger {
 		r.fillLogFields(ctx, req, start, misses > 0, err)
 	}
-	checkError(err)
-	return results
+	return results, err
 }
 
-func (r *redisCache) SAdd(ctx Context, key string, members ...any) int64 {
+func (r *redisCache) SAdd(ctx Context, key string, members ...any) (int64, error) {
 	hasLogger, _ := ctx.getRedisLoggers()
 	start := getNow(hasLogger)
 	req := r.client.SAdd(ctx.Context(), key, members...)
@@ -710,11 +706,10 @@ func (r *redisCache) SAdd(ctx Context, key string, members ...any) int64 {
 	if hasLogger {
 		r.fillLogFields(ctx, req, start, false, err)
 	}
-	checkError(err)
-	return val
+	return val, err
 }
 
-func (r *redisCache) SMembers(ctx Context, key string) []string {
+func (r *redisCache) SMembers(ctx Context, key string) ([]string, error) {
 	hasLogger, _ := ctx.getRedisLoggers()
 	start := getNow(hasLogger)
 	req := r.client.SMembers(ctx.Context(), key)
@@ -722,11 +717,10 @@ func (r *redisCache) SMembers(ctx Context, key string) []string {
 	if hasLogger {
 		r.fillLogFields(ctx, req, start, false, err)
 	}
-	checkError(err)
-	return val
+	return val, err
 }
 
-func (r *redisCache) SIsMember(ctx Context, key string, member any) bool {
+func (r *redisCache) SIsMember(ctx Context, key string, member any) (bool, error) {
 	hasLogger, _ := ctx.getRedisLoggers()
 	start := getNow(hasLogger)
 	req := r.client.SIsMember(ctx.Context(), key, member)
@@ -734,11 +728,10 @@ func (r *redisCache) SIsMember(ctx Context, key string, member any) bool {
 	if hasLogger {
 		r.fillLogFields(ctx, req, start, false, err)
 	}
-	checkError(err)
-	return val
+	return val, err
 }
 
-func (r *redisCache) SCard(ctx Context, key string) int64 {
+func (r *redisCache) SCard(ctx Context, key string) (int64, error) {
 	hasLogger, _ := ctx.getRedisLoggers()
 	start := getNow(hasLogger)
 	req := r.client.SCard(ctx.Context(), key)
@@ -746,11 +739,10 @@ func (r *redisCache) SCard(ctx Context, key string) int64 {
 	if hasLogger {
 		r.fillLogFields(ctx, req, start, false, err)
 	}
-	checkError(err)
-	return val
+	return val, err
 }
 
-func (r *redisCache) SPop(ctx Context, key string) (string, bool) {
+func (r *redisCache) SPop(ctx Context, key string) (string, bool, error) {
 	hasLogger, _ := ctx.getRedisLoggers()
 	start := getNow(hasLogger)
 	req := r.client.SPop(ctx.Context(), key)
@@ -763,11 +755,10 @@ func (r *redisCache) SPop(ctx Context, key string) (string, bool) {
 	if hasLogger {
 		r.fillLogFields(ctx, req, start, false, err)
 	}
-	checkError(err)
-	return val, found
+	return val, found, err
 }
 
-func (r *redisCache) SPopN(ctx Context, key string, max int64) []string {
+func (r *redisCache) SPopN(ctx Context, key string, max int64) ([]string, error) {
 	hasLogger, _ := ctx.getRedisLoggers()
 	start := getNow(hasLogger)
 	req := r.client.SPopN(ctx.Context(), key, max)
@@ -775,11 +766,10 @@ func (r *redisCache) SPopN(ctx Context, key string, max int64) []string {
 	if hasLogger {
 		r.fillLogFields(ctx, req, start, false, err)
 	}
-	checkError(err)
-	return val
+	return val, err
 }
 
-func (r *redisCache) Del(ctx Context, keys ...string) {
+func (r *redisCache) Del(ctx Context, keys ...string) error {
 	hasLogger, _ := ctx.getRedisLoggers()
 	start := getNow(hasLogger)
 	req := r.client.Del(ctx.Context(), keys...)
@@ -787,23 +777,21 @@ func (r *redisCache) Del(ctx Context, keys ...string) {
 	if hasLogger {
 		r.fillLogFields(ctx, req, start, false, err)
 	}
-	checkError(err)
+	return err
 }
 
-func (r *redisCache) XTrim(ctx Context, stream string, maxLen int64) (deleted int64) {
+func (r *redisCache) XTrim(ctx Context, stream string, maxLen int64) (deleted int64, err error) {
 	hasLogger, _ := ctx.getRedisLoggers()
 	start := getNow(hasLogger)
-	var err error
 	req := r.client.XTrimMaxLen(ctx.Context(), stream, maxLen)
 	deleted, err = req.Result()
 	if hasLogger {
 		r.fillLogFields(ctx, req, start, false, err)
 	}
-	checkError(err)
-	return deleted
+	return deleted, err
 }
 
-func (r *redisCache) XRange(ctx Context, stream, start, stop string, count int64) []redis.XMessage {
+func (r *redisCache) XRange(ctx Context, stream, start, stop string, count int64) ([]redis.XMessage, error) {
 	hasLogger, _ := ctx.getRedisLoggers()
 	s := getNow(hasLogger)
 	req := r.client.XRangeN(ctx.Context(), stream, start, stop, count)
@@ -811,11 +799,10 @@ func (r *redisCache) XRange(ctx Context, stream, start, stop string, count int64
 	if hasLogger {
 		r.fillLogFields(ctx, req, s, false, err)
 	}
-	checkError(err)
-	return deleted
+	return deleted, err
 }
 
-func (r *redisCache) XRevRange(ctx Context, stream, start, stop string, count int64) []redis.XMessage {
+func (r *redisCache) XRevRange(ctx Context, stream, start, stop string, count int64) ([]redis.XMessage, error) {
 	hasLogger, _ := ctx.getRedisLoggers()
 	s := getNow(hasLogger)
 	req := r.client.XRevRangeN(ctx.Context(), stream, start, stop, count)
@@ -823,11 +810,10 @@ func (r *redisCache) XRevRange(ctx Context, stream, start, stop string, count in
 	if hasLogger {
 		r.fillLogFields(ctx, req, s, false, err)
 	}
-	checkError(err)
-	return deleted
+	return deleted, err
 }
 
-func (r *redisCache) XInfoStream(ctx Context, stream string) *redis.XInfoStream {
+func (r *redisCache) XInfoStream(ctx Context, stream string) (*redis.XInfoStream, error) {
 	hasLogger, _ := ctx.getRedisLoggers()
 	start := getNow(hasLogger)
 	req := r.client.XInfoStream(ctx.Context(), stream)
@@ -835,11 +821,10 @@ func (r *redisCache) XInfoStream(ctx Context, stream string) *redis.XInfoStream 
 	if hasLogger {
 		r.fillLogFields(ctx, req, start, false, err)
 	}
-	checkError(err)
-	return info
+	return info, err
 }
 
-func (r *redisCache) XInfoGroups(ctx Context, stream string) []redis.XInfoGroup {
+func (r *redisCache) XInfoGroups(ctx Context, stream string) ([]redis.XInfoGroup, error) {
 	hasLogger, _ := ctx.getRedisLoggers()
 	start := getNow(hasLogger)
 	req := r.client.XInfoGroups(ctx.Context(), stream)
@@ -851,16 +836,15 @@ func (r *redisCache) XInfoGroups(ctx Context, stream string) []redis.XInfoGroup 
 		if hasLogger {
 			r.fillLogFields(ctx, req, start, false, err)
 		}
-		return make([]redis.XInfoGroup, 0)
+		return make([]redis.XInfoGroup, 0), nil
 	}
 	if hasLogger {
 		r.fillLogFields(ctx, req, start, false, err)
 	}
-	checkError(err)
-	return info
+	return info, err
 }
 
-func (r *redisCache) XGroupCreate(ctx Context, stream, group, start string) (key string, exists bool) {
+func (r *redisCache) XGroupCreate(ctx Context, stream, group, start string) (key string, exists bool, err error) {
 	hasLogger, _ := ctx.getRedisLoggers()
 	s := getNow(hasLogger)
 	req := r.client.XGroupCreate(ctx.Context(), stream, group, start)
@@ -869,16 +853,15 @@ func (r *redisCache) XGroupCreate(ctx Context, stream, group, start string) (key
 		if hasLogger {
 			r.fillLogFields(ctx, req, s, false, err)
 		}
-		return "OK", true
+		return "OK", true, nil
 	}
 	if hasLogger {
 		r.fillLogFields(ctx, req, s, false, err)
 	}
-	checkError(err)
-	return res, false
+	return res, false, err
 }
 
-func (r *redisCache) XGroupCreateMkStream(ctx Context, stream, group, start string) (key string, exists bool) {
+func (r *redisCache) XGroupCreateMkStream(ctx Context, stream, group, start string) (key string, exists bool, err error) {
 	hasLogger, _ := ctx.getRedisLoggers()
 	s := getNow(hasLogger)
 	req := r.client.XGroupCreateMkStream(ctx.Context(), stream, group, start)
@@ -892,11 +875,10 @@ func (r *redisCache) XGroupCreateMkStream(ctx Context, stream, group, start stri
 	if hasLogger {
 		r.fillLogFields(ctx, req, s, false, err)
 	}
-	checkError(err)
-	return res, created
+	return res, created, err
 }
 
-func (r *redisCache) XGroupDestroy(ctx Context, stream, group string) int64 {
+func (r *redisCache) XGroupDestroy(ctx Context, stream, group string) (int64, error) {
 	hasLogger, _ := ctx.getRedisLoggers()
 	start := getNow(hasLogger)
 	req := r.client.XGroupDestroy(ctx.Context(), stream, group)
@@ -904,11 +886,10 @@ func (r *redisCache) XGroupDestroy(ctx Context, stream, group string) int64 {
 	if hasLogger {
 		r.fillLogFields(ctx, req, start, false, err)
 	}
-	checkError(err)
-	return res
+	return res, err
 }
 
-func (r *redisCache) XRead(ctx Context, a *redis.XReadArgs) []redis.XStream {
+func (r *redisCache) XRead(ctx Context, a *redis.XReadArgs) ([]redis.XStream, error) {
 	hasLogger, _ := ctx.getRedisLoggers()
 	start := getNow(hasLogger)
 	req := r.client.XRead(ctx.Context(), a)
@@ -916,11 +897,10 @@ func (r *redisCache) XRead(ctx Context, a *redis.XReadArgs) []redis.XStream {
 	if hasLogger {
 		r.fillLogFields(ctx, req, start, false, err)
 	}
-	checkError(err)
-	return info
+	return info, err
 }
 
-func (r *redisCache) XDel(ctx Context, stream string, ids ...string) int64 {
+func (r *redisCache) XDel(ctx Context, stream string, ids ...string) (int64, error) {
 	hasLogger, _ := ctx.getRedisLoggers()
 	start := getNow(hasLogger)
 	req := r.client.XDel(ctx.Context(), stream, ids...)
@@ -928,23 +908,21 @@ func (r *redisCache) XDel(ctx Context, stream string, ids ...string) int64 {
 	if hasLogger {
 		r.fillLogFields(ctx, req, start, false, err)
 	}
-	checkError(err)
-	return deleted
+	return deleted, err
 }
 
-func (r *redisCache) XAutoClaim(ctx Context, a *redis.XAutoClaimArgs) (messages []redis.XMessage, start string) {
+func (r *redisCache) XAutoClaim(ctx Context, a *redis.XAutoClaimArgs) (messages []redis.XMessage, start string, err error) {
 	hasLogger, _ := ctx.getRedisLoggers()
 	startTime := getNow(hasLogger)
 	req := r.client.XAutoClaim(ctx.Context(), a)
-	messages, start, err := req.Result()
+	messages, start, err = req.Result()
 	if hasLogger {
 		r.fillLogFields(ctx, req, startTime, false, err)
 	}
-	checkError(err)
-	return messages, start
+	return messages, start, err
 }
 
-func (r *redisCache) XGroupDelConsumer(ctx Context, stream, group, consumer string) int64 {
+func (r *redisCache) XGroupDelConsumer(ctx Context, stream, group, consumer string) (int64, error) {
 	hasLogger, _ := ctx.getRedisLoggers()
 	start := getNow(hasLogger)
 	req := r.client.XGroupDelConsumer(ctx.Context(), stream, group, consumer)
@@ -952,12 +930,10 @@ func (r *redisCache) XGroupDelConsumer(ctx Context, stream, group, consumer stri
 	if hasLogger {
 		r.fillLogFields(ctx, req, start, false, err)
 	}
-	checkError(err)
-	return deleted
+	return deleted, err
 }
 
-func (r *redisCache) XReadGroup(ctx Context, a *redis.XReadGroupArgs) (streams []redis.XStream) {
-	var err error
+func (r *redisCache) XReadGroup(ctx Context, a *redis.XReadGroupArgs) (streams []redis.XStream, err error) {
 	if a.Block >= 0 {
 		ch := make(chan int)
 		go func() {
@@ -981,11 +957,10 @@ func (r *redisCache) XReadGroup(ctx Context, a *redis.XReadGroupArgs) (streams [
 	if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
 		err = nil
 	}
-	checkError(err)
-	return streams
+	return streams, err
 }
 
-func (r *redisCache) XPending(ctx Context, stream, group string) *redis.XPending {
+func (r *redisCache) XPending(ctx Context, stream, group string) (*redis.XPending, error) {
 	hasLogger, _ := ctx.getRedisLoggers()
 	start := getNow(hasLogger)
 	req := r.client.XPending(ctx.Context(), stream, group)
@@ -993,11 +968,10 @@ func (r *redisCache) XPending(ctx Context, stream, group string) *redis.XPending
 	if hasLogger {
 		r.fillLogFields(ctx, req, start, false, err)
 	}
-	checkError(err)
-	return res
+	return res, err
 }
 
-func (r *redisCache) XPendingExt(ctx Context, a *redis.XPendingExtArgs) []redis.XPendingExt {
+func (r *redisCache) XPendingExt(ctx Context, a *redis.XPendingExtArgs) ([]redis.XPendingExt, error) {
 	hasLogger, _ := ctx.getRedisLoggers()
 	start := getNow(hasLogger)
 	req := r.client.XPendingExt(ctx.Context(), a)
@@ -1005,11 +979,10 @@ func (r *redisCache) XPendingExt(ctx Context, a *redis.XPendingExtArgs) []redis.
 	if hasLogger {
 		r.fillLogFields(ctx, req, start, false, err)
 	}
-	checkError(err)
-	return res
+	return res, err
 }
 
-func (r *redisCache) XLen(ctx Context, stream string) int64 {
+func (r *redisCache) XLen(ctx Context, stream string) (int64, error) {
 	hasLogger, _ := ctx.getRedisLoggers()
 	start := getNow(hasLogger)
 	req := r.client.XLen(ctx.Context(), stream)
@@ -1017,11 +990,10 @@ func (r *redisCache) XLen(ctx Context, stream string) int64 {
 	if hasLogger {
 		r.fillLogFields(ctx, req, start, false, err)
 	}
-	checkError(err)
-	return l
+	return l, err
 }
 
-func (r *redisCache) XClaim(ctx Context, a *redis.XClaimArgs) []redis.XMessage {
+func (r *redisCache) XClaim(ctx Context, a *redis.XClaimArgs) ([]redis.XMessage, error) {
 	hasLogger, _ := ctx.getRedisLoggers()
 	start := getNow(hasLogger)
 	req := r.client.XClaim(ctx.Context(), a)
@@ -1029,11 +1001,10 @@ func (r *redisCache) XClaim(ctx Context, a *redis.XClaimArgs) []redis.XMessage {
 	if hasLogger {
 		r.fillLogFields(ctx, req, start, false, err)
 	}
-	checkError(err)
-	return res
+	return res, err
 }
 
-func (r *redisCache) XClaimJustID(ctx Context, a *redis.XClaimArgs) []string {
+func (r *redisCache) XClaimJustID(ctx Context, a *redis.XClaimArgs) ([]string, error) {
 	hasLogger, _ := ctx.getRedisLoggers()
 	start := getNow(hasLogger)
 	req := r.client.XClaimJustID(ctx.Context(), a)
@@ -1041,11 +1012,10 @@ func (r *redisCache) XClaimJustID(ctx Context, a *redis.XClaimArgs) []string {
 	if hasLogger {
 		r.fillLogFields(ctx, req, start, false, err)
 	}
-	checkError(err)
-	return res
+	return res, err
 }
 
-func (r *redisCache) XAck(ctx Context, stream, group string, ids ...string) int64 {
+func (r *redisCache) XAck(ctx Context, stream, group string, ids ...string) (int64, error) {
 	hasLogger, _ := ctx.getRedisLoggers()
 	start := getNow(hasLogger)
 	req := r.client.XAck(ctx.Context(), stream, group, ids...)
@@ -1053,24 +1023,22 @@ func (r *redisCache) XAck(ctx Context, stream, group string, ids ...string) int6
 	if hasLogger {
 		r.fillLogFields(ctx, req, start, false, err)
 	}
-	checkError(err)
-	return res
+	return res, err
 }
 
-func (r *redisCache) xAdd(ctx Context, stream string, values interface{}) (id string) {
+func (r *redisCache) xAdd(ctx Context, stream string, values interface{}) (id string, err error) {
 	a := &redis.XAddArgs{Stream: stream, ID: "*", Values: values}
 	hasLogger, _ := ctx.getRedisLoggers()
 	start := getNow(hasLogger)
 	req := r.client.XAdd(context.Background(), a)
-	id, err := req.Result()
+	id, err = req.Result()
 	if hasLogger {
 		r.fillLogFields(ctx, req, start, false, err)
 	}
-	checkError(err)
-	return id
+	return id, err
 }
 
-func (r *redisCache) FTList(ctx Context) []string {
+func (r *redisCache) FTList(ctx Context) ([]string, error) {
 	hasLogger, _ := ctx.getRedisLoggers()
 	start := getNow(hasLogger)
 	req := r.client.FT_List(ctx.Context())
@@ -1078,11 +1046,10 @@ func (r *redisCache) FTList(ctx Context) []string {
 	if hasLogger {
 		r.fillLogFields(ctx, req, start, false, err)
 	}
-	checkError(err)
-	return res
+	return res, err
 }
 
-func (r *redisCache) FTDrop(ctx Context, index string, dropDocuments bool) {
+func (r *redisCache) FTDrop(ctx Context, index string, dropDocuments bool) error {
 	hasLogger, _ := ctx.getRedisLoggers()
 	start := getNow(hasLogger)
 	if dropDocuments {
@@ -1091,18 +1058,17 @@ func (r *redisCache) FTDrop(ctx Context, index string, dropDocuments bool) {
 		if hasLogger {
 			r.fillLogFields(ctx, req, start, false, err)
 		}
-		checkError(err)
-		return
+		return err
 	}
 	req := r.client.FTDropIndex(ctx.Context(), index)
 	_, err := req.Result()
 	if hasLogger {
 		r.fillLogFields(ctx, req, start, false, err)
 	}
-	checkError(err)
+	return err
 }
 
-func (r *redisCache) FTSearch(ctx Context, index string, query string, options *redis.FTSearchOptions) redis.FTSearchResult {
+func (r *redisCache) FTSearch(ctx Context, index string, query string, options *redis.FTSearchOptions) (redis.FTSearchResult, error) {
 	hasLogger, _ := ctx.getRedisLoggers()
 	start := getNow(hasLogger)
 	if options == nil {
@@ -1116,7 +1082,9 @@ func (r *redisCache) FTSearch(ctx Context, index string, query string, options *
 	if hasLogger {
 		r.fillLogFields(ctx, req, start, false, err)
 	}
-	checkError(err)
+	if err != nil {
+		return redis.FTSearchResult{}, err
+	}
 	res := redis.FTSearchResult{}
 	if r.dragonfly && options.NoContent {
 		asSlice := rawRes.([]any)
@@ -1127,7 +1095,7 @@ func (r *redisCache) FTSearch(ctx Context, index string, query string, options *
 				res.Docs[i].ID = id.(string)
 			}
 		}
-		return res
+		return res, err
 	}
 
 	asMap := rawRes.(map[any]any)
@@ -1161,10 +1129,10 @@ func (r *redisCache) FTSearch(ctx Context, index string, query string, options *
 			res.Docs[i].SortKey = &sortkeyS
 		}
 	}
-	return res
+	return res, err
 }
 
-func (r *redisCache) FTInfo(ctx Context, index string) (info *redis.FTInfoResult, found bool) {
+func (r *redisCache) FTInfo(ctx Context, index string) (info *redis.FTInfoResult, found bool, err error) {
 	hasLogger, _ := ctx.getRedisLoggers()
 	start := getNow(hasLogger)
 	req := r.client.FTInfo(ctx.Context(), index)
@@ -1174,9 +1142,8 @@ func (r *redisCache) FTInfo(ctx Context, index string) (info *redis.FTInfoResult
 		if hasLogger {
 			r.fillLogFields(ctx, req, start, true, err)
 		}
-		return nil, false
+		return nil, false, nil
 	}
-	checkError(err)
 	info = &redis.FTInfoResult{}
 	asMap := res.(map[any]any)
 	if r.dragonfly {
@@ -1217,7 +1184,7 @@ func (r *redisCache) FTInfo(ctx Context, index string) (info *redis.FTInfoResult
 				WithSuffixtrie:  false,
 			}
 		}
-		return info, true
+		return info, true, nil
 	}
 	info.SortableValuesSizeMB = asMap["sortable_values_size_mb"].(float64)
 	info.TotalIndexMemorySzMB = asMap["total_index_memory_sz_mb"].(float64)
@@ -1336,10 +1303,10 @@ func (r *redisCache) FTInfo(ctx Context, index string) (info *redis.FTInfoResult
 	if hasLogger {
 		r.fillLogFields(ctx, req, start, false, err)
 	}
-	return info, true
+	return info, true, nil
 }
 
-func (r *redisCache) FTCreate(ctx Context, index string, options *redis.FTCreateOptions, schema ...*redis.FieldSchema) {
+func (r *redisCache) FTCreate(ctx Context, index string, options *redis.FTCreateOptions, schema ...*redis.FieldSchema) error {
 	hasLogger, _ := ctx.getRedisLoggers()
 	start := getNow(hasLogger)
 	req := r.client.FTCreate(ctx.Context(), index, options, schema...)
@@ -1347,10 +1314,10 @@ func (r *redisCache) FTCreate(ctx Context, index string, options *redis.FTCreate
 	if hasLogger {
 		r.fillLogFields(ctx, req, start, false, err)
 	}
-	checkError(err)
+	return err
 }
 
-func (r *redisCache) FlushAll(ctx Context) {
+func (r *redisCache) FlushAll(ctx Context) error {
 	hasLogger, _ := ctx.getRedisLoggers()
 	start := getNow(hasLogger)
 	req := r.client.FlushAll(ctx.Context())
@@ -1358,10 +1325,10 @@ func (r *redisCache) FlushAll(ctx Context) {
 	if hasLogger {
 		r.fillLogFields(ctx, req, start, false, err)
 	}
-	checkError(err)
+	return err
 }
 
-func (r *redisCache) FlushDB(ctx Context) {
+func (r *redisCache) FlushDB(ctx Context) error {
 	hasLogger, _ := ctx.getRedisLoggers()
 	start := getNow(hasLogger)
 	req := r.client.FlushDB(ctx.Context())
@@ -1369,19 +1336,18 @@ func (r *redisCache) FlushDB(ctx Context) {
 	if hasLogger {
 		r.fillLogFields(ctx, req, start, false, err)
 	}
-	checkError(err)
+	return err
 }
 
-func (r *redisCache) Scan(ctx Context, cursor uint64, match string, count int64) (keys []string, cursorNext uint64) {
+func (r *redisCache) Scan(ctx Context, cursor uint64, match string, count int64) (keys []string, cursorNext uint64, err error) {
 	hasLogger, _ := ctx.getRedisLoggers()
 	start := getNow(hasLogger)
 	req := r.client.Scan(ctx.Context(), cursor, match, count)
-	keys, cursorNext, err := req.Result()
+	keys, cursorNext, err = req.Result()
 	if hasLogger {
 		r.fillLogFields(ctx, req, start, false, err)
 	}
-	checkError(err)
-	return keys, cursorNext
+	return keys, cursorNext, err
 }
 
 func (r *redisCache) Process(ctx Context, cmd redis.Cmder) error {

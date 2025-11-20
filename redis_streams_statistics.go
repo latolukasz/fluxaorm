@@ -59,9 +59,12 @@ func (eb *eventBroker) GetStreamsStatistics(stream ...string) []*RedisStreamStat
 			}
 			stat := &RedisStreamStatistics{Stream: streamName, RedisPool: redisPool}
 			results = append(results, stat)
-			stat.Len = uint64(r.XLen(eb.ctx, streamName))
+			l, err := r.XLen(eb.ctx, streamName)
+			checkError(err)
+			stat.Len = uint64(l)
 			minPending := -1
-			groups := r.XInfoGroups(eb.ctx, streamName)
+			groups, err := r.XInfoGroups(eb.ctx, streamName)
+			checkError(err)
 			for _, group := range groups {
 				groupStats := &RedisStreamGroupStatistics{Group: group.Name, Pending: uint64(group.Pending)}
 				groupStats.LastDeliveredID = group.LastDeliveredID
@@ -69,7 +72,8 @@ func (eb *eventBroker) GetStreamsStatistics(stream ...string) []*RedisStreamStat
 				groupStats.LastDeliveredDuration, _ = idToSince(group.LastDeliveredID, now)
 				groupStats.Consumers = make([]*RedisStreamConsumerStatistics, 0)
 
-				pending := r.XPending(eb.ctx, streamName, group.Name)
+				pending, err := r.XPending(eb.ctx, streamName, group.Name)
+				checkError(err)
 				groupStats.LowerID = pending.Lower
 				if pending.Count > 0 {
 					lower, t := idToSince(pending.Lower, now)
