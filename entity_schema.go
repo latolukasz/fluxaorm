@@ -844,7 +844,10 @@ func (e *entitySchema) initUUID(ctx Context) error {
 		return nil
 	}
 	lockName := e.uuidCacheKey + ":lock"
-	lock, obtained := r.GetLocker().Obtain(ctx, lockName, time.Minute, time.Second*5)
+	lock, obtained, err := r.GetLocker().Obtain(ctx, lockName, time.Minute, time.Second*5)
+	if err != nil {
+		return err
+	}
 	if !obtained {
 		return errors.New("uuid lock timeout")
 	}

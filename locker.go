@@ -34,12 +34,12 @@ func (r *redisCache) GetLocker() *Locker {
 	return r.locker
 }
 
-func (l *Locker) Obtain(ctx Context, key string, ttl time.Duration, waitTimeout time.Duration) (lock *Lock, obtained bool) {
+func (l *Locker) Obtain(ctx Context, key string, ttl time.Duration, waitTimeout time.Duration) (lock *Lock, obtained bool, err error) {
 	if ttl == 0 {
-		panic(errors.New("ttl must be higher than zero"))
+		return nil, false, errors.New("ttl must be higher than zero")
 	}
 	if waitTimeout > ttl {
-		panic(errors.New("waitTimeout can't be higher than ttl"))
+		return nil, false, errors.New("waitTimeout can't be higher than ttl")
 	}
 	hasLogger, _ := ctx.getRedisLoggers()
 	start := getNow(hasLogger)
@@ -62,7 +62,7 @@ func (l *Locker) Obtain(ctx Context, key string, ttl time.Duration, waitTimeout 
 				message := fmt.Sprintf("LOCK OBTAIN %s TTL %s WAIT %s", key, ttl.String(), waitTimeout.String())
 				l.fillLogFields(ctx, "LOCK OBTAIN", message, start, true, nil)
 			}
-			return nil, false
+			return nil, false, nil
 		}
 	}
 	if hasLogger {
@@ -71,15 +71,7 @@ func (l *Locker) Obtain(ctx Context, key string, ttl time.Duration, waitTimeout 
 	}
 	checkError(err)
 	lock = &Lock{lock: redisLock, locker: l, ttl: ttl, key: key, has: true}
-	return lock, true
-}
-
-func (l *Locker) MustObtain(ctx Context, key string, ttl time.Duration, waitTimeout time.Duration) *Lock {
-	lock, obtained := l.Obtain(ctx, key, ttl, waitTimeout)
-	if !obtained {
-		panic(errors.New("can't obtain lock"))
-	}
-	return lock
+	return lock, true, nil
 }
 
 type Lock struct {

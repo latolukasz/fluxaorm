@@ -114,7 +114,7 @@ func (orm *ormImplementation) flush(async bool) error {
 		}()
 	}
 	for _, pipeline := range orm.redisPipeLines {
-		results, pipelineErr := pipeline.ExecNoPanic(orm)
+		results, pipelineErr := pipeline.Exec(orm)
 		if pipelineErr != nil {
 			for _, result := range results {
 				if result.Err() == nil {
