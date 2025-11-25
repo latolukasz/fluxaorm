@@ -257,10 +257,6 @@ func (r *registry) RegisterRedisStream(name string, redisPool string) {
 		r.redisStreamGroups = make(map[string]map[string]string)
 		r.redisStreamPools = make(map[string]string)
 	}
-	_, has := r.redisStreamPools[name]
-	if has {
-		panic(fmt.Errorf("stream with name %s already exists", name))
-	}
 	r.redisStreamPools[name] = redisPool
 	if r.redisStreamGroups[redisPool] == nil {
 		r.redisStreamGroups[redisPool] = make(map[string]string)

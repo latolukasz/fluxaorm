@@ -21,19 +21,23 @@ type referenceDefinition struct {
 
 type Reference[E any] uint64
 
-func (r Reference[E]) GetEntity(ctx Context) *E {
+func (r Reference[E]) GetEntity(ctx Context) (*E, error) {
 	if r != 0 {
-		e, found := GetByID[E](ctx, uint64(r))
-		if !found {
-			return nil
+		e, found, err := GetByID[E](ctx, uint64(r))
+		if err != nil {
+			return nil, err
 		}
-		return e
+		if !found {
+			return nil, nil
+		}
+		return e, nil
 	}
-	return nil
+	return nil, nil
 }
 
 func (r Reference[E]) Schema(ctx Context) EntitySchema {
-	return ctx.Engine().Registry().EntitySchema(r.getType())
+	s, _ := ctx.Engine().Registry().EntitySchema(r.getType())
+	return s
 }
 
 func (r Reference[E]) getType() reflect.Type {

@@ -6,17 +6,19 @@ import (
 	"strconv"
 )
 
-func GetByUniqueIndex[E any](ctx Context, indexName string, attributes ...any) (entity *E, found bool) {
+func GetByUniqueIndex[E any](ctx Context, indexName string, attributes ...any) (entity *E, found bool, err error) {
 	var e E
 	schema, err := getEntitySchemaFromSource(ctx, e)
-	checkError(err)
+	if err != nil {
+		return nil, false, err
+	}
 	definition, has := schema.uniqueIndexes[indexName]
 	if !has {
-		panic(fmt.Errorf("unknown index name `%s`", indexName))
+		return nil, false, fmt.Errorf("unknown index name `%s`", indexName)
 	}
 	if len(definition.Columns) != len(attributes) {
-		panic(fmt.Errorf("invalid number of index `%s` attributes, got %d, %d expected",
-			indexName, len(attributes), len(definition.Columns)))
+		return nil, false, fmt.Errorf("invalid number of index `%s` attributes, got %d, %d expected",
+			indexName, len(attributes), len(definition.Columns))
 	}
 	var redisForCache RedisCache
 	var hSetKey, hField string
@@ -25,10 +27,12 @@ func GetByUniqueIndex[E any](ctx Context, indexName string, attributes ...any) (
 		s := ""
 		for i, attr := range attributes {
 			if attr == nil {
-				panic(fmt.Errorf("nil attribute for index name `%s` is not allowed", indexName))
+				return nil, false, fmt.Errorf("nil attribute for index name `%s` is not allowed", indexName)
 			}
 			val, err := schema.columnAttrToStringSetters[definition.Columns[i]](attr, false)
-			checkError(err)
+			if err != nil {
+				return nil, false, err
+			}
 			s += val
 		}
 		hField = hashString(s)
@@ -38,37 +42,55 @@ func GetByUniqueIndex[E any](ctx Context, indexName string, attributes ...any) (
 		}
 		redisForCache = cache
 		previousID, inUse, err := cache.HGet(ctx, hSetKey, hField)
-		checkError(err)
+		if err != nil {
+			return nil, false, err
+		}
 		if inUse {
 			if previousID == "0" {
-				return nil, false
+				return nil, false, nil
 			}
 			id, _ := strconv.ParseUint(previousID, 10, 64)
-			entity, found = GetByID[E](ctx, id)
+			entity, found, err = GetByID[E](ctx, id)
+			if err != nil {
+				return nil, false, err
+			}
 			if !found {
 				err = cache.HDel(ctx, hSetKey, hField)
-				checkError(err)
+				if err != nil {
+					return nil, false, err
+				}
 			}
-			return entity, found
+			return entity, found, nil
 		}
 	}
 
 	for i, attribute := range attributes {
 		setter := schema.fieldBindSetters[definition.Columns[i]]
 		bind, err := setter(attribute)
-		checkError(err)
+		if err != nil {
+			return nil, false, err
+		}
 		attributes[i] = bind
 	}
-	entity, found = SearchOne[E](ctx, definition.CreteWhere(false, attributes))
+	entity, found, err = SearchOne[E](ctx, definition.CreteWhere(false, attributes))
+	if err != nil {
+		return nil, false, err
+	}
 	if !found {
 		if definition.Cached {
-			redisForCache.HSet(ctx, hSetKey, hField, "0")
+			err = redisForCache.HSet(ctx, hSetKey, hField, "0")
+			if err != nil {
+				return nil, false, err
+			}
 		}
-		return nil, false
+		return nil, false, nil
 	}
 	if definition.Cached {
 		id := strconv.FormatUint(reflect.ValueOf(entity).Elem().FieldByName("ID").Uint(), 10)
-		redisForCache.HSet(ctx, hSetKey, hField, id)
+		err = redisForCache.HSet(ctx, hSetKey, hField, id)
+		if err != nil {
+			return nil, false, err
+		}
 	}
-	return entity, true
+	return entity, true, nil
 }

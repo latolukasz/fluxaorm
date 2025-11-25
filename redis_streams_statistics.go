@@ -31,15 +31,18 @@ type RedisStreamConsumerStatistics struct {
 	Pending uint64
 }
 
-func (eb *eventBroker) GetStreamStatistics(stream string) *RedisStreamStatistics {
-	stats := eb.GetStreamsStatistics(stream)
-	if len(stats) > 0 {
-		return stats[0]
+func (eb *eventBroker) GetStreamStatistics(stream string) (*RedisStreamStatistics, error) {
+	stats, err := eb.GetStreamsStatistics(stream)
+	if err != nil {
+		return nil, err
 	}
-	return nil
+	if len(stats) > 0 {
+		return stats[0], nil
+	}
+	return nil, nil
 }
 
-func (eb *eventBroker) GetStreamsStatistics(stream ...string) []*RedisStreamStatistics {
+func (eb *eventBroker) GetStreamsStatistics(stream ...string) ([]*RedisStreamStatistics, error) {
 	now := time.Now()
 	results := make([]*RedisStreamStatistics, 0)
 	for redisPool, channels := range eb.ctx.engine.GetRedisStreams() {
@@ -60,11 +63,15 @@ func (eb *eventBroker) GetStreamsStatistics(stream ...string) []*RedisStreamStat
 			stat := &RedisStreamStatistics{Stream: streamName, RedisPool: redisPool}
 			results = append(results, stat)
 			l, err := r.XLen(eb.ctx, streamName)
-			checkError(err)
+			if err != nil {
+				return nil, err
+			}
 			stat.Len = uint64(l)
 			minPending := -1
 			groups, err := r.XInfoGroups(eb.ctx, streamName)
-			checkError(err)
+			if err != nil {
+				return nil, err
+			}
 			for _, group := range groups {
 				groupStats := &RedisStreamGroupStatistics{Group: group.Name, Pending: uint64(group.Pending)}
 				groupStats.LastDeliveredID = group.LastDeliveredID
@@ -73,14 +80,16 @@ func (eb *eventBroker) GetStreamsStatistics(stream ...string) []*RedisStreamStat
 				groupStats.Consumers = make([]*RedisStreamConsumerStatistics, 0)
 
 				pending, err := r.XPending(eb.ctx, streamName, group.Name)
-				checkError(err)
+				if err != nil {
+					return nil, err
+				}
 				groupStats.LowerID = pending.Lower
 				if pending.Count > 0 {
 					lower, t := idToSince(pending.Lower, now)
 					groupStats.LowerDuration = lower
 					if lower != 0 {
 						since := time.Since(t)
-						if minPending == -1 || int(since.Seconds()) > minPending {
+						if int(since.Seconds()) > minPending {
 							stat.OldestEventSeconds = int(since.Seconds())
 							minPending = int(since.Seconds())
 						}
@@ -95,7 +104,7 @@ func (eb *eventBroker) GetStreamsStatistics(stream ...string) []*RedisStreamStat
 			}
 		}
 	}
-	return results
+	return results, nil
 }
 
 func idToSince(id string, now time.Time) (time.Duration, time.Time) {

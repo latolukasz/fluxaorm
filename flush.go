@@ -1,7 +1,7 @@
 package fluxaorm
 
 import (
-	"fmt"
+	"errors"
 	"strconv"
 	"strings"
 	"time"
@@ -16,7 +16,7 @@ import (
 type entitySQLOperations map[FlushType][]EntityFlush
 type schemaSQLOperations map[*entitySchema]entitySQLOperations
 type sqlOperations map[DB]schemaSQLOperations
-type dbAction func(db DBBase)
+type dbAction func(db DBBase) error
 type PostFlushAction func(ctx Context)
 
 type DuplicateKeyError struct {
@@ -28,12 +28,7 @@ func (e *DuplicateKeyError) Error() string {
 	return e.Message
 }
 
-func (orm *ormImplementation) Flush() {
-	err := orm.flush(false)
-	checkError(err)
-}
-
-func (orm *ormImplementation) FlushWithCheck() error {
+func (orm *ormImplementation) Flush() error {
 	return orm.flush(false)
 }
 
@@ -41,7 +36,7 @@ func (orm *ormImplementation) FlushAsync() error {
 	return orm.flush(true)
 }
 
-func (orm *ormImplementation) flush(async bool) error {
+func (orm *ormImplementation) flush(async bool) (err error) {
 	orm.mutexFlush.Lock()
 	defer orm.mutexFlush.Unlock()
 	if orm.trackedEntities == nil || orm.trackedEntities.Size() == 0 {
@@ -52,66 +47,78 @@ func (orm *ormImplementation) flush(async bool) error {
 		for schema, queryOperations := range operations {
 			deletes, has := queryOperations[Delete]
 			if has {
-				err := orm.handleDeletes(async, schema, deletes)
+				err = orm.handleDeletes(async, schema, deletes)
 				if err != nil {
 					return err
 				}
 			}
 			inserts, has := queryOperations[Insert]
 			if has {
-				err := orm.handleInserts(async, schema, inserts)
+				err = orm.handleInserts(async, schema, inserts)
 				if err != nil {
 					return err
 				}
 			}
 			updates, has := queryOperations[Update]
 			if has {
-				err := orm.handleUpdates(async, schema, updates)
+				err = orm.handleUpdates(async, schema, updates)
 				if err != nil {
 					return err
 				}
 			}
 		}
 	}
-	var err error
 	if !async {
 		func() {
 			var transactions []DBTransaction
 			defer func() {
 				for _, tx := range transactions {
-					tx.Rollback(orm)
-				}
-				if rec := recover(); rec != nil {
-					asErr, isErr := rec.(error)
-					if isErr {
-						mysqlErr, isMysqlErr := asErr.(*mysql.MySQLError)
-						if isMysqlErr && mysqlErr.Number == 1062 {
-							parts := strings.Split(mysqlErr.Message, ".")
-							key := strings.Trim(parts[len(parts)-1], "'")
-							asErr = &DuplicateKeyError{Message: mysqlErr.Message, Index: key}
-						}
-						err = asErr
-						return
-					}
-					err = fmt.Errorf("%v", rec)
+					_ = tx.Rollback(orm)
 				}
 			}()
 			for code, actions := range orm.flushDBActions {
 				var d DBBase
 				d = orm.Engine().DB(code)
 				if len(actions) > 1 || len(orm.flushDBActions) > 1 {
-					tx := d.(DB).Begin(orm)
+					var tx DBTransaction
+					tx, err = d.(DB).Begin(orm)
+					if err != nil {
+						return
+					}
 					transactions = append(transactions, tx)
 					d = tx
 				}
 				for _, action := range actions {
-					action(d)
+					err = action(d)
+					if err != nil {
+						var mysqlErr *mysql.MySQLError
+						isMysqlErr := errors.As(err, &mysqlErr)
+						if isMysqlErr && mysqlErr.Number == 1062 {
+							parts := strings.Split(mysqlErr.Message, ".")
+							key := strings.Trim(parts[len(parts)-1], "'")
+							err = &DuplicateKeyError{Message: mysqlErr.Message, Index: key}
+						}
+						return
+					}
 				}
 			}
 			for _, tx := range transactions {
-				tx.Commit(orm)
+				err = tx.Commit(orm)
+				if err != nil {
+					var mysqlErr *mysql.MySQLError
+					isMysqlErr := errors.As(err, &mysqlErr)
+					if isMysqlErr && mysqlErr.Number == 1062 {
+						parts := strings.Split(mysqlErr.Message, ".")
+						key := strings.Trim(parts[len(parts)-1], "'")
+						err = &DuplicateKeyError{Message: mysqlErr.Message, Index: key}
+					}
+					return
+				}
 			}
 		}()
+		if err != nil {
+			return err
+		}
 	}
 	for _, pipeline := range orm.redisPipeLines {
 		results, pipelineErr := pipeline.Exec(orm)
@@ -169,15 +176,20 @@ func (orm *ormImplementation) handleDeletes(async bool, schema *entitySchema, op
 			for i, operation := range operations {
 				args[i] = operation.ID()
 			}
-			orm.appendDBAction(schema, func(db DBBase) {
-				db.Exec(orm, sql, args...)
+			orm.appendDBAction(schema, func(db DBBase) error {
+				_, err := db.Exec(orm, sql, args...)
+				return err
 			})
 		} else {
 			r, err := getRedisForStream(orm, LazyChannelName)
 			if err != nil {
 				return err
 			}
-			orm.RedisPipeLine(r.GetCode()).XAdd(LazyChannelName, createEventSlice([]any{sql, schema.mysqlPoolCode}, nil))
+			e, err := createEventSlice([]any{sql, schema.mysqlPoolCode}, nil)
+			if err != nil {
+				return err
+			}
+			orm.RedisPipeLine(r.GetCode()).XAdd(LazyChannelName, e)
 		}
 	}
 
@@ -196,7 +208,10 @@ func (orm *ormImplementation) handleDeletes(async bool, schema *entitySchema, op
 			cache := orm.Engine().Redis(schema.getForcedRedisCode())
 			for indexName, indexColumns := range uniqueIndexes {
 				hSetKey := schema.getCacheKey() + ":" + indexName
-				hField, hasKey := buildUniqueKeyHSetField(schema, indexColumns, bind, nil)
+				hField, hasKey, err := buildUniqueKeyHSetField(schema, indexColumns, bind, nil)
+				if err != nil {
+					return err
+				}
 				if hasKey {
 					orm.RedisPipeLine(cache.GetConfig().GetCode()).HDel(hSetKey, hField)
 					if schema.cacheTTL > 0 {
@@ -267,7 +282,10 @@ func (orm *ormImplementation) handleDeletes(async bool, schema *entitySchema, op
 				indexAttributes[j] = bind[indexColumn]
 			}
 			key := indexName
-			id := hashIndexAttributes(indexAttributes)
+			id, err := hashIndexAttributes(indexAttributes)
+			if err != nil {
+				return err
+			}
 			if schema.hasLocalCache {
 				orm.flushPostActions = append(orm.flushPostActions, func(_ Context) {
 					lc.removeList(orm, key, id)
@@ -293,7 +311,11 @@ func (orm *ormImplementation) handleDeletes(async bool, schema *entitySchema, op
 		if hasLogTable && !orm.engine.registry.disableLogTables {
 			data := make([]any, 7)
 			data[0] = "INSERT INTO `" + logTableSchema.tableName + "`(ID,EntityID,Date,Meta,`Before`) VALUES(?,?,?,?,?)"
-			data[1] = strconv.FormatUint(logTableSchema.uuid(orm), 10)
+			uuid, err := logTableSchema.uuid(orm)
+			if err != nil {
+				return err
+			}
+			data[1] = strconv.FormatUint(uuid, 10)
 			data[2] = strconv.FormatUint(operation.ID(), 10)
 			data[3] = time.Now().Format(time.DateTime)
 			if len(orm.meta) > 0 {
@@ -315,7 +337,11 @@ func (orm *ormImplementation) handleDeletes(async bool, schema *entitySchema, op
 			if err != nil {
 				return err
 			}
-			orm.RedisPipeLine(r.GetCode()).XAdd(LogChannelName, createEventSlice(data, nil))
+			e, err := createEventSlice(data, nil)
+			if err != nil {
+				return err
+			}
+			orm.RedisPipeLine(r.GetCode()).XAdd(LogChannelName, e)
 		}
 		for _, p := range orm.engine.pluginFlush {
 			if bind == nil {
@@ -343,7 +369,10 @@ func (orm *ormImplementation) handleDeletes(async bool, schema *entitySchema, op
 					return err
 				}
 			}
-			e := createEventSlice(bind, []string{"action", "delete", "entity", schema.t.String(), "id", idAsString})
+			e, err := createEventSlice(bind, []string{"action", "delete", "entity", schema.t.String(), "id", idAsString})
+			if err != nil {
+				return err
+			}
 			for _, dirtyDef := range schema.dirtyDeleted {
 				rsPool.XAdd("dirty_"+dirtyDef.Stream, e)
 			}
@@ -388,7 +417,10 @@ func (orm *ormImplementation) handleInserts(async bool, schema *entitySchema, op
 			cache := orm.Engine().Redis(schema.getForcedRedisCode())
 			for indexName, definition := range uniqueIndexes {
 				hSetKey := schema.getCacheKey() + ":" + indexName
-				hField, hasKey := buildUniqueKeyHSetField(schema, definition.Columns, bind, nil)
+				hField, hasKey, err := buildUniqueKeyHSetField(schema, definition.Columns, bind, nil)
+				if err != nil {
+					return err
+				}
 				if !hasKey {
 					continue
 				}
@@ -441,13 +473,21 @@ func (orm *ormImplementation) handleInserts(async bool, schema *entitySchema, op
 			if err != nil {
 				return err
 			}
-			orm.RedisPipeLine(r.GetCode()).XAdd(LazyChannelName, createEventSlice(asyncData, nil))
+			e, err := createEventSlice(asyncData, nil)
+			if err != nil {
+				return err
+			}
+			orm.RedisPipeLine(r.GetCode()).XAdd(LazyChannelName, e)
 		}
 		logTableSchema, hasLogTable := orm.engine.registry.entityLogSchemas[schema.t]
 		if hasLogTable && !orm.engine.registry.disableLogTables {
 			data := make([]any, 7)
 			data[0] = "INSERT INTO `" + logTableSchema.tableName + "`(ID,EntityID,Date,Meta,`After`) VALUES(?,?,?,?,?)"
-			data[1] = strconv.FormatUint(logTableSchema.uuid(orm), 10)
+			uuid, err := logTableSchema.uuid(orm)
+			if err != nil {
+				return err
+			}
+			data[1] = strconv.FormatUint(uuid, 10)
 			data[2] = strconv.FormatUint(bind["ID"].(uint64), 10)
 			data[3] = time.Now().Format(time.DateTime)
 			if len(orm.meta) > 0 {
@@ -463,7 +503,11 @@ func (orm *ormImplementation) handleInserts(async bool, schema *entitySchema, op
 			if err != nil {
 				return err
 			}
-			orm.RedisPipeLine(r.GetCode()).XAdd(LogChannelName, createEventSlice(data, nil))
+			e, err := createEventSlice(data, nil)
+			if err != nil {
+				return err
+			}
+			orm.RedisPipeLine(r.GetCode()).XAdd(LogChannelName, e)
 		}
 		if hasLocalCache {
 			orm.flushPostActions = append(orm.flushPostActions, func(_ Context) {
@@ -505,7 +549,10 @@ func (orm *ormImplementation) handleInserts(async bool, schema *entitySchema, op
 				indexAttributes[j] = bind[indexColumn]
 			}
 			key := indexName
-			id := hashIndexAttributes(indexAttributes)
+			id, err := hashIndexAttributes(indexAttributes)
+			if err != nil {
+				return err
+			}
 			if schema.hasLocalCache {
 				orm.flushPostActions = append(orm.flushPostActions, func(_ Context) {
 					lc.removeList(orm, key, id)
@@ -551,15 +598,19 @@ func (orm *ormImplementation) handleInserts(async bool, schema *entitySchema, op
 			if idAsString == "" {
 				idAsString = strconv.FormatUint(bind["ID"].(uint64), 10)
 			}
-			e := createEventSlice(bind, []string{"action", "add", "entity", schema.t.String(), "id", idAsString})
+			e, err := createEventSlice(bind, []string{"action", "add", "entity", schema.t.String(), "id", idAsString})
+			if err != nil {
+				return err
+			}
 			for _, dirtyDef := range schema.dirtyAdded {
 				rsPool.XAdd("dirty_"+dirtyDef.Stream, e)
 			}
 		}
 	}
 	if !async && !schema.virtual {
-		orm.appendDBAction(schema, func(db DBBase) {
-			db.Exec(orm, sql, args...)
+		orm.appendDBAction(schema, func(db DBBase) error {
+			_, err := db.Exec(orm, sql, args...)
+			return err
 		})
 	}
 	return nil
@@ -603,7 +654,10 @@ func (orm *ormImplementation) handleUpdates(async bool, schema *entitySchema, op
 					continue
 				}
 				hSetKey := schema.getCacheKey() + ":" + indexName
-				hField, hasKey := buildUniqueKeyHSetField(schema, definition.Columns, newBind, forcedNew)
+				hField, hasKey, err := buildUniqueKeyHSetField(schema, definition.Columns, newBind, forcedNew)
+				if err != nil {
+					return err
+				}
 				expireSet := false
 				if hasKey {
 					orm.RedisPipeLine(cache.GetConfig().GetCode()).HSet(hSetKey, hField, strconv.FormatUint(update.ID(), 10))
@@ -612,7 +666,10 @@ func (orm *ormImplementation) handleUpdates(async bool, schema *entitySchema, op
 						expireSet = true
 					}
 				}
-				hFieldOld, hasKey := buildUniqueKeyHSetField(schema, definition.Columns, oldBind, forcedOld)
+				hFieldOld, hasKey, err := buildUniqueKeyHSetField(schema, definition.Columns, oldBind, forcedOld)
+				if err != nil {
+					return err
+				}
 				if hasKey {
 					orm.RedisPipeLine(cache.GetConfig().GetCode()).HDel(hSetKey, hFieldOld)
 					if schema.cacheTTL > 0 && !expireSet {
@@ -677,10 +734,15 @@ func (orm *ormImplementation) handleUpdates(async bool, schema *entitySchema, op
 				if err != nil {
 					return err
 				}
-				orm.RedisPipeLine(r.GetCode()).XAdd(LazyChannelName, createEventSlice(asyncArgs, nil))
+				e, err := createEventSlice(asyncArgs, nil)
+				if err != nil {
+					return err
+				}
+				orm.RedisPipeLine(r.GetCode()).XAdd(LazyChannelName, e)
 			} else {
-				orm.appendDBAction(schema, func(db DBBase) {
-					db.Exec(orm, sql, args...)
+				orm.appendDBAction(schema, func(db DBBase) error {
+					_, err := db.Exec(orm, sql, args...)
+					return err
 				})
 			}
 		}
@@ -688,7 +750,11 @@ func (orm *ormImplementation) handleUpdates(async bool, schema *entitySchema, op
 		if hasLogTable && !orm.engine.registry.disableLogTables {
 			data := make([]any, 8)
 			data[0] = "INSERT INTO `" + logTableSchema.tableName + "`(ID,EntityID,Date,Meta,`Before`,`After`) VALUES(?,?,?,?,?,?)"
-			data[1] = strconv.FormatUint(logTableSchema.uuid(orm), 10)
+			uuid, err := logTableSchema.uuid(orm)
+			if err != nil {
+				return err
+			}
+			data[1] = strconv.FormatUint(uuid, 10)
 			data[2] = strconv.FormatUint(update.ID(), 10)
 			data[3] = time.Now().Format(time.DateTime)
 			if len(orm.meta) > 0 {
@@ -706,7 +772,11 @@ func (orm *ormImplementation) handleUpdates(async bool, schema *entitySchema, op
 			if err != nil {
 				return err
 			}
-			orm.RedisPipeLine(r.GetCode()).XAdd(LogChannelName, createEventSlice(data, nil))
+			e, err := createEventSlice(data, nil)
+			if err != nil {
+				return err
+			}
+			orm.RedisPipeLine(r.GetCode()).XAdd(LogChannelName, e)
 		}
 
 		if update.getEntity() == nil {
@@ -877,7 +947,10 @@ func (orm *ormImplementation) handleUpdates(async bool, schema *entitySchema, op
 				continue
 			}
 			key := indexName
-			id := hashIndexAttributes(indexAttributes)
+			id, err := hashIndexAttributes(indexAttributes)
+			if err != nil {
+				return err
+			}
 			if schema.hasLocalCache {
 				orm.flushPostActions = append(orm.flushPostActions, func(_ Context) {
 					schema.localCache.removeList(orm, key, id)
@@ -899,7 +972,10 @@ func (orm *ormImplementation) handleUpdates(async bool, schema *entitySchema, op
 				indexAttributes[j] = oldVal
 			}
 			key2 := indexName
-			id2 := hashIndexAttributes(indexAttributes)
+			id2, err := hashIndexAttributes(indexAttributes)
+			if err != nil {
+				return err
+			}
 			if schema.hasLocalCache {
 				orm.flushPostActions = append(orm.flushPostActions, func(_ Context) {
 					schema.localCache.removeList(orm, key2, id2)
@@ -921,7 +997,10 @@ func (orm *ormImplementation) handleUpdates(async bool, schema *entitySchema, op
 					if idAsString == "" {
 						idAsString = strconv.FormatUint(operation.ID(), 10)
 					}
-					e := createEventSlice(newBind, []string{"action", "delete", "entity", schema.t.String(), "id", idAsString})
+					e, err := createEventSlice(newBind, []string{"action", "delete", "entity", schema.t.String(), "id", idAsString})
+					if err != nil {
+						return err
+					}
 					for _, dirtyDef := range schema.dirtyDeleted {
 						rsPool.XAdd("dirty_"+dirtyDef.Stream, e)
 					}
@@ -938,7 +1017,10 @@ func (orm *ormImplementation) handleUpdates(async bool, schema *entitySchema, op
 				_, hasID := dirtyDef.Columns["ID"]
 				if hasID {
 					if e == nil {
-						e = createEventSlice(newBind, []string{"action", "edit", "entity", schema.t.String(), "id", idAsString})
+						e, err = createEventSlice(newBind, []string{"action", "edit", "entity", schema.t.String(), "id", idAsString})
+						if err != nil {
+							return err
+						}
 					}
 					rsPool.XAdd("dirty_"+dirtyDef.Stream, e)
 					continue
@@ -947,7 +1029,10 @@ func (orm *ormImplementation) handleUpdates(async bool, schema *entitySchema, op
 					_, has := dirtyDef.Columns[key]
 					if has {
 						if e == nil {
-							e = createEventSlice(newBind, []string{"action", "edit", "entity", schema.t.String(), "id", idAsString})
+							e, err = createEventSlice(newBind, []string{"action", "edit", "entity", schema.t.String(), "id", idAsString})
+							if err != nil {
+								return err
+							}
 						}
 						rsPool.XAdd("dirty_"+dirtyDef.Stream, e)
 						break
@@ -991,7 +1076,7 @@ func (orm *ormImplementation) appendDBAction(schema EntitySchema, action dbActio
 	orm.flushDBActions[poolCode] = append(orm.flushDBActions[poolCode], action)
 }
 
-func buildUniqueKeyHSetField(schema *entitySchema, indexColumns []string, bind, forced Bind) (string, bool) {
+func buildUniqueKeyHSetField(schema *entitySchema, indexColumns []string, bind, forced Bind) (string, bool, error) {
 	hField := ""
 	hasNil := false
 	hasInBind := false
@@ -1008,11 +1093,13 @@ func buildUniqueKeyHSetField(schema *entitySchema, indexColumns []string, bind, 
 			hasInBind = true
 		}
 		asString, err := schema.columnAttrToStringSetters[column](bindValue, true)
-		checkError(err)
+		if err != nil {
+			return "", false, err
+		}
 		hField += asString
 	}
 	if hasNil || !hasInBind {
-		return "", false
+		return "", false, nil
 	}
-	return hashString(hField), true
+	return hashString(hField), true, nil
 }

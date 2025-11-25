@@ -57,24 +57,27 @@ func (r *References[E]) GetIDs() []uint64 {
 	return r.unserialized
 }
 
-func (r *References[E]) GetEntity(ctx Context, index int) *E {
+func (r *References[E]) GetEntity(ctx Context, index int) (*E, error) {
 	if index < 0 {
-		return nil
+		return nil, nil
 	}
 	if r.Len()-1 < index {
-		return nil
+		return nil, nil
 	}
 	id := r.unserialized[index]
 	if id == 0 {
-		return nil
+		return nil, nil
 	}
-	e, _ := GetByID[E](ctx, id)
-	return e
+	e, _, err := GetByID[E](ctx, id)
+	if err != nil {
+		return nil, err
+	}
+	return e, nil
 }
 
-func (r *References[E]) GetEntities(ctx Context) EntityIterator[E] {
+func (r *References[E]) GetEntities(ctx Context) (EntityIterator[E], error) {
 	if r.Len() == 0 {
-		return &emptyResultsIterator[E]{}
+		return &emptyResultsIterator[E]{}, nil
 	}
 	return GetByIDs[E](ctx, r.unserialized...)
 }

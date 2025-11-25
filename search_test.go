@@ -14,53 +14,64 @@ type searchEntity struct {
 func TestSearch(t *testing.T) {
 	var entity *searchEntity
 	orm := PrepareTables(t, NewRegistry(), entity)
-	schema := GetEntitySchema[searchEntity](orm)
+	schema, has := GetEntitySchema[searchEntity](orm)
+	assert.True(t, has)
 
 	var ids []uint64
 	for i := 1; i <= 10; i++ {
-		entity = NewEntity[searchEntity](orm)
+		entity, err := NewEntity[searchEntity](orm)
+		assert.NoError(t, err)
 		entity.Name = "name %d"
 		ids = append(ids, entity.ID)
 	}
-	err := orm.FlushWithCheck()
+	err := orm.Flush()
 	assert.NoError(t, err)
 
-	rows, total := SearchWithCount[searchEntity](orm, NewWhere("ID > ?", ids[1]), nil)
+	rows, total, err := SearchWithCount[searchEntity](orm, NewWhere("ID > ?", ids[1]), nil)
+	assert.NoError(t, err)
 	assert.Equal(t, 8, total)
 	assert.Equal(t, 8, rows.Len())
 
-	foundIDs, total := SearchIDsWithCount[searchEntity](orm, NewWhere("ID > ?", ids[1]), nil)
+	foundIDs, total, err := SearchIDsWithCount[searchEntity](orm, NewWhere("ID > ?", ids[1]), nil)
+	assert.NoError(t, err)
 	assert.Equal(t, 8, total)
 	assert.Len(t, foundIDs, 8)
 	assert.Equal(t, ids[2], foundIDs[0])
 
-	foundIDs = SearchIDs[searchEntity](orm, NewWhere("ID > ?", ids[1]), nil)
+	foundIDs, err = SearchIDs[searchEntity](orm, NewWhere("ID > ?", ids[1]), nil)
+	assert.NoError(t, err)
 	assert.Len(t, foundIDs, 8)
 	assert.Equal(t, ids[2], foundIDs[0])
 
-	entity, found := SearchOne[searchEntity](orm, NewWhere("ID = ?", ids[2]))
+	entity, found, err := SearchOne[searchEntity](orm, NewWhere("ID = ?", ids[2]))
+	assert.NoError(t, err)
 	assert.True(t, found)
 	assert.NotNil(t, entity)
 	assert.Equal(t, ids[2], entity.ID)
 
-	rowsAnonymous, total := schema.SearchWithCount(orm, NewWhere("ID > ?", ids[1]), nil)
+	rowsAnonymous, total, err := schema.SearchWithCount(orm, NewWhere("ID > ?", ids[1]), nil)
+	assert.NoError(t, err)
 	assert.Equal(t, 8, total)
 	assert.Equal(t, 8, rowsAnonymous.Len())
 
 	iterations := 0
 	for rowsAnonymous.Next() {
-		row := rowsAnonymous.Entity().(*searchEntity)
-		assert.Equal(t, ids[iterations+2], row.ID)
+		row, err := rowsAnonymous.Entity()
+		assert.NoError(t, err)
+		assert.Equal(t, ids[iterations+2], row.(*searchEntity).ID)
 		iterations++
 	}
 	assert.Equal(t, 8, iterations)
-	rowsAnonymous = schema.Search(orm, NewWhere("ID > ?", ids[1]), nil)
+	rowsAnonymous, err = schema.Search(orm, NewWhere("ID > ?", ids[1]), nil)
+	assert.NoError(t, err)
 	assert.Equal(t, 8, rowsAnonymous.Len())
-	foundIDs, total = schema.SearchIDsWithCount(orm, NewWhere("ID > ?", ids[1]), nil)
+	foundIDs, total, err = schema.SearchIDsWithCount(orm, NewWhere("ID > ?", ids[1]), nil)
+	assert.NoError(t, err)
 	assert.Equal(t, 8, total)
 	assert.Len(t, foundIDs, 8)
 	assert.Equal(t, ids[2], foundIDs[0])
-	foundIDs = schema.SearchIDs(orm, NewWhere("ID > ?", ids[1]), nil)
+	foundIDs, err = schema.SearchIDs(orm, NewWhere("ID > ?", ids[1]), nil)
+	assert.NoError(t, err)
 	assert.Len(t, foundIDs, 8)
 	assert.Equal(t, ids[2], foundIDs[0])
 }

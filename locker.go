@@ -57,7 +57,7 @@ func (l *Locker) Obtain(ctx Context, key string, ttl time.Duration, waitTimeout 
 	}
 	redisLock, err := l.locker.Obtain(ctx.Context(), key, ttl, options)
 	if err != nil {
-		if err == redislock.ErrNotObtained {
+		if errors.Is(err, redislock.ErrNotObtained) {
 			if hasLogger {
 				message := fmt.Sprintf("LOCK OBTAIN %s TTL %s WAIT %s", key, ttl.String(), waitTimeout.String())
 				l.fillLogFields(ctx, "LOCK OBTAIN", message, start, true, nil)
@@ -69,7 +69,9 @@ func (l *Locker) Obtain(ctx Context, key string, ttl time.Duration, waitTimeout 
 		message := fmt.Sprintf("LOCK OBTAIN %s TTL %s WAIT %s", key, ttl.String(), waitTimeout.String())
 		l.fillLogFields(ctx, "LOCK OBTAIN", message, start, false, nil)
 	}
-	checkError(err)
+	if err != nil {
+		return nil, false, err
+	}
 	lock = &Lock{lock: redisLock, locker: l, ttl: ttl, key: key, has: true}
 	return lock, true, nil
 }
@@ -91,36 +93,34 @@ func (l *Lock) Release(ctx Context) {
 	start := getNow(hasLogger)
 	err := l.lock.Release(context.Background())
 	ok := true
-	if err == redislock.ErrLockNotHeld {
+	if errors.Is(err, redislock.ErrLockNotHeld) {
 		err = nil
 		ok = false
 	}
 	if hasLogger {
 		l.locker.fillLogFields(ctx, "LOCK RELEASE", "LOCK RELEASE "+l.key, start, !ok, err)
 	}
-	checkError(err)
 }
 
-func (l *Lock) TTL(ctx Context) time.Duration {
+func (l *Lock) TTL(ctx Context) (time.Duration, error) {
 	hasLogger, _ := ctx.getRedisLoggers()
 	start := getNow(hasLogger)
 	t, err := l.lock.TTL(ctx.Context())
 	if hasLogger {
 		l.locker.fillLogFields(ctx, "LOCK TTL", "LOCK TTL "+l.key, start, false, err)
 	}
-	checkError(err)
-	return t
+	return t, err
 }
 
-func (l *Lock) Refresh(ctx Context, ttl time.Duration) bool {
+func (l *Lock) Refresh(ctx Context, ttl time.Duration) (bool, error) {
 	if !l.has {
-		return false
+		return false, nil
 	}
 	hasLogger, _ := ctx.getRedisLoggers()
 	start := getNow(hasLogger)
 	err := l.lock.Refresh(ctx.Context(), ttl, nil)
 	ok := true
-	if err == redislock.ErrNotObtained {
+	if errors.Is(err, redislock.ErrNotObtained) {
 		ok = false
 		err = nil
 		l.has = false
@@ -129,8 +129,10 @@ func (l *Lock) Refresh(ctx Context, ttl time.Duration) bool {
 		message := fmt.Sprintf("LOCK REFRESH %s %s", l.key, l.ttl)
 		l.locker.fillLogFields(ctx, "LOCK REFRESH", message, start, !ok, err)
 	}
-	checkError(err)
-	return ok
+	if err != nil {
+		return false, err
+	}
+	return ok, nil
 }
 
 func (l *Locker) fillLogFields(ctx Context, operation, query string, start *time.Time, cacheMiss bool, err error) {

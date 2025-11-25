@@ -6,25 +6,36 @@ import (
 	"strconv"
 )
 
-func SearchWithCount[E any](ctx Context, where Where, pager *Pager) (results EntityIterator[E], totalRows int) {
+func SearchWithCount[E any](ctx Context, where Where, pager *Pager) (results EntityIterator[E], totalRows int, err error) {
 	return search[E](ctx, where, pager, true)
 }
 
-func Search[E any](ctx Context, where Where, pager *Pager) EntityIterator[E] {
-	results, _ := search[E](ctx, where, pager, false)
-	return results
+func Search[E any](ctx Context, where Where, pager *Pager) (EntityIterator[E], error) {
+	results, _, err := search[E](ctx, where, pager, false)
+	return results, err
 }
 
-func SearchIDsWithCount[E any](ctx Context, where Where, pager *Pager) (results []uint64, totalRows int) {
-	return searchIDs(ctx, GetEntitySchema[E](ctx), where, pager, true)
+func SearchIDsWithCount[E any](ctx Context, where Where, pager *Pager) (results []uint64, totalRows int, err error) {
+	schema, err := getEntitySchema[E](ctx)
+	if err != nil {
+		return nil, 0, err
+	}
+	return searchIDs(ctx, schema, where, pager, true)
 }
 
-func SearchIDs[E any](ctx Context, where Where, pager *Pager) []uint64 {
-	ids, _ := searchIDs(ctx, GetEntitySchema[E](ctx), where, pager, false)
-	return ids
+func SearchIDs[E any](ctx Context, where Where, pager *Pager) ([]uint64, error) {
+	schema, err := getEntitySchema[E](ctx)
+	if err != nil {
+		return nil, err
+	}
+	ids, _, err := searchIDs(ctx, schema, where, pager, false)
+	if err != nil {
+		return nil, err
+	}
+	return ids, nil
 }
 
-func SearchOne[E any](ctx Context, where Where) (entity *E, found bool) {
+func SearchOne[E any](ctx Context, where Where) (entity *E, found bool, err error) {
 	return searchOne[E](ctx, where)
 }
 
@@ -263,9 +274,11 @@ func prepareScanForFields(fields *tableFields, start int, pointers []any) int {
 	return start
 }
 
-func searchRow[E any](ctx Context, where Where) (entity *E, found bool) {
+func searchRow[E any](ctx Context, where Where) (entity *E, found bool, err error) {
 	schema, err := getEntitySchema[E](ctx)
-	checkError(err)
+	if err != nil {
+		return nil, false, err
+	}
 	pool := schema.GetDB()
 	whereQuery := where.String()
 
@@ -279,10 +292,14 @@ func searchRow[E any](ctx Context, where Where) (entity *E, found bool) {
 		}
 		query += whereQuery + " LIMIT 1"
 		var id uint64
-		if pool.QueryRow(ctx, NewWhere(query, where.GetParameters()...), &id) {
+		res, err := pool.QueryRow(ctx, NewWhere(query, where.GetParameters()...), &id)
+		if err != nil {
+			return nil, false, err
+		}
+		if res {
 			return GetByID[E](ctx, id)
 		}
-		return nil, false
+		return nil, false, nil
 	}
 
 	/* #nosec */
@@ -295,25 +312,33 @@ func searchRow[E any](ctx Context, where Where) (entity *E, found bool) {
 	}
 	query += whereQuery + " LIMIT 1"
 	pointers := prepareScan(schema)
-	found = pool.QueryRow(ctx, NewWhere(query, where.GetParameters()...), pointers...)
+	found, err = pool.QueryRow(ctx, NewWhere(query, where.GetParameters()...), pointers...)
+	if err != nil {
+		return nil, false, err
+	}
 	if !found {
-		return nil, false
+		return nil, false, nil
 	}
 	value := reflect.New(schema.t)
 	entity = value.Interface().(*E)
 	deserializeFromDB(schema.fields, value.Elem(), pointers)
-	return entity, true
+	return entity, true, nil
 }
 
-func search[E any](ctx Context, where Where, pager *Pager, withCount bool) (results EntityIterator[E], totalRows int) {
+func search[E any](ctx Context, where Where, pager *Pager, withCount bool) (results EntityIterator[E], totalRows int, err error) {
 	schema, err := getEntitySchema[E](ctx)
-	checkError(err)
+	if err != nil {
+		return nil, 0, err
+	}
 	if schema.hasLocalCache {
-		ids, total := SearchIDsWithCount[E](ctx, where, pager)
-		if total == 0 {
-			return &emptyResultsIterator[E]{}, 0
+		ids, total, err := SearchIDsWithCount[E](ctx, where, pager)
+		if err != nil {
+			return nil, 0, err
 		}
-		return &localCacheIDsIterator[E]{orm: ctx.(*ormImplementation), schema: schema, ids: ids, index: -1}, total
+		if total == 0 {
+			return &emptyResultsIterator[E]{}, 0, nil
+		}
+		return &localCacheIDsIterator[E]{orm: ctx.(*ormImplementation), schema: schema, ids: ids, index: -1}, total, nil
 	}
 	entities := make([]*E, 0)
 	whereQuery := where.String()
@@ -332,15 +357,21 @@ func search[E any](ctx Context, where Where, pager *Pager, withCount bool) (resu
 
 	if withCount && pager != nil && pager.PageSize == 0 {
 		totalRows = getTotalRows(ctx, withCount, pager, where, schema, 0)
-		return &emptyResultsIterator[E]{}, totalRows
+		return &emptyResultsIterator[E]{}, totalRows, nil
 	}
-	queryResults, def := pool.Query(ctx, query, where.GetParameters()...)
+	queryResults, def, err := pool.Query(ctx, query, where.GetParameters()...)
+	if err != nil {
+		return nil, 0, err
+	}
 	defer def()
 
 	i := 0
 	for queryResults.Next() {
 		pointers := prepareScan(schema)
-		queryResults.Scan(pointers...)
+		err = queryResults.Scan(pointers...)
+		if err != nil {
+			return nil, 0, err
+		}
 		value := reflect.New(schema.t)
 		deserializeFromDB(schema.fields, value.Elem(), pointers)
 		e := value.Interface().(*E)
@@ -355,14 +386,14 @@ func search[E any](ctx Context, where Where, pager *Pager, withCount bool) (resu
 	}
 	resultsIterator := &entityIterator[E]{index: -1, schema: schema, orm: ctx.(*ormImplementation)}
 	resultsIterator.rows = entities
-	return resultsIterator, totalRows
+	return resultsIterator, totalRows, nil
 }
 
-func searchOne[E any](ctx Context, where Where) (*E, bool) {
+func searchOne[E any](ctx Context, where Where) (*E, bool, error) {
 	return searchRow[E](ctx, where)
 }
 
-func searchIDs(ctx Context, schema EntitySchema, where Where, pager *Pager, withCount bool) (ids []uint64, total int) {
+func searchIDs(ctx Context, schema EntitySchema, where Where, pager *Pager, withCount bool) (ids []uint64, total int, err error) {
 	whereQuery := where.String()
 	/* #nosec */
 	query := "SELECT `ID` FROM `" + schema.GetTableName() + "` WHERE "
@@ -377,12 +408,18 @@ func searchIDs(ctx Context, schema EntitySchema, where Where, pager *Pager, with
 		query += " " + pager.String()
 	}
 	pool := schema.GetDB()
-	results, def := pool.Query(ctx, query, where.GetParameters()...)
+	results, def, err := pool.Query(ctx, query, where.GetParameters()...)
+	if err != nil {
+		return nil, 0, err
+	}
 	defer def()
 	result := make([]uint64, 0)
 	for results.Next() {
 		var row uint64
-		results.Scan(&row)
+		err = results.Scan(&row)
+		if err != nil {
+			return nil, 0, err
+		}
 		result = append(result, row)
 	}
 	def()
@@ -390,7 +427,7 @@ func searchIDs(ctx Context, schema EntitySchema, where Where, pager *Pager, with
 	if pager != nil {
 		totalRows = getTotalRows(ctx, withCount, pager, where, schema, len(result))
 	}
-	return result, totalRows
+	return result, totalRows, nil
 }
 
 func getTotalRows(ctx Context, withCount bool, pager *Pager, where Where, schema EntitySchema, foundRows int) int {
@@ -402,7 +439,10 @@ func getTotalRows(ctx Context, withCount bool, pager *Pager, where Where, schema
 			query := "SELECT count(1) FROM `" + schema.GetTableName() + "` WHERE " + where.String()
 			var foundTotal string
 			pool := schema.GetDB()
-			pool.QueryRow(ctx, NewWhere(query, where.GetParameters()...), &foundTotal)
+			_, err := pool.QueryRow(ctx, NewWhere(query, where.GetParameters()...), &foundTotal)
+			if err != nil {
+				return 0
+			}
 			totalRows, _ = strconv.Atoi(foundTotal)
 		} else {
 			totalRows += (pager.GetCurrentPage() - 1) * pager.GetPageSize()

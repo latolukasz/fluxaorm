@@ -29,36 +29,38 @@ func PrepareTables(t *testing.T, registry Registry, entities ...any) (orm Contex
 
 	registry.RegisterEntity(entities...)
 	engine, err := registry.Validate()
-	if err != nil {
-		if t != nil {
-			assert.NoError(t, err)
-			return nil
-		}
-		panic(err)
-	}
+	assert.NoError(t, err)
 
 	orm = engine.NewContext(context.Background())
 	cacheRedis := engine.Redis(DefaultPoolCode)
-	cacheRedis.FlushDB(orm)
-	engine.Redis("second").FlushDB(orm)
+	err = cacheRedis.FlushDB(orm)
+	assert.NoError(t, err)
+	_ = engine.Redis("second").FlushDB(orm)
 
-	alters := GetAlters(orm)
+	alters, err := GetAlters(orm)
+	assert.NoError(t, err)
 	for _, alter := range alters {
-		alter.Exec(orm)
+		err = alter.Exec(orm)
+		assert.NoError(t, err)
 	}
 
 	for _, entity := range entities {
-		schema := orm.Engine().Registry().EntitySchema(entity)
-		schema.TruncateTable(orm)
-		schema.UpdateSchema(orm)
+		schema, err := orm.Engine().Registry().EntitySchema(entity)
+		assert.NoError(t, err)
+		err = schema.TruncateTable(orm)
+		assert.NoError(t, err)
+		err = schema.UpdateSchema(orm)
+		assert.NoError(t, err)
 		cacheLocal, has := schema.GetLocalCache()
 		if has {
 			cacheLocal.Clear(orm)
 		}
 	}
-	redisSearchAlters := GetRedisSearchAlters(orm)
+	redisSearchAlters, err := GetRedisSearchAlters(orm)
+	assert.NoError(t, err)
 	for _, alter := range redisSearchAlters {
-		alter.Exec(orm)
+		err = alter.Exec(orm)
+		assert.NoError(t, err)
 	}
 	return orm
 }
@@ -128,12 +130,10 @@ func (m *MockDBClient) QueryContext(context context.Context, query string, args 
 
 func runAsyncConsumer(ctx Context) error {
 	lazyFlashConsumer := NewLazyFlashConsumer(ctx)
-	lazyFlashConsumer.Consume(time.Millisecond)
-	return nil
+	return lazyFlashConsumer.Consume(time.Millisecond)
 }
 
 func runLogTablesConsumer(ctx Context) error {
 	lazyFlashConsumer := NewLogTablesConsumerSingle(ctx)
-	lazyFlashConsumer.Consume(100, time.Millisecond)
-	return nil
+	return lazyFlashConsumer.Consume(100, time.Millisecond)
 }

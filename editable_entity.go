@@ -232,19 +232,27 @@ func (e *editableEntity) SourceEntity() any {
 	return e.source
 }
 
-func NewEntity[E any](ctx Context) *E {
+func NewEntity[E any](ctx Context) (*E, error) {
 	schema, err := getEntitySchema[E](ctx)
-	checkError(err)
-	return newEntity(ctx, schema).(*E)
+	if err != nil {
+		return nil, err
+	}
+	e, err := newEntity(ctx, schema)
+	if err != nil {
+		return nil, err
+	}
+	return e.(*E), nil
 }
 
-func (orm *ormImplementation) NewEntity(entity any) {
-	NewEntityFromSource(orm, entity)
+func (orm *ormImplementation) NewEntity(entity any) error {
+	return NewEntityFromSource(orm, entity)
 }
 
-func NewEntityFromSource(ctx Context, entity any) {
+func NewEntityFromSource(ctx Context, entity any) error {
 	schema, err := getEntitySchemaFromSource(ctx, entity)
-	checkError(err)
+	if err != nil {
+		return err
+	}
 	insertable := &insertableEntity{}
 	insertable.ctx = ctx
 	insertable.schema = schema
@@ -254,22 +262,32 @@ func NewEntityFromSource(ctx Context, entity any) {
 	f := elem.Field(0)
 	id := f.Uint()
 	if id == 0 {
-		id = schema.uuid(ctx)
+		id, err = schema.uuid(ctx)
+		if err != nil {
+			return err
+		}
 	}
 	insertable.id = id
 	f.SetUint(id)
 	insertable.value = value
 	initNewEntity(schema, ctx.Engine().(*engineImplementation), elem, schema.fields)
 	ctx.trackEntity(insertable)
+	return nil
 }
 
-func NewEntityWithID[E any, I ID](ctx Context, id I) *E {
+func NewEntityWithID[E any, I ID](ctx Context, id I) (*E, error) {
 	schema, err := getEntitySchema[E](ctx)
-	checkError(err)
-	return newEntityInsertable(ctx, schema, uint64(id)).entity.(*E)
+	if err != nil {
+		return nil, err
+	}
+	e, err := newEntityInsertable(ctx, schema, uint64(id))
+	if err != nil {
+		return nil, err
+	}
+	return e.entity.(*E), nil
 }
 
-func newEntityInsertable(ctx Context, schema *entitySchema, id uint64) *insertableEntity {
+func newEntityInsertable(ctx Context, schema *entitySchema, id uint64) (*insertableEntity, error) {
 	entity := &insertableEntity{}
 	entity.ctx = ctx
 	entity.schema = schema
@@ -277,27 +295,35 @@ func newEntityInsertable(ctx Context, schema *entitySchema, id uint64) *insertab
 	elem := value.Elem()
 	entity.entity = value.Interface()
 	if id == 0 {
-		id = schema.uuid(ctx)
+		uuID, err := schema.uuid(ctx)
+		if err != nil {
+			return nil, err
+		}
+		id = uuID
 	}
 	entity.id = id
 	elem.Field(0).SetUint(id)
 	entity.value = value
 	initNewEntity(schema, ctx.Engine().(*engineImplementation), elem, schema.fields)
 	ctx.trackEntity(entity)
-	return entity
+	return entity, nil
 }
 
-func newEntity(ctx Context, schema *entitySchema) any {
-	return newEntityInsertable(ctx, schema, 0).entity
+func newEntity(ctx Context, schema *entitySchema) (any, error) {
+	e, err := newEntityInsertable(ctx, schema, 0)
+	if err != nil {
+		return nil, err
+	}
+	return e.entity, nil
 }
 
-func DeleteEntity[E any](ctx Context, source *E) {
+func DeleteEntity[E any](ctx Context, source *E) error {
 	schema, err := getEntitySchema[E](ctx)
-	checkError(err)
+	if err != nil {
+		return err
+	}
 	if schema.hasFakeDelete {
-		err = editEntityField(ctx, source, "FakeDelete", true, true)
-		checkError(err)
-		return
+		return editEntityField(ctx, source, "FakeDelete", true, true)
 	}
 	toRemove := &removableEntity{}
 	toRemove.ctx = ctx
@@ -306,25 +332,26 @@ func DeleteEntity[E any](ctx Context, source *E) {
 	toRemove.id = toRemove.value.Field(0).Uint()
 	toRemove.schema = schema
 	ctx.trackEntity(toRemove)
+	return nil
 }
 
-func (orm *ormImplementation) ForceDeleteEntity(entity any) {
-	orm.deleteEntity(entity, true)
+func (orm *ormImplementation) ForceDeleteEntity(entity any) error {
+	return orm.deleteEntity(entity, true)
 }
 
-func (orm *ormImplementation) DeleteEntity(entity any) {
-	orm.deleteEntity(entity, false)
+func (orm *ormImplementation) DeleteEntity(entity any) error {
+	return orm.deleteEntity(entity, false)
 }
 
-func (orm *ormImplementation) deleteEntity(entity any, force bool) {
+func (orm *ormImplementation) deleteEntity(entity any, force bool) error {
 	schema, err := getEntitySchemaFromSource(orm, entity)
-	checkError(err)
+	if err != nil {
+		return err
+	}
 	value := reflect.ValueOf(entity).Elem()
 	id := value.Field(0).Uint()
 	if schema.hasFakeDelete && !force {
-		err := editEntityField(orm, entity, "FakeDelete", true, true)
-		checkError(err)
-		return
+		return editEntityField(orm, entity, "FakeDelete", true, true)
 	}
 	toRemove := &removableEntity{}
 	toRemove.ctx = orm
@@ -333,22 +360,29 @@ func (orm *ormImplementation) deleteEntity(entity any, force bool) {
 	toRemove.id = id
 	toRemove.schema = schema
 	orm.trackEntity(toRemove)
+	return nil
 }
 
-func EditEntity[E any](ctx Context, source *E) *E {
-	writable := copyToEdit(ctx, source)
+func EditEntity[E any](ctx Context, source *E) (*E, error) {
+	writable, err := copyToEdit(ctx, source)
+	if err != nil {
+		return nil, err
+	}
 	writable.id = writable.value.Elem().Field(0).Uint()
 	writable.source = source
 	ctx.trackEntity(writable)
-	return writable.entity.(*E)
+	return writable.entity.(*E), nil
 }
 
-func (orm *ormImplementation) EditEntity(entity any) any {
-	writable := copyToEdit(orm, entity)
+func (orm *ormImplementation) EditEntity(entity any) (any, error) {
+	writable, err := copyToEdit(orm, entity)
+	if err != nil {
+		return nil, err
+	}
 	writable.id = writable.value.Elem().Field(0).Uint()
 	writable.source = entity
 	orm.trackEntity(writable)
-	return writable.entity
+	return writable.entity, nil
 }
 
 func initNewEntity(schema *entitySchema, engine *engineImplementation, elem reflect.Value, fields *tableFields) {
@@ -377,40 +411,42 @@ func initNewEntity(schema *entitySchema, engine *engineImplementation, elem refl
 	}
 }
 
-func IsDirty[E any, I ID](ctx Context, id I) (oldValues, newValues Bind, hasChanges bool) {
+func IsDirty[E any, I ID](ctx Context, id I) (oldValues, newValues Bind, hasChanges bool, err error) {
 	schema, err := getEntitySchema[E](ctx)
-	checkError(err)
+	if err != nil {
+		return nil, nil, false, err
+	}
 	return isDirty(ctx, schema, uint64(id))
 }
 
-func isDirty(ctx Context, schema *entitySchema, id uint64) (oldValues, newValues Bind, hasChanges bool) {
+func isDirty(ctx Context, schema *entitySchema, id uint64) (oldValues, newValues Bind, hasChanges bool, err error) {
 	tracked := ctx.(*ormImplementation).trackedEntities
 	if tracked == nil {
-		return nil, nil, false
+		return nil, nil, false, nil
 	}
 	if schema == nil {
-		return nil, nil, false
+		return nil, nil, false, nil
 	}
 	values, has := tracked.Load(schema.index)
 	if !has {
-		return nil, nil, false
+		return nil, nil, false, nil
 	}
 	row, has := values.Load(id)
 	if !has {
-		return nil, nil, false
+		return nil, nil, false, nil
 	}
 	editable, isUpdate := row.(entityFlushUpdate)
 	if !isUpdate {
 		insertable, isInsert := row.(entityFlushInsert)
 		if isInsert {
 			bind, _ := insertable.getBind()
-			return nil, bind, true
+			return nil, bind, true, nil
 		}
-		return nil, nil, false
+		return nil, nil, false, nil
 	}
 	oldValues, newValues, _, _, _ = editable.getBind()
 	if len(oldValues) == 0 && len(newValues) == 0 {
-		return nil, nil, false
+		return nil, nil, false, nil
 	}
-	return oldValues, newValues, true
+	return oldValues, newValues, true, nil
 }

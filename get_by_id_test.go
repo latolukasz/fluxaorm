@@ -31,16 +31,18 @@ func TestGetByIdLocalRedisCache(t *testing.T) {
 func testGetByID(t *testing.T, local, redis bool) {
 	var entity *getByIDEntity
 	orm := PrepareTables(t, NewRegistry(), entity)
-	schema := GetEntitySchema[getByIDEntity](orm)
+	schema, found := GetEntitySchema[getByIDEntity](orm)
+	assert.True(t, found)
 	schema.DisableCache(!local, !redis)
 
 	var ids []uint64
 	for i := 0; i < 10; i++ {
-		entity = NewEntity[getByIDEntity](orm)
+		entity, err := NewEntity[getByIDEntity](orm)
+		assert.NoError(t, err)
 		entity.Name = fmt.Sprintf("Name %d", i)
 		ids = append(ids, entity.ID)
 	}
-	err := orm.FlushWithCheck()
+	err := orm.Flush()
 	assert.NoError(t, err)
 
 	loggerDB := &MockLogHandler{}
@@ -49,7 +51,8 @@ func testGetByID(t *testing.T, local, redis bool) {
 	orm.RegisterQueryLogger(loggerRedis, false, true, false)
 	loggerLocal := &MockLogHandler{}
 	orm.RegisterQueryLogger(loggerLocal, false, false, false)
-	entity, found := GetByID[getByIDEntity](orm, ids[0])
+	entity, found, err = GetByID[getByIDEntity](orm, ids[0])
+	assert.NoError(t, err)
 	assert.True(t, found)
 	assert.NotNil(t, entity)
 	assert.Equal(t, "Name 0", entity.Name)
@@ -63,9 +66,11 @@ func testGetByID(t *testing.T, local, redis bool) {
 	}
 	if redis {
 		rc, _ := schema.GetRedisCache()
-		rc.FlushDB(orm)
+		err = rc.FlushDB(orm)
+		assert.NoError(t, err)
 	}
-	e2, found := schema.GetByID(orm, ids[0])
+	e2, found, err := schema.GetByID(orm, ids[0])
+	assert.NoError(t, err)
 	entity = e2.(*getByIDEntity)
 	assert.True(t, found)
 	assert.NotNil(t, entity)
@@ -73,7 +78,8 @@ func testGetByID(t *testing.T, local, redis bool) {
 
 	loggerDB.Clear()
 	if local || redis {
-		entity, found = GetByID[getByIDEntity](orm, ids[0])
+		entity, found, err = GetByID[getByIDEntity](orm, ids[0])
+		assert.NoError(t, err)
 		assert.True(t, found)
 		assert.NotNil(t, entity)
 		assert.Equal(t, "Name 0", entity.Name)
@@ -82,13 +88,15 @@ func testGetByID(t *testing.T, local, redis bool) {
 	loggerDB.Clear()
 
 	// invalid id
-	entity, found = GetByID[getByIDEntity](orm, 1)
+	entity, found, err = GetByID[getByIDEntity](orm, 1)
+	assert.NoError(t, err)
 	assert.False(t, found)
 	assert.Nil(t, entity)
 	assert.Len(t, loggerDB.Logs, 1)
 	loggerDB.Clear()
 	if local || redis {
-		entity, found = GetByID[getByIDEntity](orm, 1)
+		entity, found, err = GetByID[getByIDEntity](orm, 1)
+		assert.NoError(t, err)
 		assert.False(t, found)
 		assert.Nil(t, entity)
 		assert.Len(t, loggerDB.Logs, 0)

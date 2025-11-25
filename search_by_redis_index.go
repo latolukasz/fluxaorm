@@ -7,10 +7,11 @@ import (
 	"strings"
 	"time"
 
+	"github.com/pkg/errors"
 	"github.com/redis/go-redis/v9"
 )
 
-const max_redis_search_limit = 100000
+const maxRedisSearchLimit = 100000
 
 type redisSearchIndexDefinition struct {
 	FieldType              string
@@ -32,7 +33,7 @@ type RedisSearchAlter struct {
 	schema          *entitySchema
 }
 
-func GetRedisSearchAlters(ctx Context) (alters []RedisSearchAlter) {
+func GetRedisSearchAlters(ctx Context) (alters []RedisSearchAlter, err error) {
 	indicesInRedis := make(map[string]map[string]bool)
 	indicesInEntities := make(map[string]map[string]bool)
 	for poolName, pool := range ctx.Engine().Registry().RedisPools() {
@@ -42,7 +43,9 @@ func GetRedisSearchAlters(ctx Context) (alters []RedisSearchAlter) {
 		indicesInRedis[poolName] = make(map[string]bool)
 		indicesInEntities[poolName] = make(map[string]bool)
 		l, err := pool.FTList(ctx)
-		checkError(err)
+		if err != nil {
+			return nil, err
+		}
 		for _, index := range l {
 			indicesInRedis[poolName][index] = true
 		}
@@ -55,7 +58,10 @@ func GetRedisSearchAlters(ctx Context) (alters []RedisSearchAlter) {
 		}
 		redisPool := ctx.Engine().Redis(schema.redisSearchIndexPoolCode)
 		indicesInEntities[redisPool.GetCode()][schema.redisSearchIndexName] = true
-		alter, hasAlter := getRedisIndexAlter(ctx, schema, redisPool)
+		alter, hasAlter, err := getRedisIndexAlter(ctx, schema, redisPool)
+		if err != nil {
+			return nil, err
+		}
 		if hasAlter {
 			alters = append(alters, *alter)
 		}
@@ -68,7 +74,9 @@ func GetRedisSearchAlters(ctx Context) (alters []RedisSearchAlter) {
 			_, has := indicesInEntities[poolName][indexName]
 			if !has {
 				info, valid, err := ctx.Engine().Redis(poolName).FTInfo(ctx, indexName)
-				checkError(err)
+				if err != nil {
+					return nil, err
+				}
 				if valid {
 					alter := RedisSearchAlter{
 						IndexName:       indexName,
@@ -87,23 +95,31 @@ func GetRedisSearchAlters(ctx Context) (alters []RedisSearchAlter) {
 		}
 		return false
 	})
-	return alters
+	return alters, nil
 }
 
-func (a RedisSearchAlter) Exec(ctx Context) {
+func (a RedisSearchAlter) Exec(ctx Context) error {
 	if a.Drop {
-		ctx.Engine().Redis(a.Pool).FTDrop(ctx, a.IndexName, true)
-		return
+		return ctx.Engine().Redis(a.Pool).FTDrop(ctx, a.IndexName, true)
 	}
-	ctx.Engine().Redis(a.Pool).FTCreate(ctx, a.IndexName, a.indexOptions, a.indexSchema...)
+	err := ctx.Engine().Redis(a.Pool).FTCreate(ctx, a.IndexName, a.indexOptions, a.indexSchema...)
+	if err != nil {
+		return err
+	}
 	if !a.schema.IsVirtual() {
-		a.schema.ReindexRedisIndex(ctx)
+		err = a.schema.ReindexRedisIndex(ctx)
+		if err != nil {
+			return errors.WithStack(err)
+		}
 	}
+	return nil
 }
 
-func getRedisIndexAlter(ctx Context, schema *entitySchema, r RedisCache) (alter *RedisSearchAlter, has bool) {
+func getRedisIndexAlter(ctx Context, schema *entitySchema, r RedisCache) (alter *RedisSearchAlter, has bool, err error) {
 	_, isInRedis, err := r.FTInfo(ctx, schema.redisSearchIndexName)
-	checkError(err)
+	if err != nil {
+		return nil, false, err
+	}
 	rsColumns := make([]*redis.FieldSchema, 0)
 	for _, columnName := range schema.columnNames {
 		def, isSearchable := schema.redisSearchFields[columnName]
@@ -144,13 +160,16 @@ func getRedisIndexAlter(ctx Context, schema *entitySchema, r RedisCache) (alter 
 		has = true
 	}
 	if !has {
-		return nil, false
+		return nil, false, nil
 	}
 	alter.IndexDefinition = schema.createRedisSearchIndexDefinition(alter.IndexName)
 	if !schema.virtual {
 		query := fmt.Sprintf("SELECT COUNT(ID) FROM `%s`", schema.GetTableName())
 		total := uint64(0)
-		schema.GetDB().QueryRow(ctx, NewWhere(query), &total)
+		_, err = schema.GetDB().QueryRow(ctx, NewWhere(query), &total)
+		if err != nil {
+			return nil, false, err
+		}
 		alter.DocumentsInDB = total
 	}
 	return
@@ -264,45 +283,63 @@ type RedisSearchFilter struct {
 	Max       any
 }
 
-func RedisSearchIDs[E any](ctx Context, query *RedisSearchQuery, pager *Pager) (results []uint64, totalRows int) {
-	return redisSearchIDs(ctx, GetEntitySchema[E](ctx), query, pager)
+func RedisSearchIDs[E any](ctx Context, query *RedisSearchQuery, pager *Pager) (results []uint64, totalRows int, err error) {
+	schema, err := getEntitySchema[E](ctx)
+	if err != nil {
+		return nil, 0, err
+	}
+	return redisSearchIDs(ctx, schema, query, pager)
 }
 
-func RedisSearch[E any](ctx Context, query *RedisSearchQuery, pager *Pager) (results EntityIterator[E], totalRows int) {
-	ids, totalRows := redisSearchIDs(ctx, GetEntitySchema[E](ctx), query, pager)
+func RedisSearch[E any](ctx Context, query *RedisSearchQuery, pager *Pager) (results EntityIterator[E], totalRows int, err error) {
 	schema, err := getEntitySchema[E](ctx)
-	checkError(err)
+	if err != nil {
+		return nil, 0, err
+	}
+	ids, totalRows, err := redisSearchIDs(ctx, schema, query, pager)
+	if err != nil {
+		return nil, 0, err
+	}
 	if schema.hasLocalCache {
 		if totalRows == 0 {
-			return &emptyResultsIterator[E]{}, 0
+			return &emptyResultsIterator[E]{}, 0, nil
 		}
-		return &localCacheIDsIterator[E]{orm: ctx.(*ormImplementation), schema: schema, ids: ids, index: -1}, totalRows
+		return &localCacheIDsIterator[E]{orm: ctx.(*ormImplementation), schema: schema, ids: ids, index: -1}, totalRows, nil
 	}
-	return GetByIDs[E](ctx, ids...), totalRows
+	ret, err := GetByIDs[E](ctx, ids...)
+	if err != nil {
+		return nil, 0, err
+	}
+	return ret, totalRows, nil
 }
 
-func RedisSearchOne[E any](ctx Context, query *RedisSearchQuery) (entity *E, found bool) {
+func RedisSearchOne[E any](ctx Context, query *RedisSearchQuery) (entity *E, found bool, err error) {
 	if query == nil {
 		query = NewRedisSearchQuery()
 	}
-	ids, total := RedisSearchIDs[E](ctx, query, NewPager(1, 1))
+	ids, total, err := RedisSearchIDs[E](ctx, query, NewPager(1, 1))
+	if err != nil {
+		return nil, false, err
+	}
 	if total == 0 {
-		return nil, false
+		return nil, false, nil
 	}
-	e, found := GetByID[E](ctx, ids[0])
+	e, found, err := GetByID[E](ctx, ids[0])
+	if err != nil {
+		return nil, false, err
+	}
 	if !found {
-		return nil, false
+		return nil, false, nil
 	}
-	return e, true
+	return e, true, nil
 }
 
-func (e *entitySchema) ReindexRedisIndex(ctx Context) {
+func (e *entitySchema) ReindexRedisIndex(ctx Context) error {
 	if e.redisSearchIndexName == "" {
-		return
+		return nil
 	}
 	if e.virtual {
-		panic(fmt.Errorf("virtual entity %s can't be reindexed", e.GetType().Name()))
-		return
+		return fmt.Errorf("virtual entity %s can't be reindexed", e.GetType().Name())
 	}
 	lastIDRedisKey := "lastID:" + e.redisSearchIndexName
 	r := ctx.Engine().Redis(e.redisSearchIndexPoolCode)
@@ -310,11 +347,16 @@ func (e *entitySchema) ReindexRedisIndex(ctx Context) {
 	keysPattern := e.redisSearchIndexPrefix + "*"
 	for {
 		keys, newCursor, err := r.Scan(ctx, scanCursor, keysPattern, 1000)
-		checkError(err)
+		if err != nil {
+			return err
+		}
 		if len(keys) > 0 {
 			p := ctx.RedisPipeLine(r.GetConfig().GetCode())
 			p.Del(keys...)
-			p.Exec(ctx)
+			_, err = p.Exec(ctx)
+			if err != nil {
+				return err
+			}
 		}
 		if len(keys) < 1000 {
 			break
@@ -322,10 +364,15 @@ func (e *entitySchema) ReindexRedisIndex(ctx Context) {
 		scanCursor = newCursor
 	}
 	lastID, hasLastID, err := r.Get(ctx, lastIDRedisKey)
-	checkError(err)
+	if err != nil {
+		return err
+	}
 	if !hasLastID {
 		lastID = "0"
-		r.Set(ctx, lastIDRedisKey, lastID, 0)
+		err = r.Set(ctx, lastIDRedisKey, lastID, 0)
+		if err != nil {
+			return err
+		}
 	}
 	where := "SELECT ID"
 	pointers := make([]any, len(e.redisSearchFields)+1)
@@ -345,16 +392,21 @@ func (e *entitySchema) ReindexRedisIndex(ctx Context) {
 		where += " AND FakeDelete = 0"
 	}
 	where += " ORDER BY ID ASC"
-	pStmt, pClose := e.GetDB().Prepare(ctx, where)
-	defer pClose()
+	db := e.GetDB()
 	for {
 		p := ctx.RedisPipeLine(r.GetConfig().GetCode())
-		func() {
-			rows, cl := pStmt.Query(ctx, lastID)
+		err = func() error {
+			rows, cl, err := db.Query(ctx, where, lastID)
+			if err != nil {
+				return err
+			}
 			defer cl()
 			i = 0
 			for rows.Next() {
-				rows.Scan(pointers...)
+				err = rows.Scan(pointers...)
+				if err != nil {
+					return err
+				}
 				lastID = id
 				i++
 				values := make([]any, len(e.redisSearchFields)*2)
@@ -366,22 +418,33 @@ func (e *entitySchema) ReindexRedisIndex(ctx Context) {
 				}
 				p.HSet(e.redisSearchIndexPrefix+id, values...)
 			}
+			return nil
 		}()
+		if err != nil {
+			return err
+		}
 		if i < 3000 {
 			p.Del(lastIDRedisKey)
-			p.Exec(ctx)
+			_, err = p.Exec(ctx)
+			if err != nil {
+				return err
+			}
 			break
 		} else {
 			p.Set(lastIDRedisKey, "0", 0)
-			p.Exec(ctx)
+			_, err = p.Exec(ctx)
+			if err != nil {
+				return err
+			}
 		}
 	}
+	return nil
 }
 
-func redisSearchIDs(ctx Context, schema EntitySchema, query *RedisSearchQuery, pager *Pager) (ids []uint64, total int) {
+func redisSearchIDs(ctx Context, schema EntitySchema, query *RedisSearchQuery, pager *Pager) (ids []uint64, total int, err error) {
 	indexName := schema.GetRedisSearchIndexName()
 	if indexName == "" {
-		panic(fmt.Errorf("entity %s is not searchable by Redis Search", schema.GetType().Name()))
+		return nil, 0, fmt.Errorf("entity %s is not searchable by Redis Search", schema.GetType().Name())
 	}
 	r := ctx.Engine().Redis(schema.GetRedisSearchPoolCode())
 	isDragonFlyDB := r.(*redisCache).dragonfly
@@ -397,7 +460,7 @@ func redisSearchIDs(ctx Context, schema EntitySchema, query *RedisSearchQuery, p
 			searchOptions.LimitOffset = (pager.GetCurrentPage() - 1) * pager.GetPageSize()
 			searchOptions.Limit = pager.GetPageSize()
 		} else {
-			searchOptions.Limit = max_redis_search_limit
+			searchOptions.Limit = maxRedisSearchLimit
 		}
 		for _, sortOption := range query.SortBy {
 			sortBy := redis.FTSearchSortBy{FieldName: sortOption.FieldName}
@@ -411,7 +474,7 @@ func redisSearchIDs(ctx Context, schema EntitySchema, query *RedisSearchQuery, p
 		for _, filter := range query.Filters {
 			fieldDef, valid := schema.(*entitySchema).fieldDefinitions[filter.FieldName]
 			if !valid {
-				panic(fmt.Errorf("field %s is not searchable by Redis Search", filter.FieldName))
+				return nil, 0, fmt.Errorf("field %s is not searchable by Redis Search", filter.FieldName)
 			}
 			minV := filter.Min
 			if minV == nil {
@@ -470,23 +533,27 @@ func redisSearchIDs(ctx Context, schema EntitySchema, query *RedisSearchQuery, p
 		searchOptions.LimitOffset = (pager.GetCurrentPage() - 1) * pager.GetPageSize()
 		searchOptions.Limit = pager.GetPageSize()
 	} else {
-		searchOptions.Limit = max_redis_search_limit
+		searchOptions.Limit = maxRedisSearchLimit
 	}
 
 	res, err := r.FTSearch(ctx, indexName, q, searchOptions)
-	checkError(err)
+	if err != nil {
+		return nil, 0, err
+	}
 	total = res.Total
 	if total == 0 {
-		return []uint64{}, total
+		return []uint64{}, total, nil
 	}
 	ids = make([]uint64, len(res.Docs))
 	for i, doc := range res.Docs {
 		lastPart := doc.ID[strings.LastIndex(doc.ID, ":")+1:]
 		id, err := strconv.ParseUint(lastPart, 10, 64)
-		checkError(err)
+		if err != nil {
+			return nil, 0, err
+		}
 		ids[i] = id
 	}
-	return ids, total
+	return ids, total, nil
 }
 
 func defaultConvertBindToHashValueNotNullable(a any) any {

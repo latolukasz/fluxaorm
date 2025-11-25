@@ -5,18 +5,20 @@ import (
 	"strconv"
 )
 
-func GetByIDs[E any](ctx Context, ids ...uint64) EntityIterator[E] {
+func GetByIDs[E any](ctx Context, ids ...uint64) (EntityIterator[E], error) {
 	return getByIDs[E](ctx.(*ormImplementation), ids)
 }
 
-func getByIDs[E any](orm *ormImplementation, ids []uint64) EntityIterator[E] {
+func getByIDs[E any](orm *ormImplementation, ids []uint64) (EntityIterator[E], error) {
 	schema, err := getEntitySchema[E](orm)
-	checkError(err)
+	if err != nil {
+		return nil, err
+	}
 	if len(ids) == 0 {
-		return &emptyResultsIterator[E]{}
+		return &emptyResultsIterator[E]{}, nil
 	}
 	if schema.hasLocalCache {
-		return &localCacheIDsIterator[E]{orm: orm, schema: schema, ids: ids, index: -1}
+		return &localCacheIDsIterator[E]{orm: orm, schema: schema, ids: ids, index: -1}, nil
 	}
 	results := &entityIterator[E]{index: -1, ids: ids, schema: schema, orm: orm}
 	results.rows = make([]*E, len(ids))
@@ -35,7 +37,7 @@ func getByIDs[E any](orm *ormImplementation, ids []uint64) EntityIterator[E] {
 			}
 		}
 		if foundInContextCache == len(ids) {
-			return results
+			return results, nil
 		}
 		lRanges := make([]*PipeLineSlice, len(ids)-foundInContextCache)
 		k := 0
@@ -46,13 +48,19 @@ func getByIDs[E any](orm *ormImplementation, ids []uint64) EntityIterator[E] {
 			}
 		}
 
-		redisPipeline.Exec(orm)
+		_, err = redisPipeline.Exec(orm)
+		if err != nil {
+			return nil, err
+		}
 		k = 0
 		for i, id := range ids {
 			if results.rows[i] != nil {
 				continue
 			}
-			row := lRanges[k].Result()
+			row, err := lRanges[k].Result()
+			if err != nil {
+				return nil, err
+			}
 			k++
 			if len(row) > 0 {
 				if len(row) == 1 {
@@ -69,7 +77,7 @@ func getByIDs[E any](orm *ormImplementation, ids []uint64) EntityIterator[E] {
 			}
 		}
 		if len(missingKeys) == 0 {
-			return results
+			return results, nil
 		}
 	} else {
 		for i, id := range ids {
@@ -81,7 +89,7 @@ func getByIDs[E any](orm *ormImplementation, ids []uint64) EntityIterator[E] {
 			}
 		}
 		if len(missingKeys) == 0 {
-			return results
+			return results, nil
 		}
 	}
 	sql := "SELECT " + schema.fieldsQuery + " FROM `" + schema.GetTableName() + "` WHERE `ID` IN ("
@@ -105,13 +113,19 @@ func getByIDs[E any](orm *ormImplementation, ids []uint64) EntityIterator[E] {
 	}
 	sql += ")"
 	execRedisPipeline := false
-	res, def := schema.GetDB().Query(orm, sql)
+	res, def, err := schema.GetDB().Query(orm, sql)
+	if err != nil {
+		return nil, err
+	}
 	defer def()
 	foundInDB := 0
 	for res.Next() {
 		foundInDB++
 		pointers := prepareScan(schema)
-		res.Scan(pointers...)
+		err = res.Scan(pointers...)
+		if err != nil {
+			return nil, err
+		}
 		value := reflect.New(schema.t)
 		deserializeFromDB(schema.fields, value.Elem(), pointers)
 		id := *pointers[0].(*uint64)
@@ -127,8 +141,10 @@ func getByIDs[E any](orm *ormImplementation, ids []uint64) EntityIterator[E] {
 		}
 		if hasRedisCache {
 			bind := make(Bind)
-			err := fillBindFromOneSource(orm, bind, value.Elem(), schema.fields, "")
-			checkError(err)
+			err = fillBindFromOneSource(orm, bind, value.Elem(), schema.fields, "")
+			if err != nil {
+				return nil, err
+			}
 			values := convertBindToRedisValue(bind, schema)
 			redisPipeline.RPush(schema.getCacheKey()+":"+strconv.FormatUint(id, 10), values...)
 			execRedisPipeline = true
@@ -153,17 +169,27 @@ func getByIDs[E any](orm *ormImplementation, ids []uint64) EntityIterator[E] {
 		}
 	}
 	if execRedisPipeline {
-		redisPipeline.Exec(orm)
+		_, err = redisPipeline.Exec(orm)
+		if err != nil {
+			return nil, err
+		}
 	}
-	return results
+	return results, nil
 }
 
-func warmup(orm *ormImplementation, schema *entitySchema, ids []uint64, references string) {
+func warmup(orm *ormImplementation, schema *entitySchema, ids []uint64, references string) error {
 	if len(ids) == 0 || orm.disabledContextCache {
-		return
+		return nil
 	}
-	iterator := schema.GetByIDs(orm, ids...)
+	iterator, err := schema.GetByIDs(orm, ids...)
+	if err != nil {
+		return err
+	}
 	if references != "" {
-		iterator.LoadReference(references)
+		err = iterator.LoadReference(references)
+		if err != nil {
+			return err
+		}
 	}
+	return nil
 }

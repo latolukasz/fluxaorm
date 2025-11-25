@@ -5,48 +5,55 @@ import (
 	"strconv"
 )
 
-func GetByID[E any, I ID](ctx Context, id I) (entity *E, found bool) {
+func GetByID[E any, I ID](ctx Context, id I) (entity *E, found bool, err error) {
 	var e E
 	cE := ctx.(*ormImplementation)
 	schema, err := getEntitySchemaFromSource(ctx, e)
-	checkError(err)
-	value, found := getByID(cE, uint64(id), schema)
-	if value == nil {
-		return nil, false
+	if err != nil {
+		return nil, false, err
 	}
-	return value.(*E), true
+	value, found, err := getByID(cE, uint64(id), schema)
+	if err != nil {
+		return nil, false, err
+	}
+	if value == nil {
+		return nil, false, nil
+	}
+	return value.(*E), true, nil
 }
 
-func getByID(orm *ormImplementation, id uint64, schema *entitySchema) (any, bool) {
+func getByID(orm *ormImplementation, id uint64, schema *entitySchema) (any, bool, error) {
 	if schema.hasLocalCache {
 		e, has := schema.localCache.getEntity(orm, id)
 		if has {
 			if e == nil {
-				return nil, false
+				return nil, false, nil
 			}
-			return e, true
+			return e, true, nil
 		}
 	}
 	fromLocalCache, inLocalCache := orm.getEntityFromCache(schema, id)
 	if inLocalCache {
 		if fromLocalCache == nil {
-			return nil, false
+			return nil, false, nil
 		}
-		return fromLocalCache, true
+		return fromLocalCache, true, nil
 	}
 	cacheRedis, hasRedis := schema.GetRedisCache()
 	var cacheKey string
 	if hasRedis {
 		cacheKey = schema.getCacheKey() + ":" + strconv.FormatUint(id, 10)
 		row, err := cacheRedis.LRange(orm, cacheKey, 0, int64(len(schema.columnNames)+1))
-		checkError(err)
+		if err != nil {
+			return nil, false, err
+		}
 		l := len(row)
 		if len(row) > 0 {
 			if l == 1 {
 				if schema.hasLocalCache {
 					schema.localCache.setEntity(orm, id, nil)
 				}
-				return nil, false
+				return nil, false, nil
 			}
 			value := reflect.New(schema.t)
 			entity := value.Interface()
@@ -56,13 +63,16 @@ func getByID(orm *ormImplementation, id uint64, schema *entitySchema) (any, bool
 				} else if !orm.disabledContextCache {
 					orm.cacheEntity(schema, id, entity)
 				}
-				return entity, true
+				return entity, true, nil
 			}
 		}
 	}
 	query := "SELECT " + schema.fieldsQuery + " FROM `" + schema.GetTableName() + "` WHERE ID = ? LIMIT 1"
 	pointers := prepareScan(schema)
-	found := schema.GetDB().QueryRow(orm, NewWhere(query, id), pointers...)
+	found, err := schema.GetDB().QueryRow(orm, NewWhere(query, id), pointers...)
+	if err != nil {
+		return nil, false, err
+	}
 	if found {
 		value := reflect.New(schema.t)
 		entity := value.Interface()
@@ -75,11 +85,16 @@ func getByID(orm *ormImplementation, id uint64, schema *entitySchema) (any, bool
 		if hasRedis {
 			bind := make(Bind)
 			err := fillBindFromOneSource(orm, bind, reflect.ValueOf(entity).Elem(), schema.fields, "")
-			checkError(err)
+			if err != nil {
+				return nil, false, err
+			}
 			values := convertBindToRedisValue(bind, schema)
-			cacheRedis.RPush(orm, cacheKey, values...)
+			_, err = cacheRedis.RPush(orm, cacheKey, values...)
+			if err != nil {
+				return nil, false, err
+			}
 		}
-		return entity, true
+		return entity, true, nil
 	}
 	if schema.hasLocalCache {
 		schema.localCache.setEntity(orm, id, nil)
@@ -90,7 +105,10 @@ func getByID(orm *ormImplementation, id uint64, schema *entitySchema) (any, bool
 		p := orm.RedisPipeLine(cacheRedis.GetCode())
 		p.Del(cacheKey)
 		p.RPush(cacheKey, cacheNilValue)
-		p.Exec(orm)
+		_, err = p.Exec(orm)
+		if err != nil {
+			return nil, false, err
+		}
 	}
-	return nil, false
+	return nil, false, nil
 }

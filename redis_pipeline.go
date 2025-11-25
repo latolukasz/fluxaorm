@@ -126,13 +126,15 @@ type PipeLineGet struct {
 	cmd *redis.StringCmd
 }
 
-func (c *PipeLineGet) Result() (value string, has bool) {
+func (c *PipeLineGet) Result() (value string, has bool, err error) {
 	val, err := c.cmd.Result()
-	if err == redis.Nil {
-		return val, false
+	if errors.Is(err, redis.Nil) {
+		return val, false, nil
 	}
-	checkError(err)
-	return val, true
+	if err != nil {
+		return "", false, err
+	}
+	return val, true, nil
 }
 
 type PipeLineString struct {
@@ -140,10 +142,8 @@ type PipeLineString struct {
 	cmd *redis.StringCmd
 }
 
-func (c *PipeLineString) Result() string {
-	val, err := c.cmd.Result()
-	checkError(err)
-	return val
+func (c *PipeLineString) Result() (string, error) {
+	return c.cmd.Result()
 }
 
 type PipeLineSlice struct {
@@ -151,10 +151,8 @@ type PipeLineSlice struct {
 	cmd *redis.StringSliceCmd
 }
 
-func (c *PipeLineSlice) Result() []string {
-	val, err := c.cmd.Result()
-	checkError(err)
-	return val
+func (c *PipeLineSlice) Result() ([]string, error) {
+	return c.cmd.Result()
 }
 
 type PipeLineInt struct {
@@ -162,10 +160,8 @@ type PipeLineInt struct {
 	cmd *redis.IntCmd
 }
 
-func (c *PipeLineInt) Result() int64 {
-	val, err := c.cmd.Result()
-	checkError(err)
-	return val
+func (c *PipeLineInt) Result() (int64, error) {
+	return c.cmd.Result()
 }
 
 type PipeLineBool struct {
@@ -173,8 +169,6 @@ type PipeLineBool struct {
 	cmd *redis.BoolCmd
 }
 
-func (c *PipeLineBool) Result() bool {
-	val, err := c.cmd.Result()
-	checkError(err)
-	return val
+func (c *PipeLineBool) Result() (bool, error) {
+	return c.cmd.Result()
 }

@@ -1,6 +1,7 @@
 package fluxaorm
 
 import (
+	"errors"
 	"slices"
 	"time"
 
@@ -26,69 +27,80 @@ type LogTablesConsumer struct {
 
 func NewLogTablesConsumerSingle(ctx Context) *LogTablesConsumer {
 	c := &LogTablesConsumer{}
-	c.consumer = ctx.GetEventBroker().ConsumerSingle(ctx, LogChannelName).(*eventsConsumer)
+	consumer, _ := ctx.GetEventBroker().ConsumerSingle(ctx, LogChannelName)
+	c.consumer = consumer.(*eventsConsumer)
 	return c
 }
 
 func NewLogTablesConsumerMany(ctx Context) *LogTablesConsumer {
 	c := &LogTablesConsumer{}
-	c.consumer = ctx.GetEventBroker().ConsumerMany(ctx, LogChannelName).(*eventsConsumer)
+	consumer, _ := ctx.GetEventBroker().ConsumerMany(ctx, LogChannelName)
+	c.consumer = consumer.(*eventsConsumer)
 	return c
 }
 
-func (r *LogTablesConsumer) Consume(count int, blockTime time.Duration) {
-	r.consumer.Consume(count, blockTime, func(events []Event) {
+func (r *LogTablesConsumer) Consume(count int, blockTime time.Duration) error {
+	return r.consumer.Consume(count, blockTime, func(events []Event) error {
 		for _, e := range events {
-			r.handleLogTable(e)
-		}
-	})
-}
-
-func (r *LogTablesConsumer) AutoClaim(count int, minIdle time.Duration) {
-	r.consumer.AutoClaim(count, minIdle, func(events []Event) {
-		for _, e := range events {
-			r.handleLogTable(e)
-		}
-	})
-}
-
-func (r *LogTablesConsumer) Cleanup() {
-	r.consumer.Cleanup()
-}
-
-func (r *LogTablesConsumer) handleLogTable(event Event) {
-	defer func() {
-		if rec := recover(); rec != nil {
-			asMySQLError, isMySQLError := rec.(*mysql.MySQLError)
-			if isMySQLError && slices.Contains(mySQLErrorCodesToSkip, asMySQLError.Number) {
-				return
+			err := r.handleLogTable(e)
+			if err != nil {
+				return err
 			}
-			panic(rec)
 		}
-	}()
+		return nil
+	})
+}
+
+func (r *LogTablesConsumer) AutoClaim(count int, minIdle time.Duration) error {
+	return r.consumer.AutoClaim(count, minIdle, func(events []Event) error {
+		for _, e := range events {
+			err := r.handleLogTable(e)
+			if err != nil {
+				return err
+			}
+		}
+		return nil
+	})
+}
+
+func (r *LogTablesConsumer) Cleanup() error {
+	return r.consumer.Cleanup()
+}
+
+func (r *LogTablesConsumer) handleLogTable(event Event) error {
 	var lazyEvent []any
-	event.Unserialize(&lazyEvent)
+	err := event.Unserialize(&lazyEvent)
+	if err != nil {
+		return err
+	}
 	if lazyEvent == nil || len(lazyEvent) < 3 {
-		event.Ack()
-		return
+		return event.Ack()
 	}
 	sql, valid := lazyEvent[0].(string)
 	if !valid {
-		event.Ack()
-		return
+		return event.Ack()
 	}
 	dbCode, valid := lazyEvent[len(lazyEvent)-1].(string)
 	if !valid {
-		event.Ack()
-		return
+		return event.Ack()
 	}
 	db := r.consumer.ctx.Engine().DB(dbCode)
 	if db == nil {
-		event.Ack()
-		return
+		return event.Ack()
 	}
 	args := lazyEvent[1 : len(lazyEvent)-1]
-	db.Exec(r.consumer.ctx, sql, args...)
-	event.Ack()
-	event.Ack()
+	_, err = db.Exec(r.consumer.ctx, sql, args...)
+	if err != nil {
+		var asMySQLError *mysql.MySQLError
+		isMySQLError := errors.As(err, &asMySQLError)
+		if isMySQLError && slices.Contains(mySQLErrorCodesToSkip, asMySQLError.Number) {
+			return nil
+		}
+		return err
+	}
+	err = event.Ack()
+	if err != nil {
+		return err
+	}
+	return event.Ack()
 }

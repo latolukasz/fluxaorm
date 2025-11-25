@@ -2,6 +2,7 @@ package fluxaorm
 
 import (
 	"context"
+	"fmt"
 	"reflect"
 	"strings"
 )
@@ -9,7 +10,7 @@ import (
 const DefaultPoolCode = "default"
 
 type EngineRegistry interface {
-	EntitySchema(entity any) EntitySchema
+	EntitySchema(entity any) (EntitySchema, error)
 	DBPools() map[string]DB
 	LocalCachePools() map[string]LocalCache
 	RedisPools() map[string]RedisCache
@@ -113,10 +114,15 @@ func (er *engineRegistryImplementation) DBPools() map[string]DB {
 	return er.engine.dbServers
 }
 
-func (er *engineRegistryImplementation) EntitySchema(entity any) EntitySchema {
+func (er *engineRegistryImplementation) EntitySchema(entity any) (EntitySchema, error) {
+
 	switch entity.(type) {
 	case reflect.Type:
-		return er.entitySchemasQuickMap[entity.(reflect.Type)]
+		e, has := er.entitySchemas[entity.(reflect.Type)]
+		if !has {
+			return nil, fmt.Errorf("entity '%T' is not registered", entity)
+		}
+		return e, nil
 	case string:
 		name := entity.(string)
 		if strings.HasPrefix(name, "*") {
@@ -124,15 +130,19 @@ func (er *engineRegistryImplementation) EntitySchema(entity any) EntitySchema {
 		}
 		t, has := er.entities[name]
 		if !has {
-			return nil
+			return nil, fmt.Errorf("entity '%T' is not registered", entity)
 		}
-		return er.entitySchemas[t]
+		return er.entitySchemas[t], nil
 	default:
 		t := reflect.TypeOf(entity)
 		if t.Kind() == reflect.Ptr {
-			return er.entitySchemas[t.Elem()]
+			t = t.Elem()
 		}
-		return er.entitySchemas[t]
+		e, has := er.entitySchemas[t]
+		if !has {
+			return nil, fmt.Errorf("entity '%T' is not registered", entity)
+		}
+		return e, nil
 	}
 }
 

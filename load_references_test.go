@@ -46,54 +46,71 @@ func testLoadReferences(t *testing.T, local, redis bool) {
 	var ref1 *loadSubReferenceEntity1
 	var ref2 *loadSubReferenceEntity2
 	orm := PrepareTables(t, NewRegistry(), entity, ref1, ref2)
-	schema := GetEntitySchema[loadReferenceEntity](orm)
+	schema, found := GetEntitySchema[loadReferenceEntity](orm)
+	assert.True(t, found)
 	schema.DisableCache(!local, !redis)
-	GetEntitySchema[loadSubReferenceEntity1](orm).DisableCache(!local, !redis)
-	GetEntitySchema[loadSubReferenceEntity2](orm).DisableCache(!local, !redis)
+	schema2, found := GetEntitySchema[loadSubReferenceEntity1](orm)
+	assert.True(t, found)
+	schema3, found := GetEntitySchema[loadSubReferenceEntity2](orm)
+	assert.True(t, found)
+	schema2.DisableCache(!local, !redis)
+	schema3.DisableCache(!local, !redis)
 
 	for i := 1; i <= 10; i++ {
-		entity = NewEntity[loadReferenceEntity](orm)
+		entity, err := NewEntity[loadReferenceEntity](orm)
+		assert.NoError(t, err)
 		entity.Name = fmt.Sprintf("Entity %d", i)
-		ref1 = NewEntity[loadSubReferenceEntity1](orm)
+		ref1, err = NewEntity[loadSubReferenceEntity1](orm)
+		assert.NoError(t, err)
 		ref1.Name = fmt.Sprintf("Ref1 %d", i)
 		entity.Ref1a = Reference[loadSubReferenceEntity1](ref1.ID)
 		entity.Ref1Array[0] = Reference[loadSubReferenceEntity1](ref1.ID)
-		sub1 := NewEntity[loadSubReferenceEntity1](orm)
+		sub1, err := NewEntity[loadSubReferenceEntity1](orm)
+		assert.NoError(t, err)
 		sub1.Name = fmt.Sprintf("Sub1 %d", i)
 		entity.Sub.Sub1 = Reference[loadSubReferenceEntity1](sub1.ID)
-		ref2 = NewEntity[loadSubReferenceEntity2](orm)
+		ref2, err = NewEntity[loadSubReferenceEntity2](orm)
+		assert.NoError(t, err)
 		ref2.Name = fmt.Sprintf("Ref2 %d", i)
 		entity.Ref2 = Reference[loadSubReferenceEntity2](ref2.ID)
 		if i > 5 {
 			ref1.SubRef2 = Reference[loadSubReferenceEntity2](ref2.ID)
-			ref1 = NewEntity[loadSubReferenceEntity1](orm)
+			ref1, err = NewEntity[loadSubReferenceEntity1](orm)
+			assert.NoError(t, err)
 			ref1.Name = fmt.Sprintf("Ref1b %d", i)
 			entity.Ref1b = Reference[loadSubReferenceEntity1](ref1.ID)
 			entity.Ref1Array[1] = Reference[loadSubReferenceEntity1](ref1.ID)
-			sub2 := NewEntity[loadSubReferenceEntity2](orm)
+			sub2, err := NewEntity[loadSubReferenceEntity2](orm)
+			assert.NoError(t, err)
 			sub2.Name = fmt.Sprintf("Sub2 %d", i)
 			entity.Sub.Sub2 = Reference[loadSubReferenceEntity2](sub2.ID)
 		} else {
-			sub2 := NewEntity[loadSubReferenceEntity2](orm)
+			sub2, err := NewEntity[loadSubReferenceEntity2](orm)
+			assert.NoError(t, err)
 			sub2.Name = fmt.Sprintf("SubSub %d", i)
 			ref1.SubRef2 = Reference[loadSubReferenceEntity2](sub2.ID)
 		}
 	}
-	err := orm.FlushWithCheck()
+	err := orm.Flush()
 	assert.NoError(t, err)
 
-	iterator := Search[loadReferenceEntity](orm, NewWhere("1"), nil)
+	iterator, err := Search[loadReferenceEntity](orm, NewWhere("1"), nil)
+	assert.NoError(t, err)
 	assert.Equal(t, 10, iterator.Len())
 	if local {
 		schema.(*entitySchema).localCache.Clear(orm)
-		GetEntitySchema[loadSubReferenceEntity1](orm).(*entitySchema).localCache.Clear(orm)
-		GetEntitySchema[loadSubReferenceEntity2](orm).(*entitySchema).localCache.Clear(orm)
+		schema2, _ = GetEntitySchema[loadSubReferenceEntity1](orm)
+		schema2.(*entitySchema).localCache.Clear(orm)
+		schema3, _ = GetEntitySchema[loadSubReferenceEntity2](orm)
+		schema3.(*entitySchema).localCache.Clear(orm)
 	}
 	if redis {
-		orm.Engine().Redis(DefaultPoolCode).FlushDB(orm)
+		err = orm.Engine().Redis(DefaultPoolCode).FlushDB(orm)
+		assert.NoError(t, err)
 	}
 	for iterator.Next() {
-		iterator.Entity()
+		_, err = iterator.Entity()
+		assert.NoError(t, err)
 	}
 	loggerDB := &MockLogHandler{}
 	orm.RegisterQueryLogger(loggerDB, true, false, false)
@@ -101,23 +118,31 @@ func testLoadReferences(t *testing.T, local, redis bool) {
 	orm.RegisterQueryLogger(loggerLocal, false, false, true)
 	loggerRedis := &MockLogHandler{}
 	orm.RegisterQueryLogger(loggerRedis, false, true, false)
-	iterator.LoadReference("Ref1a")
+	err = iterator.LoadReference("Ref1a")
+	assert.NoError(t, err)
 	assert.Len(t, loggerDB.Logs, 0)
 	i := 0
 	for iterator.Next() {
-		entity = iterator.Entity()
-		assert.Equal(t, fmt.Sprintf("Ref1 %d", i+1), entity.Ref1a.GetEntity(orm).Name)
+		entity, err = iterator.Entity()
+		assert.NoError(t, err)
+		ref1, err = entity.Ref1a.GetEntity(orm)
+		assert.NoError(t, err)
+		assert.Equal(t, fmt.Sprintf("Ref1 %d", i+1), ref1.Name)
 		i++
 	}
 	assert.Equal(t, 10, i)
 	loggerDB.Clear()
 	loggerRedis.Clear()
 	loggerLocal.Clear()
-	iterator = Search[loadReferenceEntity](orm, NewWhere("1"), nil)
+	iterator, err = Search[loadReferenceEntity](orm, NewWhere("1"), nil)
+	assert.NoError(t, err)
 	i = 0
 	for iterator.Next() {
-		entity = iterator.Entity()
-		assert.Equal(t, fmt.Sprintf("Ref1 %d", i+1), entity.Ref1a.GetEntity(orm).Name)
+		entity, err = iterator.Entity()
+		assert.NoError(t, err)
+		ref1, err = entity.Ref1a.GetEntity(orm)
+		assert.NoError(t, err)
+		assert.Equal(t, fmt.Sprintf("Ref1 %d", i+1), ref1.Name)
 		i++
 	}
 	assert.Len(t, loggerDB.Logs, 1)

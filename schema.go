@@ -31,12 +31,15 @@ type TableSQLSchemaDefinition struct {
 	PostAlters     []Alter
 }
 
-func GetAlters(ctx Context) (alters []Alter) {
-	pre, alters, post := getAlters(ctx)
+func GetAlters(ctx Context) (alters []Alter, err error) {
+	pre, alters, post, err := getAlters(ctx)
+	if err != nil {
+		return nil, err
+	}
 	final := pre
 	final = append(final, alters...)
 	final = append(final, post...)
-	return final
+	return final, nil
 }
 
 func (td *TableSQLSchemaDefinition) CreateTableSQL() string {
@@ -106,18 +109,22 @@ func (ti *IndexSchemaDefinition) SetColumns(columns []string) {
 	}
 }
 
-func (a Alter) Exec(ctx Context) {
-	ctx.Engine().DB(a.Pool).Exec(ctx, a.SQL)
+func (a Alter) Exec(ctx Context) error {
+	_, err := ctx.Engine().DB(a.Pool).Exec(ctx, a.SQL)
+	return err
 }
 
-func getAlters(ctx Context) (preAlters, alters, postAlters []Alter) {
+func getAlters(ctx Context) (preAlters, alters, postAlters []Alter, err error) {
 	tablesInDB := make(map[string]map[string]bool)
 	tablesInEntities := make(map[string]map[string]bool)
 
 	for poolName, pool := range ctx.Engine().Registry().DBPools() {
 		tablesInDB[poolName] = make(map[string]bool)
 		tablesInEntities[poolName] = make(map[string]bool)
-		tables := getAllTables(pool.GetDBClient())
+		tables, err := getAllTables(pool.GetDBClient())
+		if err != nil {
+			return nil, nil, nil, err
+		}
 		for _, table := range tables {
 			tablesInDB[poolName][table] = true
 		}
@@ -130,7 +137,10 @@ func getAlters(ctx Context) (preAlters, alters, postAlters []Alter) {
 		}
 		db := schema.GetDB()
 		tablesInEntities[db.GetConfig().GetCode()][schema.GetTableName()] = true
-		pre, middle, post := getSchemaChanges(ctx, schema)
+		pre, middle, post, err := getSchemaChanges(ctx, schema)
+		if err != nil {
+			return nil, nil, nil, err
+		}
 		preAlters = append(preAlters, pre...)
 		alters = append(alters, middle...)
 		postAlters = append(postAlters, post...)
@@ -143,7 +153,10 @@ func getAlters(ctx Context) (preAlters, alters, postAlters []Alter) {
 				if !has {
 					pool := ctx.Engine().DB(poolName)
 					dropSQL := fmt.Sprintf("DROP TABLE IF EXISTS `%s`.`%s`;", pool.GetConfig().GetDatabaseName(), tableName)
-					isEmpty := isTableEmptyInPool(ctx, poolName, tableName)
+					isEmpty, err := isTableEmptyInPool(ctx, poolName, tableName)
+					if err != nil {
+						return nil, nil, nil, err
+					}
 					alters = append(alters, Alter{SQL: dropSQL, Safe: isEmpty, Pool: poolName})
 				}
 			}
@@ -155,14 +168,16 @@ func getAlters(ctx Context) (preAlters, alters, postAlters []Alter) {
 	return
 }
 
-func isTableEmptyInPool(ctx Context, poolName string, tableName string) bool {
+func isTableEmptyInPool(ctx Context, poolName string, tableName string) (bool, error) {
 	return isTableEmpty(ctx.Engine().DB(poolName).GetDBClient(), tableName)
 }
 
-func getAllTables(db DBClient) []string {
+func getAllTables(db DBClient) ([]string, error) {
 	tables := make([]string, 0)
 	results, err := db.Query("SHOW FULL TABLES WHERE Table_Type = 'BASE TABLE'")
-	checkError(err)
+	if err != nil {
+		return tables, err
+	}
 	defer func() {
 		_ = results.Close()
 	}()
@@ -170,15 +185,16 @@ func getAllTables(db DBClient) []string {
 	for results.Next() {
 		var row string
 		err = results.Scan(&row, &skip)
-		checkError(err)
+		if err != nil {
+			return tables, err
+		}
 		tables = append(tables, row)
 	}
 	err = results.Err()
-	checkError(err)
-	return tables
+	return tables, err
 }
 
-func getSchemaChanges(ctx Context, entitySchema *entitySchema) (preAlters, alters, postAlters []Alter) {
+func getSchemaChanges(ctx Context, entitySchema *entitySchema) (preAlters, alters, postAlters []Alter, err error) {
 	indexes := make(map[string]*IndexSchemaDefinition)
 	columns, err := checkStruct(ctx.Engine(), entitySchema, entitySchema.GetType(), indexes, nil, "", -1)
 
@@ -206,15 +222,19 @@ func getSchemaChanges(ctx Context, entitySchema *entitySchema) (preAlters, alter
 			}
 		}
 	}
-
-	checkError(err)
+	if err != nil {
+		return nil, nil, nil, err
+	}
 	indexesSlice := make([]*IndexSchemaDefinition, 0)
 	for _, index := range indexes {
 		indexesSlice = append(indexesSlice, index)
 	}
 	pool := entitySchema.GetDB()
 	var skip string
-	hasTable := pool.QueryRow(ctx, NewWhere(fmt.Sprintf("SHOW TABLES LIKE '%s'", entitySchema.GetTableName())), &skip)
+	hasTable, err := pool.QueryRow(ctx, NewWhere(fmt.Sprintf("SHOW TABLES LIKE '%s'", entitySchema.GetTableName())), &skip)
+	if err != nil {
+		return nil, nil, nil, err
+	}
 	sqlSchema := &TableSQLSchemaDefinition{
 		ctx:           ctx,
 		EntitySchema:  entitySchema,
@@ -223,7 +243,10 @@ func getSchemaChanges(ctx Context, entitySchema *entitySchema) (preAlters, alter
 		EntityColumns: columns}
 	if hasTable {
 		sqlSchema.DBTableColumns = make([]*ColumnSchemaDefinition, 0)
-		pool.QueryRow(ctx, NewWhere(fmt.Sprintf("SHOW CREATE TABLE `%s`", entitySchema.GetTableName())), &skip, &sqlSchema.DBCreateSchema)
+		_, err = pool.QueryRow(ctx, NewWhere(fmt.Sprintf("SHOW CREATE TABLE `%s`", entitySchema.GetTableName())), &skip, &sqlSchema.DBCreateSchema)
+		if err != nil {
+			return nil, nil, nil, err
+		}
 		lines := strings.Split(sqlSchema.DBCreateSchema, "\n")
 		for x := 1; x < len(lines); x++ {
 			l := strings.Trim(lines[x], " ")
@@ -256,11 +279,17 @@ func getSchemaChanges(ctx Context, entitySchema *entitySchema) (preAlters, alter
 
 		var rows []indexDB
 		/* #nosec */
-		results, def := pool.Query(ctx, fmt.Sprintf("SHOW INDEXES FROM `%s`", entitySchema.GetTableName()))
+		results, def, err := pool.Query(ctx, fmt.Sprintf("SHOW INDEXES FROM `%s`", entitySchema.GetTableName()))
+		if err != nil {
+			return nil, nil, nil, err
+		}
 		defer def()
 		for results.Next() {
 			var row indexDB
-			results.Scan(&row.Skip, &row.NonUnique, &row.KeyName, &row.Seq, &row.Column, &row.Skip, &row.Skip, &row.Skip, &row.Skip, &row.Skip, &row.Skip, &row.Skip, &row.Skip, &row.Skip, &row.Skip)
+			err = results.Scan(&row.Skip, &row.NonUnique, &row.KeyName, &row.Seq, &row.Column, &row.Skip, &row.Skip, &row.Skip, &row.Skip, &row.Skip, &row.Skip, &row.Skip, &row.Skip, &row.Skip, &row.Skip)
+			if err != nil {
+				return nil, nil, nil, err
+			}
 			rows = append(rows, row)
 		}
 		def()
@@ -453,7 +482,10 @@ OUTER:
 			safe = true
 		} else {
 			db := entitySchema.GetDB()
-			isEmpty := isTableEmpty(db.GetDBClient(), entitySchema.GetTableName())
+			isEmpty, err := isTableEmpty(db.GetDBClient(), entitySchema.GetTableName())
+			if err != nil {
+				return nil, nil, nil, err
+			}
 			safe = isEmpty
 		}
 		alters = append(alters, Alter{SQL: alterSQL, Safe: safe, Pool: entitySchema.GetDB().GetConfig().GetCode()})
@@ -474,14 +506,16 @@ OUTER:
 	return
 }
 
-func isTableEmpty(db DBClient, tableName string) bool {
+func isTableEmpty(db DBClient, tableName string) (bool, error) {
 	/* #nosec */
 	rows, err := db.Query(fmt.Sprintf("SELECT * FROM `%s` LIMIT 1", tableName))
+	if err != nil {
+		return false, err
+	}
 	defer func() {
 		_ = rows.Close()
 	}()
-	checkError(err)
-	return !rows.Next()
+	return !rows.Next(), nil
 }
 
 func checkColumn(engine Engine, schema *entitySchema, field *reflect.StructField, indexes map[string]*IndexSchemaDefinition, prefix string) ([]*ColumnSchemaDefinition, error) {
@@ -618,7 +652,9 @@ func checkColumn(engine Engine, schema *entitySchema, field *reflect.StructField
 					arrayIndex = i + 1
 				}
 				structFields, err := checkStruct(engine, schema, fieldType, indexes, field, subFieldPrefix, arrayIndex)
-				checkError(err)
+				if err != nil {
+					return nil, err
+				}
 				columns = append(columns, structFields...)
 				continue
 			} else if fieldType.Implements(reflect.TypeOf((*ReferenceInterface)(nil)).Elem()) {

@@ -20,11 +20,11 @@ type EntityIterator[E any] interface {
 	ID() uint64
 	Index() int
 	Len() int
-	Entity() *E
-	All() []*E
-	AllIDs() []uint64
+	Entity() (*E, error)
+	All() ([]*E, error)
+	AllIDs() ([]uint64, error)
 	Reset()
-	LoadReference(columns ...string)
+	LoadReference(columns ...string) error
 	setIndex(index int)
 }
 
@@ -34,11 +34,11 @@ type EntityAnonymousIterator interface {
 	Index() int
 	setIndex(index int)
 	Len() int
-	All() []any
-	AllIDs() []uint64
-	Entity() any
+	All() ([]any, error)
+	AllIDs() ([]uint64, error)
+	Entity() (any, error)
 	Reset()
-	LoadReference(columns ...string)
+	LoadReference(columns ...string) error
 }
 
 type localCacheIDsIterator[E any] struct {
@@ -81,30 +81,34 @@ func (lca *localCacheAnonymousIDsIterator) Next() bool {
 	return true
 }
 
-func (lca *localCacheAnonymousIDsIterator) All() []any {
+func (lca *localCacheAnonymousIDsIterator) All() ([]any, error) {
 	if lca.hasRows {
-		return lca.rows
+		return lca.rows, nil
 	}
 	lca.rows = make([]any, len(lca.ids))
 	i := 0
 	for lca.Next() {
-		lca.rows[i] = lca.Entity()
+		e, err := lca.Entity()
+		if err != nil {
+			return nil, err
+		}
+		lca.rows[i] = e
 		i++
 	}
 	lca.Reset()
-	return lca.rows
+	return lca.rows, nil
 }
 
-func (lca *localCacheAnonymousIDsIterator) AllIDs() []uint64 {
-	return lca.ids
+func (lca *localCacheAnonymousIDsIterator) AllIDs() ([]uint64, error) {
+	return lca.ids, nil
 }
 
 func (lca *localCacheAnonymousIDsIterator) id() uint64 {
 	return lca.ids[lca.index]
 }
 
-func (lca *localCacheAnonymousIDsIterator) LoadReference(columns ...string) {
-	loadReference(lca, lca.orm, lca.schema, columns...)
+func (lca *localCacheAnonymousIDsIterator) LoadReference(columns ...string) error {
+	return loadReference(lca, lca.orm, lca.schema, columns...)
 }
 
 func (lc *localCacheIDsIterator[E]) Index() int {
@@ -153,73 +157,83 @@ func (lca *localCacheAnonymousIDsIterator) Reset() {
 	lca.index = -1
 }
 
-func (lc *localCacheIDsIterator[E]) All() []*E {
+func (lc *localCacheIDsIterator[E]) All() ([]*E, error) {
 	if lc.hasRows {
-		return lc.rows
+		return lc.rows, nil
 	}
 	lc.rows = make([]*E, lc.Len())
 	i := 0
 	for lc.Next() {
-		lc.rows[i] = lc.Entity()
+		e, err := lc.Entity()
+		if err != nil {
+			return nil, err
+		}
+		lc.rows[i] = e
 		i++
 	}
 	lc.Reset()
 	lc.hasRows = true
-	return lc.rows
+	return lc.rows, nil
 }
 
-func (lc *localCacheIDsIterator[E]) AllIDs() []uint64 {
-	return lc.ids
+func (lc *localCacheIDsIterator[E]) AllIDs() ([]uint64, error) {
+	return lc.ids, nil
 }
 
-func (lc *localCacheIDsIterator[E]) Entity() *E {
+func (lc *localCacheIDsIterator[E]) Entity() (*E, error) {
 	if lc.index == -1 {
-		return nil
+		return nil, nil
 	}
 	if lc.hasRows {
-		return lc.rows[lc.index]
+		return lc.rows[lc.index], nil
 	}
 	if lc.index == 0 {
 		value, hit := lc.schema.localCache.getEntity(lc.orm, lc.ids[0])
 		if hit {
 			if value == nil {
-				return nil
+				return nil, nil
 			}
-			return value.(*E)
+			return value.(*E), nil
 		}
 	}
-	value, found := getByID(lc.orm, lc.ids[lc.index], lc.schema)
-	if !found {
-		return nil
+	value, found, err := getByID(lc.orm, lc.ids[lc.index], lc.schema)
+	if err != nil {
+		return nil, err
 	}
-	return value.(*E)
+	if !found {
+		return nil, nil
+	}
+	return value.(*E), nil
 }
 
-func (lca *localCacheAnonymousIDsIterator) Entity() any {
+func (lca *localCacheAnonymousIDsIterator) Entity() (any, error) {
 	if lca.index == -1 {
-		return nil
+		return nil, nil
 	}
 	if lca.hasRows {
-		return lca.rows[lca.index]
+		return lca.rows[lca.index], nil
 	}
 	if lca.index == 0 {
 		value, hit := lca.schema.localCache.getEntity(lca.orm, lca.ids[0])
 		if hit {
 			if value == nil {
-				return nil
+				return nil, nil
 			}
-			return value
+			return value, nil
 		}
 	}
-	value, found := getByID(lca.orm, lca.ids[lca.index], lca.schema)
-	if !found {
-		return nil
+	value, found, err := getByID(lca.orm, lca.ids[lca.index], lca.schema)
+	if err != nil {
+		return nil, err
 	}
-	return value
+	if !found {
+		return nil, nil
+	}
+	return value, nil
 }
 
-func (lc *localCacheIDsIterator[E]) LoadReference(columns ...string) {
-	loadReference(lc, lc.orm, lc.schema, columns...)
+func (lc *localCacheIDsIterator[E]) LoadReference(columns ...string) error {
+	return loadReference(lc, lc.orm, lc.schema, columns...)
 }
 
 type emptyResultsIterator[E any] struct{}
@@ -242,22 +256,22 @@ func (el *emptyResultsIterator[E]) Len() int {
 	return 0
 }
 
-func (el *emptyResultsIterator[E]) Entity() *E {
-	return nil
+func (el *emptyResultsIterator[E]) Entity() (*E, error) {
+	return nil, nil
 }
 
 func (el *emptyResultsIterator[E]) Reset() {}
 
-func (el *emptyResultsIterator[E]) All() []*E {
+func (el *emptyResultsIterator[E]) All() ([]*E, error) {
+	return nil, nil
+}
+
+func (el *emptyResultsIterator[E]) AllIDs() ([]uint64, error) {
+	return []uint64{}, nil
+}
+
+func (el *emptyResultsIterator[E]) LoadReference(_ ...string) error {
 	return nil
-}
-
-func (el *emptyResultsIterator[E]) AllIDs() []uint64 {
-	return []uint64{}
-}
-
-func (el *emptyResultsIterator[E]) LoadReference(_ ...string) {
-
 }
 
 type entityIterator[E any] struct {
@@ -298,12 +312,12 @@ func (eia *entityAnonymousIteratorAdvanced) Next() bool {
 	return true
 }
 
-func (eia *entityAnonymousIteratorAdvanced) All() []any {
-	return eia.rows
+func (eia *entityAnonymousIteratorAdvanced) All() ([]any, error) {
+	return eia.rows, nil
 }
 
-func (eia *entityAnonymousIteratorAdvanced) AllIDs() []uint64 {
-	return eia.ids
+func (eia *entityAnonymousIteratorAdvanced) AllIDs() ([]uint64, error) {
+	return eia.ids, nil
 }
 
 func (eia *entityAnonymousIteratorAdvanced) id() uint64 {
@@ -348,18 +362,18 @@ func (eia *entityAnonymousIteratorAdvanced) Len() int {
 	return len(eia.rows)
 }
 
-func (ei *entityIterator[E]) Entity() *E {
+func (ei *entityIterator[E]) Entity() (*E, error) {
 	if ei.index == -1 {
-		return nil
+		return nil, nil
 	}
-	return ei.rows[ei.index]
+	return ei.rows[ei.index], nil
 }
 
-func (eia *entityAnonymousIteratorAdvanced) Entity() any {
+func (eia *entityAnonymousIteratorAdvanced) Entity() (any, error) {
 	if eia.index == -1 {
-		return nil
+		return nil, nil
 	}
-	return eia.rows[eia.index]
+	return eia.rows[eia.index], nil
 }
 
 func (ei *entityIterator[E]) Reset() {
@@ -370,11 +384,11 @@ func (eia *entityAnonymousIteratorAdvanced) Reset() {
 	eia.index = -1
 }
 
-func (ei *entityIterator[E]) All() []*E {
-	return ei.rows
+func (ei *entityIterator[E]) All() ([]*E, error) {
+	return ei.rows, nil
 }
 
-func (ei *entityIterator[E]) AllIDs() []uint64 {
+func (ei *entityIterator[E]) AllIDs() ([]uint64, error) {
 	if ei.ids == nil {
 		ei.ids = make([]uint64, len(ei.rows))
 		for i, value := range ei.rows {
@@ -382,12 +396,11 @@ func (ei *entityIterator[E]) AllIDs() []uint64 {
 		}
 		slices.Sort(ei.ids)
 	}
-	return ei.ids
+	return ei.ids, nil
 }
 
-func (ei *entityIterator[E]) LoadReference(columns ...string) {
-	err := loadReference(ei, ei.orm, ei.schema, columns...)
-	checkError(err)
+func (ei *entityIterator[E]) LoadReference(columns ...string) error {
+	return loadReference(ei, ei.orm, ei.schema, columns...)
 }
 
 func loadReference(iterator iteratorBase, orm *ormImplementation, schema *entitySchema, columns ...string) error {
@@ -423,18 +436,24 @@ func loadReference(iterator iteratorBase, orm *ormImplementation, schema *entity
 		if len(ids) <= 1 {
 			return nil
 		}
-		refSchema := orm.Engine().Registry().EntitySchema(reference.Type).(*entitySchema)
+		s, err := orm.Engine().Registry().EntitySchema(reference.Type)
+		if err != nil {
+		}
+		refSchema := s.(*entitySchema)
 		var subRefs string
 		if len(fields) > 1 {
 			subRefs = strings.Join(fields[1:], "/")
 		}
-		warmup(orm, refSchema, ids, subRefs)
+		err = warmup(orm, refSchema, ids, subRefs)
+		if err != nil {
+			return err
+		}
 	}
 	return nil
 }
 
-func (eia *entityAnonymousIteratorAdvanced) LoadReference(columns ...string) {
-	loadReference(eia, eia.orm, eia.schema, columns...)
+func (eia *entityAnonymousIteratorAdvanced) LoadReference(columns ...string) error {
+	return loadReference(eia, eia.orm, eia.schema, columns...)
 }
 
 type entityAnonymousIterator struct {
@@ -457,27 +476,31 @@ func (ea *entityAnonymousIterator) Next() bool {
 	return true
 }
 
-func (ea *entityAnonymousIterator) All() []any {
+func (ea *entityAnonymousIterator) All() ([]any, error) {
 	rows := make([]any, ea.rows.Len())
 	i := 0
 	for ea.Next() {
-		rows[i] = ea.Entity()
+		e, err := ea.Entity()
+		if err != nil {
+			return nil, err
+		}
+		rows[i] = e
 		i++
 	}
 	ea.Reset()
-	return rows
+	return rows, nil
 }
 
-func (ea *entityAnonymousIterator) AllIDs() []uint64 {
+func (ea *entityAnonymousIterator) AllIDs() ([]uint64, error) {
 	ids := make([]uint64, ea.rows.Len())
 	for i := 0; i < ea.rows.Len(); i++ {
 		ids[i] = ea.rows.Index(i).Elem().FieldByName("ID").Uint()
 	}
-	return ids
+	return ids, nil
 }
 
-func (ea *entityAnonymousIterator) LoadReference(columns ...string) {
-	loadReference(ea, ea.orm, ea.schema, columns...)
+func (ea *entityAnonymousIterator) LoadReference(columns ...string) error {
+	return loadReference(ea, ea.orm, ea.schema, columns...)
 }
 
 func (ea *entityAnonymousIterator) ID() uint64 {
@@ -499,11 +522,11 @@ func (ea *entityAnonymousIterator) Len() int {
 	return ea.rows.Len()
 }
 
-func (ea *entityAnonymousIterator) Entity() any {
+func (ea *entityAnonymousIterator) Entity() (any, error) {
 	if ea.index == -1 {
-		return nil
+		return nil, nil
 	}
-	return ea.rows.Index(ea.index).Interface()
+	return ea.rows.Index(ea.index).Interface(), nil
 }
 
 func (ea *entityAnonymousIterator) Reset() {
@@ -524,12 +547,12 @@ func (el *emptyResultsAnonymousIterator) Index() int {
 	return -1
 }
 
-func (el *emptyResultsAnonymousIterator) All() []any {
-	return []any{}
+func (el *emptyResultsAnonymousIterator) All() ([]any, error) {
+	return []any{}, nil
 }
 
-func (el *emptyResultsAnonymousIterator) AllIDs() []uint64 {
-	return []uint64{}
+func (el *emptyResultsAnonymousIterator) AllIDs() ([]uint64, error) {
+	return []uint64{}, nil
 }
 
 func (el *emptyResultsAnonymousIterator) setIndex(_ int) {}
@@ -538,13 +561,15 @@ func (el *emptyResultsAnonymousIterator) Len() int {
 	return 0
 }
 
-func (el *emptyResultsAnonymousIterator) Entity() any {
-	return nil
+func (el *emptyResultsAnonymousIterator) Entity() (any, error) {
+	return nil, nil
 }
 
 func (el *emptyResultsAnonymousIterator) Reset() {}
 
-func (el *emptyResultsAnonymousIterator) LoadReference(_ ...string) {}
+func (el *emptyResultsAnonymousIterator) LoadReference(_ ...string) error {
+	return nil
+}
 
 var emptyResultsAnonymousIteratorInstance = &emptyResultsAnonymousIterator{}
 
@@ -564,19 +589,23 @@ func (lc *localCacheIDsAnonymousIterator) Next() bool {
 	return true
 }
 
-func (lc *localCacheIDsAnonymousIterator) All() []any {
+func (lc *localCacheIDsAnonymousIterator) All() ([]any, error) {
 	rows := make([]any, len(lc.ids))
 	i := 0
 	for lc.Next() {
-		rows[i] = lc.Entity()
+		e, err := lc.Entity()
+		if err != nil {
+			return nil, err
+		}
+		rows[i] = e
 		i++
 	}
 	lc.Reset()
-	return rows
+	return rows, nil
 }
 
-func (lc *localCacheIDsAnonymousIterator) AllIDs() []uint64 {
-	return lc.ids
+func (lc *localCacheIDsAnonymousIterator) AllIDs() ([]uint64, error) {
+	return lc.ids, nil
 }
 
 func (lc *localCacheIDsAnonymousIterator) id() uint64 {
@@ -584,8 +613,8 @@ func (lc *localCacheIDsAnonymousIterator) id() uint64 {
 
 }
 
-func (lc *localCacheIDsAnonymousIterator) LoadReference(columns ...string) {
-	loadReference(lc, lc.c, lc.schema, columns...)
+func (lc *localCacheIDsAnonymousIterator) LoadReference(columns ...string) error {
+	return loadReference(lc, lc.c, lc.schema, columns...)
 }
 
 func (lc *localCacheIDsAnonymousIterator) ID() uint64 {
@@ -611,13 +640,16 @@ func (lc *localCacheIDsAnonymousIterator) Reset() {
 	lc.index = -1
 }
 
-func (lc *localCacheIDsAnonymousIterator) Entity() any {
+func (lc *localCacheIDsAnonymousIterator) Entity() (any, error) {
 	if lc.index == -1 {
-		return nil
+		return nil, nil
 	}
-	value, found := getByID(lc.c, lc.ids[lc.index], lc.schema)
+	value, found, err := getByID(lc.c, lc.ids[lc.index], lc.schema)
+	if err != nil {
+		return nil, err
+	}
 	if !found {
-		return nil
+		return nil, nil
 	}
-	return value
+	return value, nil
 }

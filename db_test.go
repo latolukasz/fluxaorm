@@ -1,14 +1,17 @@
 package fluxaorm
 
 import (
-	"github.com/stretchr/testify/assert"
 	"testing"
+
+	"github.com/stretchr/testify/assert"
 )
 
 func TestDBTransaction(t *testing.T) {
 	orm := PrepareTables(t, NewRegistry())
 	db := orm.Engine().DB(DefaultPoolCode)
-	tx := db.Begin(orm)
+	tx, err := db.Begin(orm)
+	assert.NoError(t, err)
 	assert.NotNil(t, tx)
-	tx.Commit(orm)
+	err = tx.Commit(orm)
+	assert.NoError(t, err)
 }

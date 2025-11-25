@@ -14,9 +14,13 @@ type DirtyStreamEvent struct {
 	ack        bool
 }
 
-func (ds *DirtyStreamEvent) ACK() {
-	ds.event.Ack()
+func (ds *DirtyStreamEvent) ACK() error {
+	err := ds.event.Ack()
+	if err != nil {
+		return err
+	}
 	ds.ack = true
+	return nil
 }
 
 type DirtyStreamEventHandler func(events []*DirtyStreamEvent)
@@ -26,56 +30,72 @@ type DirtyStreamConsumer struct {
 	handler  DirtyStreamEventHandler
 }
 
-func NewDirtyStreamConsumerSingle(ctx Context, stream string, handler DirtyStreamEventHandler) *DirtyStreamConsumer {
+func NewDirtyStreamConsumerSingle(ctx Context, stream string, handler DirtyStreamEventHandler) (*DirtyStreamConsumer, error) {
 	c := &DirtyStreamConsumer{}
-	c.consumer = ctx.GetEventBroker().ConsumerSingle(ctx, "dirty_"+stream).(*eventsConsumer)
+
+	consumer, err := ctx.GetEventBroker().ConsumerSingle(ctx, "dirty_"+stream)
+	if err != nil {
+		return nil, err
+	}
+	c.consumer = consumer.(*eventsConsumer)
 	c.handler = handler
-	return c
+	return c, nil
 }
 
-func NewDirtyStreamConsumerMany(ctx Context, stream string, handler DirtyStreamEventHandler) *DirtyStreamConsumer {
+func NewDirtyStreamConsumerMany(ctx Context, stream string, handler DirtyStreamEventHandler) (*DirtyStreamConsumer, error) {
 	c := &DirtyStreamConsumer{}
-	c.consumer = ctx.GetEventBroker().ConsumerMany(ctx, "dirty_"+stream).(*eventsConsumer)
+	consumer, err := ctx.GetEventBroker().ConsumerMany(ctx, "dirty_"+stream)
+	if err != nil {
+		return nil, err
+	}
+	c.consumer = consumer.(*eventsConsumer)
 	c.handler = handler
-	return c
+	return c, nil
 }
 
-func (r *DirtyStreamConsumer) Consume(count int, blockTime time.Duration) {
-	r.consumer.Consume(count, blockTime, r.eventsHandler(count))
+func (r *DirtyStreamConsumer) Consume(count int, blockTime time.Duration) error {
+	return r.consumer.Consume(count, blockTime, r.eventsHandler(count))
 }
 
-func (r *DirtyStreamConsumer) AutoClaim(count int, minIdle time.Duration) {
-	r.consumer.AutoClaim(count, minIdle, r.eventsHandler(count))
+func (r *DirtyStreamConsumer) AutoClaim(count int, minIdle time.Duration) error {
+	return r.consumer.AutoClaim(count, minIdle, r.eventsHandler(count))
 }
 
-func (r *DirtyStreamConsumer) Cleanup() {
-	r.consumer.Cleanup()
+func (r *DirtyStreamConsumer) Cleanup() error {
+	return r.consumer.Cleanup()
 }
 
-func (r *DirtyStreamConsumer) eventsHandler(count int) func(events []Event) {
-	return func(events []Event) {
+func (r *DirtyStreamConsumer) eventsHandler(count int) func(events []Event) error {
+	return func(events []Event) error {
 		returnedEvents := make([]*DirtyStreamEvent, 0, count)
 		returnedEvents = returnedEvents[:0]
 		for _, e := range events {
-			dirtyEvent := r.handleEvent(e)
+			dirtyEvent, err := r.handleEvent(e)
+			if err != nil {
+				return err
+			}
 			if dirtyEvent == nil {
 				continue
 			}
 			returnedEvents = append(returnedEvents, dirtyEvent)
 		}
 		if len(returnedEvents) == 0 {
-			return
+			return nil
 		}
 		r.handler(returnedEvents)
 		for _, v := range returnedEvents {
 			if !v.ack {
-				v.ACK()
+				err := v.ACK()
+				if err != nil {
+					return err
+				}
 			}
 		}
+		return nil
 	}
 }
 
-func (r *DirtyStreamConsumer) handleEvent(event Event) *DirtyStreamEvent {
+func (r *DirtyStreamConsumer) handleEvent(event Event) (*DirtyStreamEvent, error) {
 	var flashType FlushType
 	switch event.Tag("action") {
 	case "add":
@@ -88,33 +108,34 @@ func (r *DirtyStreamConsumer) handleEvent(event Event) *DirtyStreamEvent {
 		flashType = Delete
 		break
 	default:
-		event.Ack()
-		return nil
+		return nil, event.Ack()
 	}
 	entity := event.Tag("entity")
 	if entity == "" {
-		event.Ack()
-		return nil
+		return nil, event.Ack()
 	}
-	schema := r.consumer.ctx.Engine().Registry().EntitySchema(entity)
+	schema, err := r.consumer.ctx.Engine().Registry().EntitySchema(entity)
+	if err != nil {
+		return nil, err
+	}
 	if schema == nil {
-		event.Ack()
+		return nil, event.Ack()
 	}
 	idAsString := event.Tag("id")
 	if idAsString == "" {
-		event.Ack()
-		return nil
+		return nil, event.Ack()
 	}
 	id, err := strconv.ParseUint(idAsString, 10, 64)
 	if err != nil || id == 0 {
-		event.Ack()
-		return nil
+		return nil, event.Ack()
 	}
 	var bind Bind
-	event.Unserialize(&bind)
+	err = event.Unserialize(&bind)
+	if err != nil {
+		return nil, err
+	}
 	if bind == nil {
-		event.Ack()
-		return nil
+		return nil, event.Ack()
 	}
 	return &DirtyStreamEvent{
 		EntityName: entity,
@@ -122,5 +143,5 @@ func (r *DirtyStreamConsumer) handleEvent(event Event) *DirtyStreamEvent {
 		Operation:  flashType,
 		Bind:       bind,
 		event:      event,
-	}
+	}, nil
 }

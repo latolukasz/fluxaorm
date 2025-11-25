@@ -1,6 +1,7 @@
 package fluxaorm
 
 import (
+	"errors"
 	"slices"
 	"time"
 
@@ -32,55 +33,60 @@ type LazyFlashConsumer struct {
 
 func NewLazyFlashConsumer(ctx Context) *LazyFlashConsumer {
 	c := &LazyFlashConsumer{}
-	c.consumer = ctx.GetEventBroker().ConsumerSingle(ctx, LazyChannelName).(*eventsConsumer)
+	consumer, _ := ctx.GetEventBroker().ConsumerSingle(ctx, LazyChannelName)
+	c.consumer, _ = consumer.(*eventsConsumer)
 	return c
 }
 
-func (r *LazyFlashConsumer) Consume(blockTime time.Duration) {
-	r.consumer.Consume(500, blockTime, func(events []Event) {
+func (r *LazyFlashConsumer) Consume(blockTime time.Duration) error {
+	return r.consumer.Consume(500, blockTime, func(events []Event) error {
 		for _, e := range events {
-			r.handleLazyFlush(e)
+			err := r.handleLazyFlush(e)
+			if err != nil {
+				return err
+			}
 		}
+		return nil
 	})
 }
 
-func (r *LazyFlashConsumer) handleLazyFlush(event Event) {
-	defer func() {
-		if rec := recover(); rec != nil {
-			asMySQLError, isMySQLError := rec.(*mysql.MySQLError)
-			if isMySQLError && slices.Contains(mySQLErrorCodesToSkip, asMySQLError.Number) {
-				_, err := r.consumer.ctx.GetEventBroker().Publish(LazyErrorsChannelName, event)
-				checkError(err)
-				return
-			}
-			panic(rec)
-		}
-	}()
+func (r *LazyFlashConsumer) handleLazyFlush(event Event) error {
 	var lazyEvent []any
-	event.Unserialize(&lazyEvent)
+	var err error
+	err = event.Unserialize(&lazyEvent)
+	if err != nil {
+		return err
+	}
 	if lazyEvent == nil || len(lazyEvent) < 2 {
-		event.Ack()
-		return
+		return event.Ack()
 	}
 	sql, valid := lazyEvent[0].(string)
 	if !valid {
-		event.Ack()
-		return
+		return event.Ack()
 	}
 	dbCode, valid := lazyEvent[1].(string)
 	if !valid {
-		event.Ack()
-		return
+		return event.Ack()
 	}
 	db := r.consumer.ctx.Engine().DB(dbCode)
 	if db == nil {
-		event.Ack()
-		return
+		return event.Ack()
 	}
 	if len(lazyEvent) > 2 {
-		db.Exec(r.consumer.ctx, sql, lazyEvent[2:]...)
+		_, err = db.Exec(r.consumer.ctx, sql, lazyEvent[2:]...)
 	} else {
-		db.Exec(r.consumer.ctx, sql)
+		_, err = db.Exec(r.consumer.ctx, sql)
 	}
-	event.Ack()
+	if err != nil {
+		var asMySQLError *mysql.MySQLError
+		isMySQLError := errors.As(err, &asMySQLError)
+		if isMySQLError && slices.Contains(mySQLErrorCodesToSkip, asMySQLError.Number) {
+			_, err = r.consumer.ctx.GetEventBroker().Publish(LazyErrorsChannelName, event)
+			if err != nil {
+				return err
+			}
+			return nil
+		}
+	}
+	return event.Ack()
 }

@@ -4,28 +4,29 @@ import (
 	"reflect"
 )
 
-func GetEntityFieldDefinition[E any](ctx Context, field string) (t reflect.Type, tags map[string]string) {
+func GetEntityFieldDefinition[E any](ctx Context, field string) (t reflect.Type, tags map[string]string, err error) {
 	schema, err := getEntitySchema[E](ctx)
-	checkError(err)
+	if err != nil {
+		return nil, nil, err
+	}
 	if schema == nil {
-		return nil, nil
+		return nil, nil, nil
 	}
 	d, has := schema.fieldDefinitions[field]
 	if !has {
-		return nil, nil
+		return nil, nil, nil
 	}
-	return d.Field.Type, d.Tags
+	return d.Field.Type, d.Tags, nil
 }
 
-func GetEntityField(ctx Context, entity any, field string) any {
+func GetEntityField(ctx Context, entity any, field string) (any, error) {
 	return getEntityField(ctx, entity, field)
 }
 
-func GetEntityFields(ctx Context, entity any, field ...string) map[string]any {
+func GetEntityFields(ctx Context, entity any, field ...string) (map[string]any, error) {
 	schema, err := getEntitySchemaFromSource(ctx, entity)
-	checkError(err)
-	if schema == nil {
-		return nil
+	if err != nil {
+		return nil, err
 	}
 	reflectValue := reflect.ValueOf(entity)
 	elem := reflectValue.Elem()
@@ -36,17 +37,19 @@ func GetEntityFields(ctx Context, entity any, field ...string) map[string]any {
 			result[f] = getter(elem)
 		}
 	}
-	return result
+	return result, nil
 }
 
-func getEntityField(ctx Context, entity any, field string) any {
+func getEntityField(ctx Context, entity any, field string) (any, error) {
 	schema, err := getEntitySchemaFromSource(ctx, entity)
-	checkError(err)
+	if err != nil {
+		return nil, err
+	}
 	getter, has := schema.fieldGetters[field]
 	if !has {
-		return nil
+		return nil, nil
 	}
 	reflectValue := reflect.ValueOf(entity)
 	elem := reflectValue.Elem()
-	return getter(elem)
+	return getter(elem), nil
 }

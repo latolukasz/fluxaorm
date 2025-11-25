@@ -16,10 +16,10 @@ import (
 const consumerGroupName = "consumer_group"
 
 type Event interface {
-	Ack()
+	Ack() error
 	ID() string
 	Tag(key string) (value string)
-	Unserialize(val interface{})
+	Unserialize(val interface{}) error
 }
 
 type event struct {
@@ -29,13 +29,20 @@ type event struct {
 	ack      bool
 }
 
-func (ev *event) Ack() {
+func (ev *event) Ack() error {
 	if ev.ack {
-		return
+		return nil
 	}
-	ev.consumer.redis.XAck(ev.consumer.ctx, ev.stream, ev.consumer.group, ev.message.ID)
-	ev.consumer.redis.XDel(ev.consumer.ctx, ev.stream, ev.message.ID)
+	_, err := ev.consumer.redis.XAck(ev.consumer.ctx, ev.stream, ev.consumer.group, ev.message.ID)
+	if err != nil {
+		return err
+	}
+	_, err = ev.consumer.redis.XDel(ev.consumer.ctx, ev.stream, ev.message.ID)
+	if err != nil {
+		return err
+	}
 	ev.ack = true
+	return nil
 }
 
 func (ev *event) ID() string {
@@ -50,24 +57,23 @@ func (ev *event) Tag(key string) (value string) {
 	return ""
 }
 
-func (ev *event) Unserialize(value interface{}) {
+func (ev *event) Unserialize(value interface{}) error {
 	val := ev.message.Values["s"]
-	err := msgpack.Unmarshal([]byte(val.(string)), &value)
-	checkError(err)
+	return msgpack.Unmarshal([]byte(val.(string)), &value)
 }
 
 type EventBroker interface {
 	Publish(stream string, body interface{}, meta ...string) (id string, err error)
-	ConsumerSingle(ctx Context, stream string) EventsConsumer
-	ConsumerMany(ctx Context, stream string) EventsConsumer
+	ConsumerSingle(ctx Context, stream string) (EventsConsumer, error)
+	ConsumerMany(ctx Context, stream string) (EventsConsumer, error)
 	NewFlusher() EventFlusher
-	GetStreamsStatistics(stream ...string) []*RedisStreamStatistics
-	GetStreamStatistics(stream string) *RedisStreamStatistics
+	GetStreamsStatistics(stream ...string) ([]*RedisStreamStatistics, error)
+	GetStreamStatistics(stream string) (*RedisStreamStatistics, error)
 }
 
 type EventFlusher interface {
-	Publish(stream string, body interface{}, meta ...string)
-	Flush()
+	Publish(stream string, body interface{}, meta ...string) error
+	Flush() error
 }
 
 type eventFlusher struct {
@@ -79,30 +85,39 @@ type eventBroker struct {
 	ctx *ormImplementation
 }
 
-func createEventSlice(body any, meta []string) []string {
+func createEventSlice(body any, meta []string) ([]string, error) {
 	if body == nil {
-		return meta
+		return meta, nil
 	}
 	asString, err := msgpack.Marshal(body)
-	checkError(err)
+	if err != nil {
+		return nil, err
+	}
 	values := make([]string, len(meta)+2)
 	values[0] = "s"
 	values[1] = string(asString)
 	for k, v := range meta {
 		values[k+2] = v
 	}
-	return values
+	return values, nil
 }
 
-func (ef *eventFlusher) Publish(stream string, body interface{}, meta ...string) {
-	ef.events[stream] = append(ef.events[stream], createEventSlice(body, meta))
+func (ef *eventFlusher) Publish(stream string, body interface{}, meta ...string) error {
+	e, err := createEventSlice(body, meta)
+	if err != nil {
+		return err
+	}
+	ef.events[stream] = append(ef.events[stream], e)
+	return nil
 }
 
-func (ef *eventFlusher) Flush() {
+func (ef *eventFlusher) Flush() error {
 	grouped := make(map[RedisCache]map[string][][]string)
 	for stream, events := range ef.events {
 		r, err := getRedisForStream(ef.eb.ctx, stream)
-		checkError(err)
+		if err != nil {
+			return err
+		}
 		if grouped[r] == nil {
 			grouped[r] = make(map[string][][]string)
 		}
@@ -115,9 +130,13 @@ func (ef *eventFlusher) Flush() {
 				p.XAdd(stream, e)
 			}
 		}
-		p.Exec(ef.eb.ctx)
+		_, err := p.Exec(ef.eb.ctx)
+		if err != nil {
+			return err
+		}
 	}
 	ef.events = make(map[string][][]string)
+	return nil
 }
 
 func (orm *ormImplementation) GetEventBroker() EventBroker {
@@ -138,7 +157,11 @@ func (eb *eventBroker) Publish(stream string, body interface{}, meta ...string) 
 	if err != nil {
 		return "", err
 	}
-	return r.xAdd(eb.ctx, stream, createEventSlice(body, meta))
+	values, err := createEventSlice(body, meta)
+	if err != nil {
+		return "", err
+	}
+	return r.xAdd(eb.ctx, stream, values)
 }
 
 func getRedisForStream(orm *ormImplementation, stream string) (RedisCache, error) {
@@ -149,37 +172,43 @@ func getRedisForStream(orm *ormImplementation, stream string) (RedisCache, error
 	return orm.Engine().Redis(pool), nil
 }
 
-type EventConsumerHandler func([]Event)
+type EventConsumerHandler func([]Event) error
 
 type EventsConsumer interface {
-	Consume(count int, blockTime time.Duration, handler EventConsumerHandler)
+	Consume(count int, blockTime time.Duration, handler EventConsumerHandler) error
 	AutoClaim(count int, minIdle time.Duration, handler EventConsumerHandler) error
-	Cleanup()
+	Cleanup() error
 	Name() string
 }
 
-func (eb *eventBroker) ConsumerSingle(ctx Context, stream string) EventsConsumer {
+func (eb *eventBroker) ConsumerSingle(ctx Context, stream string) (EventsConsumer, error) {
 	r, err := getRedisForStream(eb.ctx, stream)
-	checkError(err)
+	if err != nil {
+		return nil, err
+	}
 	return &eventsConsumer{
 		eventConsumerBase: eventConsumerBase{name: "consumer-single", lastID: "0", firstRun: true, many: false, ctx: ctx.(*ormImplementation)},
 		redis:             r,
 		stream:            stream,
-		group:             consumerGroupName}
+		group:             consumerGroupName}, nil
 }
 
-func (eb *eventBroker) ConsumerMany(ctx Context, stream string) EventsConsumer {
+func (eb *eventBroker) ConsumerMany(ctx Context, stream string) (EventsConsumer, error) {
 	r, err := getRedisForStream(eb.ctx, stream)
-	checkError(err)
+	if err != nil {
+		return nil, err
+	}
 	var nr uint64
 	err = binary.Read(rand.Reader, binary.LittleEndian, &nr)
-	checkError(err)
+	if err != nil {
+		return nil, err
+	}
 	name := "consumer-" + time.Now().UTC().Format("2006_01_02_15_04_05") + "-" + strconv.FormatUint(nr, 10)
 	return &eventsConsumer{
 		eventConsumerBase: eventConsumerBase{name: name, firstRun: true, lastID: "0", many: true, ctx: ctx.(*ormImplementation)},
 		redis:             r,
 		stream:            stream,
-		group:             consumerGroupName}
+		group:             consumerGroupName}, nil
 }
 
 type eventConsumerBase struct {
@@ -202,32 +231,43 @@ func (b *eventConsumerBase) Name() string {
 	return b.name
 }
 
-func (r *eventsConsumer) Cleanup() {
-	r.redis.XGroupDelConsumer(r.ctx, r.stream, r.group, r.name)
+func (r *eventsConsumer) Cleanup() error {
+	_, err := r.redis.XGroupDelConsumer(r.ctx, r.stream, r.group, r.name)
+	return err
 }
 
-func (r *eventsConsumer) Consume(count int, blockTime time.Duration, handler EventConsumerHandler) {
+func (r *eventsConsumer) Consume(count int, blockTime time.Duration, handler EventConsumerHandler) error {
 	if r.firstRun {
-		r.consume(count, blockTime, handler)
+		err := r.consume(count, blockTime, handler)
+		if err != nil {
+			return err
+		}
 	}
-	r.consume(count, blockTime, handler)
+	return r.consume(count, blockTime, handler)
 }
 
-func (r *eventsConsumer) initIfNeeded() {
+func (r *eventsConsumer) initIfNeeded() error {
 	if !r.initialized {
-		r.redis.XGroupCreateMkStream(r.ctx, r.stream, r.group, "0")
+		_, _, err := r.redis.XGroupCreateMkStream(r.ctx, r.stream, r.group, "0")
+		if err != nil {
+			return err
+		}
 		r.initialized = true
 	}
+	return nil
 }
 
-func (r *eventsConsumer) consume(count int, blockTime time.Duration, handler EventConsumerHandler) {
-	r.initIfNeeded()
+func (r *eventsConsumer) consume(count int, blockTime time.Duration, handler EventConsumerHandler) error {
+	err := r.initIfNeeded()
+	if err != nil {
+		return err
+	}
 	attributes := &consumeAttributes{
 		BlockTime: blockTime,
 		Count:     count,
 		Handler:   handler,
 	}
-	r.digest(attributes)
+	return r.digest(attributes)
 }
 
 type consumeAttributes struct {
@@ -238,7 +278,10 @@ type consumeAttributes struct {
 }
 
 func (r *eventsConsumer) AutoClaim(count int, minIdle time.Duration, handler EventConsumerHandler) error {
-	r.initIfNeeded()
+	err := r.initIfNeeded()
+	if err != nil {
+		return err
+	}
 	a := &redis.XAutoClaimArgs{
 		Stream:   r.stream,
 		Group:    r.group,
@@ -259,7 +302,10 @@ func (r *eventsConsumer) AutoClaim(count int, minIdle time.Duration, handler Eve
 				events[i] = &event{stream: r.stream, message: message, consumer: r}
 				i++
 			}
-			r.digestEvents(r.ctx, handler, events)
+			err = r.digestEvents(r.ctx, handler, events)
+			if err != nil {
+				return err
+			}
 		}
 		if len(messages) < 1000 {
 			return nil
@@ -308,7 +354,10 @@ func (r *eventsConsumer) digestEvents(ctx Context, handler EventConsumerHandler,
 	if len(events) == 0 {
 		return nil
 	}
-	handler(events)
+	err := handler(events)
+	if err != nil {
+		return err
+	}
 	var toAck map[string][]string
 	for _, ev := range events {
 		ev := ev.(*event)

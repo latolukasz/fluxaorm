@@ -24,14 +24,13 @@ type Context interface {
 	Clone() Context
 	CloneWithContext(context context.Context) Context
 	Engine() Engine
-	NewEntity(entity any)
-	EditEntity(entity any) any
-	DeleteEntity(entity any)
-	ForceDeleteEntity(entity any)
+	NewEntity(entity any) error
+	EditEntity(entity any) (any, error)
+	DeleteEntity(entity any) error
+	ForceDeleteEntity(entity any) error
 	ClearCache()
 	EnableContextCache()
-	Flush()
-	FlushWithCheck() error
+	Flush() error
 	FlushAsync() error
 	ClearFlush()
 	RedisPipeLine(pool string) *RedisPipeLine

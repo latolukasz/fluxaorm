@@ -31,16 +31,18 @@ func TestLoadByIdsLocalRedisCache(t *testing.T) {
 func testLoadByIds(t *testing.T, local, redis bool) {
 	var entity *getByIdsEntity
 	orm := PrepareTables(t, NewRegistry(), entity)
-	schema := GetEntitySchema[getByIdsEntity](orm)
+	schema, found := GetEntitySchema[getByIdsEntity](orm)
+	assert.True(t, found)
 	schema.DisableCache(!local, !redis)
 
 	var ids []uint64
 	for i := 0; i < 10; i++ {
-		entity = NewEntity[getByIdsEntity](orm)
+		entity, err := NewEntity[getByIdsEntity](orm)
+		assert.NoError(t, err)
 		entity.Name = fmt.Sprintf("Name %d", i)
 		ids = append(ids, entity.ID)
 	}
-	err := orm.FlushWithCheck()
+	err := orm.Flush()
 	assert.NoError(t, err)
 
 	loggerDB := &MockLogHandler{}
@@ -49,11 +51,13 @@ func testLoadByIds(t *testing.T, local, redis bool) {
 	orm.RegisterQueryLogger(loggerRedis, false, true, false)
 	loggerLocal := &MockLogHandler{}
 	orm.RegisterQueryLogger(loggerLocal, false, false, false)
-	rows := GetByIDs[getByIdsEntity](orm, ids...)
+	rows, err := GetByIDs[getByIdsEntity](orm, ids...)
+	assert.NoError(t, err)
 	assert.Equal(t, 10, rows.Len())
 	i := 0
 	for rows.Next() {
-		e := rows.Entity()
+		e, err := rows.Entity()
+		assert.NoError(t, err)
 		assert.NotNil(t, e)
 		assert.Equal(t, fmt.Sprintf("Name %d", i), e.Name)
 		i++
@@ -69,16 +73,19 @@ func testLoadByIds(t *testing.T, local, redis bool) {
 	}
 	if redis {
 		rc, _ := schema.GetRedisCache()
-		rc.FlushDB(orm)
+		err = rc.FlushDB(orm)
+		assert.NoError(t, err)
 
 	}
 
-	rows = GetByIDs[getByIdsEntity](orm, ids...)
+	rows, err = GetByIDs[getByIdsEntity](orm, ids...)
+	assert.NoError(t, err)
 	assert.Equal(t, 10, rows.Len())
 
 	i = 0
 	for rows.Next() {
-		e := rows.Entity()
+		e, err := rows.Entity()
+		assert.NoError(t, err)
 		assert.NotNil(t, e)
 		assert.Equal(t, fmt.Sprintf("Name %d", i), e.Name)
 		i++
@@ -86,11 +93,13 @@ func testLoadByIds(t *testing.T, local, redis bool) {
 
 	loggerDB.Clear()
 	if local || redis {
-		rows = GetByIDs[getByIdsEntity](orm, ids...)
+		rows, err = GetByIDs[getByIdsEntity](orm, ids...)
+		assert.NoError(t, err)
 		assert.Equal(t, 10, rows.Len())
 		i = 0
 		for rows.Next() {
-			e := rows.Entity()
+			e, err := rows.Entity()
+			assert.NoError(t, err)
 			assert.NotNil(t, e)
 			assert.Equal(t, fmt.Sprintf("Name %d", i), e.Name)
 			i++
@@ -100,11 +109,14 @@ func testLoadByIds(t *testing.T, local, redis bool) {
 	loggerDB.Clear()
 
 	// invalid ids
-	rows = GetByIDs[getByIdsEntity](orm, 7777, 8888, 9999)
+	rows, err = GetByIDs[getByIdsEntity](orm, 7777, 8888, 9999)
+	assert.NoError(t, err)
 	assert.Equal(t, 3, rows.Len())
 	i = 0
 	for rows.Next() {
-		assert.Nil(t, rows.Entity())
+		e, err := rows.Entity()
+		assert.NoError(t, err)
+		assert.Nil(t, e)
 		i++
 	}
 	assert.Equal(t, 3, i)
@@ -113,10 +125,13 @@ func testLoadByIds(t *testing.T, local, redis bool) {
 	}
 	loggerDB.Clear()
 	if local || redis {
-		rows = GetByIDs[getByIdsEntity](orm, 7777, 8888, 9999)
+		rows, err = GetByIDs[getByIdsEntity](orm, 7777, 8888, 9999)
+		assert.NoError(t, err)
 		assert.Equal(t, 3, rows.Len())
 		for rows.Next() {
-			assert.Nil(t, rows.Entity())
+			e, err := rows.Entity()
+			assert.NoError(t, err)
+			assert.Nil(t, e)
 		}
 		assert.Len(t, loggerDB.Logs, 0)
 	}
@@ -124,38 +139,53 @@ func testLoadByIds(t *testing.T, local, redis bool) {
 		lc, _ := schema.GetLocalCache()
 		lc.Clear(orm)
 		loggerDB.Clear()
-		rows = GetByIDs[getByIdsEntity](orm, 7777, 8888, 9999)
+		rows, err = GetByIDs[getByIdsEntity](orm, 7777, 8888, 9999)
+		assert.NoError(t, err)
 		assert.Equal(t, 3, rows.Len())
 		for rows.Next() {
-			assert.Nil(t, rows.Entity())
+			e, err := rows.Entity()
+			assert.NoError(t, err)
+			assert.Nil(t, e)
 		}
 		assert.Len(t, loggerDB.Logs, 0)
 		loggerLocal.Clear()
 		loggerRedis.Clear()
-		rows = GetByIDs[getByIdsEntity](orm, 7777, 8888, 9999)
+		rows, err = GetByIDs[getByIdsEntity](orm, 7777, 8888, 9999)
+		assert.NoError(t, err)
 		assert.Equal(t, 3, rows.Len())
 		for rows.Next() {
-			assert.Nil(t, rows.Entity())
+			e, err := rows.Entity()
+			assert.NoError(t, err)
+			assert.Nil(t, e)
 		}
 		assert.Len(t, loggerDB.Logs, 0)
 		assert.Len(t, loggerRedis.Logs, 0)
 	}
 
 	// missing one
-	rows = GetByIDs[getByIdsEntity](orm, ids[0], 7777, ids[1])
+	rows, err = GetByIDs[getByIdsEntity](orm, ids[0], 7777, ids[1])
+	assert.NoError(t, err)
 	assert.Equal(t, 3, rows.Len())
 	rows.Next()
-	assert.NotNil(t, rows.Entity())
+	e, err := rows.Entity()
+	assert.NoError(t, err)
+	assert.NotNil(t, e)
 	rows.Next()
-	assert.Nil(t, rows.Entity())
+	e, err = rows.Entity()
+	assert.NoError(t, err)
+	assert.Nil(t, e)
 	rows.Next()
-	assert.NotNil(t, rows.Entity())
+	e, err = rows.Entity()
+	assert.NoError(t, err)
+	assert.NotNil(t, e)
 
 	// duplicated
-	rows = GetByIDs[getByIdsEntity](orm, ids[0], ids[0], ids[0])
+	rows, err = GetByIDs[getByIdsEntity](orm, ids[0], ids[0], ids[0])
+	assert.NoError(t, err)
 	assert.Equal(t, 3, rows.Len())
 	for rows.Next() {
-		e := rows.Entity()
+		e, err := rows.Entity()
+		assert.NoError(t, err)
 		assert.NotNil(t, e)
 		assert.Equal(t, ids[0], e.ID)
 		assert.Equal(t, "Name 0", e.Name)
