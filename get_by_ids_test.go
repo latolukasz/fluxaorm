@@ -31,8 +31,8 @@ func TestLoadByIdsLocalRedisCache(t *testing.T) {
 func testLoadByIds(t *testing.T, local, redis bool) {
 	var entity *getByIdsEntity
 	orm := PrepareTables(t, NewRegistry(), entity)
-	schema, found := GetEntitySchema[getByIdsEntity](orm)
-	assert.True(t, found)
+	schema, err := GetEntitySchema[getByIdsEntity](orm)
+	assert.NoError(t, err)
 	schema.DisableCache(!local, !redis)
 
 	var ids []uint64
@@ -42,7 +42,7 @@ func testLoadByIds(t *testing.T, local, redis bool) {
 		entity.Name = fmt.Sprintf("Name %d", i)
 		ids = append(ids, entity.ID)
 	}
-	err := orm.Flush()
+	err = orm.Flush()
 	assert.NoError(t, err)
 
 	loggerDB := &MockLogHandler{}

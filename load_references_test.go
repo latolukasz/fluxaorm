@@ -46,13 +46,13 @@ func testLoadReferences(t *testing.T, local, redis bool) {
 	var ref1 *loadSubReferenceEntity1
 	var ref2 *loadSubReferenceEntity2
 	orm := PrepareTables(t, NewRegistry(), entity, ref1, ref2)
-	schema, found := GetEntitySchema[loadReferenceEntity](orm)
-	assert.True(t, found)
+	schema, err := GetEntitySchema[loadReferenceEntity](orm)
+	assert.NoError(t, err)
 	schema.DisableCache(!local, !redis)
-	schema2, found := GetEntitySchema[loadSubReferenceEntity1](orm)
-	assert.True(t, found)
-	schema3, found := GetEntitySchema[loadSubReferenceEntity2](orm)
-	assert.True(t, found)
+	schema2, err := GetEntitySchema[loadSubReferenceEntity1](orm)
+	assert.NoError(t, err)
+	schema3, err := GetEntitySchema[loadSubReferenceEntity2](orm)
+	assert.NoError(t, err)
 	schema2.DisableCache(!local, !redis)
 	schema3.DisableCache(!local, !redis)
 
@@ -91,7 +91,7 @@ func testLoadReferences(t *testing.T, local, redis bool) {
 			ref1.SubRef2 = Reference[loadSubReferenceEntity2](sub2.ID)
 		}
 	}
-	err := orm.Flush()
+	err = orm.Flush()
 	assert.NoError(t, err)
 
 	iterator, err := Search[loadReferenceEntity](orm, NewWhere("1"), nil)

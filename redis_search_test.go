@@ -48,8 +48,8 @@ func TestRedisSearch(t *testing.T) {
 	var entity *redisSearchEntity
 	reg := NewRegistry()
 	orm := PrepareTables(t, reg, entity, redisSearchEntityReference{}, redisSearchCustom{})
-	schema, found := GetEntitySchema[redisSearchEntity](orm)
-	assert.True(t, found)
+	schema, err := GetEntitySchema[redisSearchEntity](orm)
+	assert.NoError(t, err)
 	r := orm.Engine().Redis(schema.GetRedisSearchPoolCode())
 
 	var ids []uint64
@@ -86,7 +86,7 @@ func TestRedisSearch(t *testing.T) {
 		ids = append(ids, entity.ID)
 		idsReferences = append(idsReferences, reference.ID)
 	}
-	err := orm.Flush()
+	err = orm.Flush()
 	assert.NoError(t, err)
 
 	testRedisSearchResults(t, r, orm, schema, ids, now, idsReferences)
@@ -120,7 +120,7 @@ func TestRedisSearch(t *testing.T) {
 
 	query := NewRedisSearchQuery()
 	query.AddFilterNumber("Age", 1)
-	_, found, err = RedisSearchOne[redisSearchEntity](orm, query)
+	_, found, err := RedisSearchOne[redisSearchEntity](orm, query)
 	assert.NoError(t, err)
 	assert.False(t, found)
 

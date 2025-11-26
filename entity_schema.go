@@ -17,12 +17,8 @@ import (
 
 const redisSearchIndexPrefix = "orm:"
 
-func GetEntitySchema[E any](ctx Context) (EntitySchema, bool) {
-	e, err := getEntitySchema[E](ctx)
-	if err != nil {
-		return nil, false
-	}
-	return e, true
+func GetEntitySchema[E any](ctx Context) (EntitySchema, error) {
+	return getEntitySchema[E](ctx)
 }
 
 func getEntitySchema[E any](ctx Context) (*entitySchema, error) {

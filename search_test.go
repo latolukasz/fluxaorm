@@ -14,8 +14,8 @@ type searchEntity struct {
 func TestSearch(t *testing.T) {
 	var entity *searchEntity
 	orm := PrepareTables(t, NewRegistry(), entity)
-	schema, has := GetEntitySchema[searchEntity](orm)
-	assert.True(t, has)
+	schema, err := GetEntitySchema[searchEntity](orm)
+	assert.NoError(t, err)
 
 	var ids []uint64
 	for i := 1; i <= 10; i++ {
@@ -24,7 +24,7 @@ func TestSearch(t *testing.T) {
 		entity.Name = "name %d"
 		ids = append(ids, entity.ID)
 	}
-	err := orm.Flush()
+	err = orm.Flush()
 	assert.NoError(t, err)
 
 	rows, total, err := SearchWithCount[searchEntity](orm, NewWhere("ID > ?", ids[1]), nil)

@@ -31,8 +31,8 @@ func TestGetByIdLocalRedisCache(t *testing.T) {
 func testGetByID(t *testing.T, local, redis bool) {
 	var entity *getByIDEntity
 	orm := PrepareTables(t, NewRegistry(), entity)
-	schema, found := GetEntitySchema[getByIDEntity](orm)
-	assert.True(t, found)
+	schema, err := GetEntitySchema[getByIDEntity](orm)
+	assert.NoError(t, err)
 	schema.DisableCache(!local, !redis)
 
 	var ids []uint64
@@ -42,7 +42,7 @@ func testGetByID(t *testing.T, local, redis bool) {
 		entity.Name = fmt.Sprintf("Name %d", i)
 		ids = append(ids, entity.ID)
 	}
-	err := orm.Flush()
+	err = orm.Flush()
 	assert.NoError(t, err)
 
 	loggerDB := &MockLogHandler{}
@@ -51,7 +51,7 @@ func testGetByID(t *testing.T, local, redis bool) {
 	orm.RegisterQueryLogger(loggerRedis, false, true, false)
 	loggerLocal := &MockLogHandler{}
 	orm.RegisterQueryLogger(loggerLocal, false, false, false)
-	entity, found, err = GetByID[getByIDEntity](orm, ids[0])
+	entity, found, err := GetByID[getByIDEntity](orm, ids[0])
 	assert.NoError(t, err)
 	assert.True(t, found)
 	assert.NotNil(t, entity)

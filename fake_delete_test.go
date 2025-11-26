@@ -20,9 +20,32 @@ type testFakeDeleteEntityReference struct {
 	Name string
 }
 
-func TestFakeDelete(t *testing.T) {
+func TestFakeDeleteNoCache(t *testing.T) {
+	testFakeDelete(t, false, false)
+}
+
+func TestFakeDeleteRedis(t *testing.T) {
+	testFakeDelete(t, false, true)
+}
+
+func TestFakeDeleteLocal(t *testing.T) {
+	testFakeDelete(t, true, false)
+}
+
+func TestFakeDeleteLocalRedis(t *testing.T) {
+	testFakeDelete(t, true, true)
+}
+
+func testFakeDelete(t *testing.T, local, redis bool) {
 	registry := NewRegistry()
 	orm := PrepareTables(t, registry, &testFakeDeleteEntity{}, &testFakeDeleteEntityReference{})
+
+	schema, err := GetEntitySchema[testFakeDeleteEntity](orm)
+	assert.NoError(t, err)
+	schema.DisableCache(!local, !redis)
+	schema, err = GetEntitySchema[testFakeDeleteEntityReference](orm)
+	assert.NoError(t, err)
+	schema.DisableCache(!local, !redis)
 
 	entity, err := NewEntity[testFakeDeleteEntity](orm)
 	assert.NoError(t, err)
@@ -46,9 +69,17 @@ func TestFakeDelete(t *testing.T) {
 	err = orm.Flush()
 	assert.NoError(t, err)
 
-	err = orm.DeleteEntity(entity2)
+	_, found, err := GetByID[testFakeDeleteEntity](orm, entity2.ID)
+	assert.NoError(t, err)
+	assert.True(t, found)
+	err = DeleteEntity(orm, entity2)
 	assert.NoError(t, err)
 	assert.NoError(t, orm.Flush())
+
+	deleted, found, err := GetByID[testFakeDeleteEntity](orm, entity2.ID)
+	assert.NoError(t, err)
+	assert.True(t, found)
+	assert.True(t, deleted.FakeDelete)
 
 	rows, err := Search[testFakeDeleteEntity](orm, NewWhere("1"), nil)
 	assert.NoError(t, err)

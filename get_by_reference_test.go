@@ -44,8 +44,8 @@ func TestGetByReferenceLocalRedisCache(t *testing.T) {
 func testGetByReference(t *testing.T, local, redis bool) {
 	var entity *getByReferenceEntity
 	orm := PrepareTables(t, NewRegistry(), entity, getByReferenceReference{}, getByReferenceReferenceNoCache{})
-	schema, found := GetEntitySchema[getByReferenceEntity](orm)
-	assert.True(t, found)
+	schema, err := GetEntitySchema[getByReferenceEntity](orm)
+	assert.NoError(t, err)
 	schema.DisableCache(!local, !redis)
 
 	loggerDB := &MockLogHandler{}
@@ -269,6 +269,7 @@ func testGetByReference(t *testing.T, local, redis bool) {
 	assert.NoError(t, err)
 	assert.Equal(t, 2, rows.Len())
 	rows, err = GetByReference[getByReferenceEntity](orm, nil, "RefCached", ref.ID)
+	assert.NoError(t, err)
 	assert.Equal(t, 7, rows.Len())
 	err = EditEntityField(orm, entities[0], "RefCached", ref)
 	assert.NoError(t, err)

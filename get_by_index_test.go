@@ -34,8 +34,8 @@ func TestGetByIndexLocalRedisCache(t *testing.T) {
 func testGetByIndex(t *testing.T, local, redis bool) {
 	var entity *getByIndexEntity
 	orm := PrepareTables(t, NewRegistry(), entity)
-	schema, found := GetEntitySchema[getByIndexEntity](orm)
-	assert.True(t, found)
+	schema, err := GetEntitySchema[getByIndexEntity](orm)
+	assert.NoError(t, err)
 	schema.DisableCache(!local, !redis)
 
 	loggerDB := &MockLogHandler{}

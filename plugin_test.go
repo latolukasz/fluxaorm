@@ -98,8 +98,8 @@ func TestPlugin(t *testing.T) {
 	registry = NewRegistry()
 	registry.RegisterPlugin(&testPluginToTest{})
 	orm = PrepareTables(t, registry, testPluginEntity{})
-	schema, found := GetEntitySchema[testPluginEntity](orm)
-	assert.True(t, found)
+	schema, err := GetEntitySchema[testPluginEntity](orm)
+	assert.NoError(t, err)
 	assert.Equal(t, "c", schema.Option("ValidateEntitySchema"))
 
 	registry = NewRegistry()

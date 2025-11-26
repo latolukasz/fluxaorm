@@ -44,8 +44,8 @@ func TestGetByUniqueIndexLocalRedisCache(t *testing.T) {
 func testGetByUniqueIndex(t *testing.T, local, redis bool) {
 	var entity *getByUniqueIndexEntity
 	orm := PrepareTables(t, NewRegistry(), entity, getByUniqueIndexReference{})
-	schema, found := GetEntitySchema[getByUniqueIndexEntity](orm)
-	assert.True(t, found)
+	schema, err := GetEntitySchema[getByUniqueIndexEntity](orm)
+	assert.NoError(t, err)
 	schema.DisableCache(!local, !redis)
 
 	var entities []*getByUniqueIndexEntity
@@ -72,10 +72,10 @@ func testGetByUniqueIndex(t *testing.T, local, redis bool) {
 		entities = append(entities, entity)
 		refs = append(refs, ref)
 	}
-	err := orm.Flush()
+	err = orm.Flush()
 	assert.NoError(t, err)
 
-	entity, found, err = GetByUniqueIndex[getByUniqueIndexEntity](orm, "Name", "Name 3")
+	entity, found, err := GetByUniqueIndex[getByUniqueIndexEntity](orm, "Name", "Name 3")
 	assert.NoError(t, err)
 	assert.NoError(t, err)
 	assert.True(t, found)

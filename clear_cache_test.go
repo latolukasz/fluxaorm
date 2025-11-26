@@ -23,8 +23,8 @@ func TestClearEntity(t *testing.T) {
 	entity.Age = 2
 	assert.NoError(t, orm.Flush())
 
-	schema, has := GetEntitySchema[clearEntity](orm)
-	assert.True(t, has)
+	schema, err := GetEntitySchema[clearEntity](orm)
+	assert.NoError(t, err)
 	cleared, err := schema.ClearCache(orm)
 	assert.NoError(t, err)
 	assert.Equal(t, 5, cleared)

@@ -87,8 +87,8 @@ func testUpdateFieldExecute(t *testing.T, async, local, redis bool) {
 	var reference *updateEntityReference
 	orm := PrepareTables(t, NewRegistry(), entity, reference)
 
-	schema, hasSchema := GetEntitySchema[updateEntity](orm)
-	assert.True(t, hasSchema)
+	schema, err := GetEntitySchema[updateEntity](orm)
+	assert.NoError(t, err)
 	schema.DisableCache(!local, !redis)
 
 	var ids []uint64
@@ -110,7 +110,7 @@ func testUpdateFieldExecute(t *testing.T, async, local, redis bool) {
 		entity.Level1.Set = []testEnum{testEnumDefinition.A}
 		ids = append(ids, uint64(entity.ID))
 	}
-	err := orm.Flush()
+	err = orm.Flush()
 	assert.NoError(t, err)
 
 	/* string */

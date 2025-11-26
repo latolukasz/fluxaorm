@@ -225,8 +225,8 @@ func testFlushInsert(t *testing.T, async, local, redis bool) {
 	r := NewRegistry()
 	orm := PrepareTables(t, r, flushEntity{}, flushEntityReference{})
 
-	schema, found := GetEntitySchema[flushEntity](orm)
-	assert.True(t, found)
+	schema, err := GetEntitySchema[flushEntity](orm)
+	assert.NoError(t, err)
 	schema.DisableCache(!local, !redis)
 
 	reference, err := NewEntity[flushEntityReference](orm)
@@ -749,8 +749,8 @@ func testFlushDelete(t *testing.T, async, local, redis bool) {
 	registry := NewRegistry()
 	orm := PrepareTables(t, registry, flushEntity{}, flushEntityReference{})
 
-	schema, found := GetEntitySchema[flushEntity](orm)
-	assert.True(t, found)
+	schema, err := GetEntitySchema[flushEntity](orm)
+	assert.NoError(t, err)
 	schema.DisableCache(!local, !redis)
 
 	reference, err := NewEntity[flushEntityReference](orm)
@@ -789,7 +789,7 @@ func testFlushDelete(t *testing.T, async, local, redis bool) {
 		assert.NoError(t, err)
 	}
 
-	entity, found, err = GetByID[flushEntity](orm, uint64(id))
+	entity, found, err := GetByID[flushEntity](orm, uint64(id))
 	assert.NoError(t, err)
 	assert.False(t, found)
 
@@ -806,8 +806,8 @@ func testFlushUpdate(t *testing.T, async, local, redis bool) {
 	registry := NewRegistry()
 	orm := PrepareTables(t, registry, flushEntity{}, flushEntityReference{})
 
-	schema, found := GetEntitySchema[flushEntity](orm)
-	assert.True(t, found)
+	schema, err := GetEntitySchema[flushEntity](orm)
+	assert.NoError(t, err)
 	schema.DisableCache(!local, !redis)
 
 	reference, err := NewEntity[flushEntityReference](orm)
@@ -1134,7 +1134,7 @@ func testFlushUpdate(t *testing.T, async, local, redis bool) {
 	copiedEntity.City = "Copy"
 	copiedEntity.Name = "Copy"
 	assert.NoError(t, orm.Flush())
-	copiedEntity, found, err = GetByID[flushEntity](orm, uint64(copiedEntity.ID))
+	copiedEntity, found, err := GetByID[flushEntity](orm, uint64(copiedEntity.ID))
 	assert.NoError(t, err)
 	assert.True(t, found)
 	assert.NotNil(t, copiedEntity)
@@ -1295,8 +1295,8 @@ func TestFlushTransaction(t *testing.T) {
 	registry := NewRegistry()
 	orm := PrepareTables(t, registry, flushEntity{}, flushEntityReference{})
 
-	schema, found := GetEntitySchema[flushEntity](orm)
-	assert.True(t, found)
+	schema, err := GetEntitySchema[flushEntity](orm)
+	assert.NoError(t, err)
 	schema.DisableCache(true, true)
 
 	loggerDB := &MockLogHandler{}

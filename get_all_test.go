@@ -37,8 +37,8 @@ func testGetAll(t *testing.T, local, redis bool) {
 	var entity *getByAllCachedEntity
 	var entityNotCached *getByAllNotCachedEntity
 	orm := PrepareTables(t, NewRegistry(), entity, entityNotCached)
-	schema, found := GetEntitySchema[getByAllCachedEntity](orm)
-	assert.True(t, found)
+	schema, err := GetEntitySchema[getByAllCachedEntity](orm)
+	assert.NoError(t, err)
 	schema.DisableCache(!local, !redis)
 
 	loggerDB := &MockLogHandler{}
