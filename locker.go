@@ -63,6 +63,7 @@ func (l *Locker) Obtain(ctx Context, key string, ttl time.Duration, waitTimeout 
 				message := fmt.Sprintf("LOCK OBTAIN %s TTL %s WAIT %s", key, ttl.String(), waitTimeout.String())
 				l.fillLogFields(ctx, "LOCK OBTAIN", message, end, true, nil)
 			}
+			l.fillMetrics(ctx, end, true, true)
 			return nil, false, nil
 		}
 	}
@@ -70,11 +71,27 @@ func (l *Locker) Obtain(ctx Context, key string, ttl time.Duration, waitTimeout 
 		message := fmt.Sprintf("LOCK OBTAIN %s TTL %s WAIT %s", key, ttl.String(), waitTimeout.String())
 		l.fillLogFields(ctx, "LOCK OBTAIN", message, end, false, nil)
 	}
+	l.fillMetrics(ctx, end, true, false)
 	if err != nil {
 		return nil, false, err
 	}
 	lock = &Lock{lock: redisLock, locker: l, ttl: ttl, key: key, has: true}
 	return lock, true, nil
+}
+
+func (l *Locker) fillMetrics(ctx Context, end time.Duration, set, miss bool) {
+	metrics, hasMetrics := ctx.Engine().Registry().getMetricsRegistry()
+	if hasMetrics {
+		missValue := "0"
+		if !miss {
+			missValue = "1"
+		}
+		setValue := "0"
+		if set {
+			setValue = "1"
+		}
+		metrics.queriesRedis.WithLabelValues("lock", l.r.config.GetCode(), setValue, missValue).Observe(float64(end.Microseconds()))
+	}
 }
 
 type Lock struct {
@@ -102,6 +119,7 @@ func (l *Lock) Release(ctx Context) {
 	if hasLogger {
 		l.locker.fillLogFields(ctx, "LOCK RELEASE", "LOCK RELEASE "+l.key, end, !ok, err)
 	}
+	l.locker.fillMetrics(ctx, end, true, false)
 }
 
 func (l *Lock) TTL(ctx Context) (time.Duration, error) {
@@ -112,6 +130,7 @@ func (l *Lock) TTL(ctx Context) (time.Duration, error) {
 	if hasLogger {
 		l.locker.fillLogFields(ctx, "LOCK TTL", "LOCK TTL "+l.key, end, false, err)
 	}
+	l.locker.fillMetrics(ctx, end, true, false)
 	return t, err
 }
 
@@ -133,6 +152,7 @@ func (l *Lock) Refresh(ctx Context, ttl time.Duration) (bool, error) {
 		message := fmt.Sprintf("LOCK REFRESH %s %s", l.key, l.ttl)
 		l.locker.fillLogFields(ctx, "LOCK REFRESH", message, end, !ok, err)
 	}
+	l.locker.fillMetrics(ctx, end, true, false)
 	if err != nil {
 		return false, err
 	}

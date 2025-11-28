@@ -138,6 +138,13 @@ func (f *editableFields) flushType() FlushType {
 func (f *editableFields) getBind() (new, old, forcedNew, forcedOld Bind, err error) {
 	forcedNew = Bind{}
 	forcedOld = Bind{}
+	fakeDeleted := false
+	if f.schema.hasFakeDelete {
+		v, has := f.newBind["FakeDelete"]
+		if has {
+			fakeDeleted = v.(uint64) > 0
+		}
+	}
 	uniqueIndexes := f.schema.GetUniqueIndexes()
 	if len(uniqueIndexes) > 0 {
 		for _, indexColumns := range uniqueIndexes {
@@ -172,15 +179,17 @@ func (f *editableFields) getBind() (new, old, forcedNew, forcedOld Bind, err err
 		}
 	}
 	for _, def := range f.schema.cachedIndexes {
-		if len(def.Columns) == 1 {
+		if len(def.Columns) == 1 && !fakeDeleted {
 			continue
 		}
-		indexChanged := false
-		for _, indexColumn := range def.Columns {
-			_, has := f.newBind[indexColumn]
-			if has {
-				indexChanged = true
-				break
+		indexChanged := fakeDeleted
+		if !indexChanged {
+			for _, indexColumn := range def.Columns {
+				_, has := f.newBind[indexColumn]
+				if has {
+					indexChanged = true
+					break
+				}
 			}
 		}
 		if !indexChanged {
@@ -199,6 +208,22 @@ func (f *editableFields) getBind() (new, old, forcedNew, forcedOld Bind, err err
 				forcedNew[column] = val
 			}
 			forcedOld[column] = val
+		}
+	}
+	if fakeDeleted {
+		for column := range f.schema.cachedReferences {
+			_, calculated := forcedNew[column]
+			if calculated {
+				continue
+			}
+			getter := f.schema.fieldGetters[column]
+			val := getter(f.value.Elem())
+			setter := f.schema.fieldBindSetters[column]
+			val, err = setter(val)
+			if err != nil {
+				return nil, nil, nil, nil, err
+			}
+			forcedNew[column] = val
 		}
 	}
 	return f.newBind, f.oldBind, forcedNew, forcedOld, nil

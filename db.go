@@ -255,6 +255,7 @@ func (db *dbImplementation) Commit(ctx Context) error {
 	if hasLogger {
 		db.fillLogFields(ctx, "TRANSACTION", "COMMIT", end, err)
 	}
+	db.fillMetrics(ctx, end, "transaction")
 	return err
 }
 
@@ -270,6 +271,7 @@ func (db *dbImplementation) Rollback(ctx Context) error {
 	if hasLogger {
 		db.fillLogFields(ctx, "TRANSACTION", "ROLLBACK", end, err)
 	}
+	db.fillMetrics(ctx, end, "transaction")
 	return err
 }
 
@@ -281,6 +283,7 @@ func (db *dbImplementation) Begin(ctx Context) (DBTransaction, error) {
 	if hasLogger {
 		db.fillLogFields(ctx, "TRANSACTION", "START TRANSACTION", end, err)
 	}
+	db.fillMetrics(ctx, end, "transaction")
 	if err != nil {
 		return nil, err
 	}
@@ -315,7 +318,7 @@ func (db *dbImplementation) Exec(ctx Context, query string, args ...any) (ExecRe
 func (db *dbImplementation) fillMetrics(ctx Context, end time.Duration, name string) {
 	metrics, hasMetrics := ctx.Engine().Registry().getMetricsRegistry()
 	if hasMetrics {
-		metrics.queriesDBTotal.WithLabelValues(name, db.GetConfig().GetCode()).Observe(float64(end.Microseconds()))
+		metrics.queriesDB.WithLabelValues(name, db.GetConfig().GetCode()).Observe(float64(end.Microseconds()))
 	}
 }
 

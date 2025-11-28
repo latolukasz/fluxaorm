@@ -642,6 +642,7 @@ func (orm *ormImplementation) handleUpdates(async bool, schema *entitySchema, op
 		if len(schema.cachedUniqueIndexes) > 0 {
 			cache := orm.Engine().Redis(schema.getForcedRedisCode())
 			for indexName, definition := range schema.cachedUniqueIndexes {
+				ss
 				indexChanged := false
 				for _, column := range definition.Columns {
 					_, changed := newBind[column]
@@ -883,8 +884,33 @@ func (orm *ormImplementation) handleUpdates(async bool, schema *entitySchema, op
 				}
 			}
 		}
+		fakeDeleted := false
+		if schema.hasFakeDelete {
+			v, has := newBind["FakeDelete"]
+			if has && v.(uint64) > 0 {
+				fakeDeleted = true
+			}
+		}
 
 		for columnName := range schema.cachedReferences {
+			if fakeDeleted {
+				val := forcedNew[columnName]
+				oldAsInt, is := val.(uint64)
+				if !is {
+					continue
+				}
+				if schema.hasLocalCache {
+					orm.flushPostActions = append(orm.flushPostActions, func(_ Context) {
+						schema.localCache.removeList(orm, columnName, oldAsInt)
+					})
+				}
+				redisSetKey := schema.cacheKey + ":" + columnName + ":" + strconv.FormatUint(oldAsInt, 10)
+				orm.RedisPipeLine(schema.getForcedRedisCode()).SRem(redisSetKey, strconv.FormatUint(update.ID(), 10))
+				if schema.cacheTTL > 0 {
+					orm.RedisPipeLine(schema.getForcedRedisCode()).Expire(redisSetKey, time.Duration(schema.cacheTTL)*time.Second)
+				}
+				continue
+			}
 			id, has := newBind[columnName]
 			if !has {
 				continue
@@ -934,7 +960,7 @@ func (orm *ormImplementation) handleUpdates(async bool, schema *entitySchema, op
 					break
 				}
 			}
-			if !indexChanged {
+			if !indexChanged && !fakeDeleted {
 				continue
 			}
 			indexAttributes := make([]any, len(def.Columns))
@@ -951,16 +977,18 @@ func (orm *ormImplementation) handleUpdates(async bool, schema *entitySchema, op
 			if err != nil {
 				return err
 			}
-			if schema.hasLocalCache {
-				orm.flushPostActions = append(orm.flushPostActions, func(_ Context) {
-					schema.localCache.removeList(orm, key, id)
-				})
-			}
-			redisSetKey := schema.cacheKey + ":" + key + ":" + strconv.FormatUint(id, 10)
-			idAsString := strconv.FormatUint(update.ID(), 10)
-			orm.RedisPipeLine(schema.getForcedRedisCode()).SAdd(redisSetKey, idAsString)
-			if schema.cacheTTL > 0 {
-				orm.RedisPipeLine(schema.getForcedRedisCode()).Expire(redisSetKey, time.Duration(schema.cacheTTL)*time.Second)
+			if !fakeDeleted {
+				if schema.hasLocalCache {
+					orm.flushPostActions = append(orm.flushPostActions, func(_ Context) {
+						schema.localCache.removeList(orm, key, id)
+					})
+				}
+				redisSetKey := schema.cacheKey + ":" + key + ":" + strconv.FormatUint(id, 10)
+				idAsString := strconv.FormatUint(update.ID(), 10)
+				orm.RedisPipeLine(schema.getForcedRedisCode()).SAdd(redisSetKey, idAsString)
+				if schema.cacheTTL > 0 {
+					orm.RedisPipeLine(schema.getForcedRedisCode()).Expire(redisSetKey, time.Duration(schema.cacheTTL)*time.Second)
+				}
 			}
 
 			indexAttributes = indexAttributes[0:len(def.Columns)]
@@ -981,29 +1009,24 @@ func (orm *ormImplementation) handleUpdates(async bool, schema *entitySchema, op
 					schema.localCache.removeList(orm, key2, id2)
 				})
 			}
-			redisSetKey = schema.cacheKey + ":" + key2 + ":" + strconv.FormatUint(id2, 10)
+			redisSetKey := schema.cacheKey + ":" + key2 + ":" + strconv.FormatUint(id2, 10)
 			orm.RedisPipeLine(schema.getForcedRedisCode()).SRem(redisSetKey, idAsString)
 			if schema.cacheTTL > 0 {
 				orm.RedisPipeLine(schema.getForcedRedisCode()).Expire(redisSetKey, time.Duration(schema.cacheTTL)*time.Second)
 			}
 		}
-		fakeDeleted := false
-		if schema.hasFakeDelete {
-			v, has := newBind["FakeDelete"]
-			if has && v.(uint64) > 0 {
-				fakeDeleted = true
-				if len(schema.dirtyDeleted) > 0 {
-					rsPool := orm.RedisPipeLine(schema.getForcedRedisCode())
-					if idAsString == "" {
-						idAsString = strconv.FormatUint(operation.ID(), 10)
-					}
-					e, err := createEventSlice(newBind, []string{"action", "delete", "entity", schema.t.String(), "id", idAsString})
-					if err != nil {
-						return err
-					}
-					for _, dirtyDef := range schema.dirtyDeleted {
-						rsPool.XAdd("dirty_"+dirtyDef.Stream, e)
-					}
+		if fakeDeleted {
+			if len(schema.dirtyDeleted) > 0 {
+				rsPool := orm.RedisPipeLine(schema.getForcedRedisCode())
+				if idAsString == "" {
+					idAsString = strconv.FormatUint(operation.ID(), 10)
+				}
+				e, err := createEventSlice(newBind, []string{"action", "delete", "entity", schema.t.String(), "id", idAsString})
+				if err != nil {
+					return err
+				}
+				for _, dirtyDef := range schema.dirtyDeleted {
+					rsPool.XAdd("dirty_"+dirtyDef.Stream, e)
 				}
 			}
 		}

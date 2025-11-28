@@ -23,7 +23,7 @@ func TestMetrics(t *testing.T) {
 	registry.EnableMetrics(factory)
 	orm := PrepareTables(t, registry)
 
-	stat := testMetric(t, "fluxaorm_db_queries_total")
+	stat := testMetric(t, "fluxaorm_db_queries")
 	assert.NotNil(t, stat)
 	initialDBSelectCount := stat.Metric[0].GetHistogram().GetSampleCount()
 
@@ -32,7 +32,7 @@ func TestMetrics(t *testing.T) {
 	_, err := db.QueryRow(orm, NewWhere("SELECT 1"), &fake)
 	assert.NoError(t, err)
 
-	stat = testMetric(t, "fluxaorm_db_queries_total")
+	stat = testMetric(t, "fluxaorm_db_queries")
 	assert.NotNil(t, stat)
 	assert.Equal(t, "Total number of DB queries executed", stat.GetHelp())
 	assert.Equal(t, io_prometheus_client.MetricType_HISTOGRAM, stat.GetType())
@@ -44,7 +44,7 @@ func TestMetrics(t *testing.T) {
 	_, cl, err := db.Query(orm, "SELECT 1")
 	defer cl()
 	assert.NoError(t, err)
-	stat = testMetric(t, "fluxaorm_db_queries_total")
+	stat = testMetric(t, "fluxaorm_db_queries")
 	assert.Len(t, stat.Metric, 1)
 	assert.Equal(t, uint64(2), stat.Metric[0].GetHistogram().GetSampleCount()-initialDBSelectCount)
 	testMetricLabel(t, stat, map[string]string{"operation": "select", "pool": DefaultPoolCode}, 0)
@@ -52,12 +52,19 @@ func TestMetrics(t *testing.T) {
 
 	_, err = db.Exec(orm, "SELECT 1")
 	assert.NoError(t, err)
-	stat = testMetric(t, "fluxaorm_db_queries_total")
+	stat = testMetric(t, "fluxaorm_db_queries")
 	assert.Len(t, stat.Metric, 2)
 	assert.Equal(t, uint64(2), stat.Metric[1].GetHistogram().GetSampleCount()-initialDBSelectCount)
 	testMetricLabel(t, stat, map[string]string{"operation": "select", "pool": DefaultPoolCode}, 1)
 	assert.Equal(t, uint64(1), stat.Metric[0].GetHistogram().GetSampleCount())
 	testMetricLabel(t, stat, map[string]string{"operation": "exec", "pool": DefaultPoolCode}, 0)
+
+	tx, err := db.Begin(orm)
+	assert.NoError(t, err)
+	err = tx.Commit(orm)
+	assert.NoError(t, err)
+	stat = testMetric(t, "fluxaorm_db_queries")
+	assert.Len(t, stat.Metric, 3)
 }
 
 func testMetric(t *testing.T, name string) *io_prometheus_client.MetricFamily {
