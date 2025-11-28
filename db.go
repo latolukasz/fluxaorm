@@ -49,13 +49,6 @@ type ExecResult interface {
 	RowsAffected() (uint64, error)
 }
 
-type PreparedStmt interface {
-	Exec(ctx Context, args ...any) (ExecResult, error)
-	Query(ctx Context, args ...any) (rows Rows, close func(), err error)
-	QueryRow(ctx Context, args []any, toFill ...any) (row SQLRow, found bool)
-	Close() error
-}
-
 type execResult struct {
 	r sql.Result
 }
@@ -77,7 +70,6 @@ func (e *execResult) RowsAffected() (uint64, error) {
 }
 
 type sqlClientBase interface {
-	Prepare(query string) (*sql.Stmt, error)
 	Exec(query string, args ...any) (sql.Result, error)
 	ExecContext(context context.Context, query string, args ...any) (sql.Result, error)
 	QueryRow(query string, args ...any) SQLRow
@@ -98,7 +90,6 @@ type txClient interface {
 }
 
 type DBClientQuery interface {
-	Prepare(query string) (*sql.Stmt, error)
 	Exec(query string, args ...any) (sql.Result, error)
 	ExecContext(context context.Context, query string, args ...any) (sql.Result, error)
 	QueryRow(query string, args ...any) *sql.Row
@@ -135,14 +126,6 @@ func (tx *txSQLClient) Commit() error {
 
 func (tx *txSQLClient) Rollback() error {
 	return tx.tx.Rollback()
-}
-
-func (db *standardSQLClient) Prepare(query string) (*sql.Stmt, error) {
-	res, err := db.db.Prepare(query)
-	if err != nil {
-		return nil, err
-	}
-	return res, nil
 }
 
 func (db *standardSQLClient) Exec(query string, args ...any) (sql.Result, error) {
@@ -263,13 +246,14 @@ func (db *dbImplementation) Commit(ctx Context) error {
 		return nil
 	}
 	hasLogger, _ := ctx.getDBLoggers()
-	start := getNow(hasLogger)
+	start := time.Now()
 	err := db.client.(txClient).Commit()
+	end := time.Since(start)
 	db.client.(*txSQLClient).db = nil
 	db.client.(*txSQLClient).tx = nil
 	db.transaction = false
 	if hasLogger {
-		db.fillLogFields(ctx, "TRANSACTION", "COMMIT", start, err)
+		db.fillLogFields(ctx, "TRANSACTION", "COMMIT", end, err)
 	}
 	return err
 }
@@ -279,21 +263,23 @@ func (db *dbImplementation) Rollback(ctx Context) error {
 		return nil
 	}
 	hasLogger, _ := ctx.getDBLoggers()
-	start := getNow(hasLogger)
+	start := time.Now()
 	err := db.client.(txClient).Rollback()
+	end := time.Since(start)
 	db.transaction = false
 	if hasLogger {
-		db.fillLogFields(ctx, "TRANSACTION", "ROLLBACK", start, err)
+		db.fillLogFields(ctx, "TRANSACTION", "ROLLBACK", end, err)
 	}
 	return err
 }
 
 func (db *dbImplementation) Begin(ctx Context) (DBTransaction, error) {
 	hasLogger, _ := ctx.getDBLoggers()
-	start := getNow(hasLogger)
+	start := time.Now()
 	tx, err := db.client.Begin()
+	end := time.Since(start)
 	if hasLogger {
-		db.fillLogFields(ctx, "TRANSACTION", "START TRANSACTION", start, err)
+		db.fillLogFields(ctx, "TRANSACTION", "START TRANSACTION", end, err)
 	}
 	if err != nil {
 		return nil, err
@@ -312,23 +298,41 @@ func (db *dbImplementation) SetMockDBClient(mock DBClient) {
 
 func (db *dbImplementation) Exec(ctx Context, query string, args ...any) (ExecResult, error) {
 	hasLogger, _ := ctx.getDBLoggers()
-	start := getNow(hasLogger)
+	start := time.Now()
 	rows, err := db.client.Exec(query, args...)
+	end := time.Since(start)
 	if hasLogger {
 		message := query
 		if len(args) > 0 {
 			message += " " + fmt.Sprintf("%v", args)
 		}
-		db.fillLogFields(ctx, "EXEC", message, start, err)
+		db.fillLogFields(ctx, "EXEC", message, end, err)
 	}
+	db.fillMetrics(ctx, end, "exec")
 	return &execResult{r: rows}, err
+}
+
+func (db *dbImplementation) fillMetrics(ctx Context, end time.Duration, name string) {
+	metrics, hasMetrics := ctx.Engine().Registry().getMetricsRegistry()
+	if hasMetrics {
+		metrics.queriesDBTotal.WithLabelValues(name, db.GetConfig().GetCode()).Observe(float64(end.Microseconds()))
+	}
 }
 
 func (db *dbImplementation) QueryRow(ctx Context, query Where, toFill ...any) (found bool, err error) {
 	hasLogger, _ := ctx.getDBLoggers()
-	start := getNow(hasLogger)
+	start := time.Now()
 	row := db.client.QueryRow(query.String(), query.GetParameters()...)
+	end := time.Since(start)
 	if row.Err() != nil {
+		if hasLogger {
+			message := query.String()
+			if len(query.GetParameters()) > 0 {
+				message += " " + fmt.Sprintf("%v", query.GetParameters())
+			}
+			db.fillMetrics(ctx, end, "select")
+			db.fillLogFields(ctx, "SELECT", message, end, err)
+		}
 		return false, row.Err()
 	}
 	err = row.Scan(toFill...)
@@ -342,35 +346,41 @@ func (db *dbImplementation) QueryRow(ctx Context, query Where, toFill ...any) (f
 	if err != nil {
 		if err.Error() == "sql: no rows in result set" {
 			if hasLogger {
-				db.fillLogFields(ctx, "SELECT", message, start, nil)
+				db.fillLogFields(ctx, "SELECT", message, end, nil)
 			}
+			db.fillMetrics(ctx, end, "select")
 			return false, nil
 		}
 		if hasLogger {
-			db.fillLogFields(ctx, "SELECT", message, start, err)
+			db.fillLogFields(ctx, "SELECT", message, end, err)
 		}
+		db.fillMetrics(ctx, end, "select")
 		return false, err
 	}
 	if hasLogger {
-		db.fillLogFields(ctx, "SELECT", message, start, nil)
+		db.fillLogFields(ctx, "SELECT", message, end, nil)
 	}
+	db.fillMetrics(ctx, end, "select")
 	return true, nil
 }
 
 func (db *dbImplementation) Query(ctx Context, query string, args ...any) (rows Rows, close func(), err error) {
 	hasLogger, _ := ctx.getDBLoggers()
-	start := getNow(hasLogger)
+	start := time.Now()
 	result, err := db.client.Query(query, args...)
+	end := time.Since(start)
 	if hasLogger {
 		message := query
 		if len(args) > 0 {
 			message += " " + fmt.Sprintf("%v", args)
 		}
-		db.fillLogFields(ctx, "SELECT", message, start, err)
+		db.fillLogFields(ctx, "SELECT", message, end, err)
 	}
 	if err != nil {
+		db.fillMetrics(ctx, end, "select")
 		return nil, nil, err
 	}
+	db.fillMetrics(ctx, end, "select")
 	return &rowsStruct{result}, func() {
 		if result != nil {
 			_ = result.Close()
@@ -378,8 +388,8 @@ func (db *dbImplementation) Query(ctx Context, query string, args ...any) (rows 
 	}, nil
 }
 
-func (db *dbImplementation) fillLogFields(ctx Context, operation, query string, start *time.Time, err error) {
+func (db *dbImplementation) fillLogFields(ctx Context, operation, query string, duration time.Duration, err error) {
 	query = strings.ReplaceAll(query, "\n", " ")
 	_, loggers := ctx.getDBLoggers()
-	fillLogFields(ctx, loggers, db.GetConfig().GetCode(), sourceMySQL, operation, query, start, false, err)
+	fillLogFields(ctx, loggers, db.GetConfig().GetCode(), sourceMySQL, operation, query, &duration, false, err)
 }

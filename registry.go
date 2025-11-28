@@ -11,6 +11,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/prometheus/client_golang/prometheus/promauto"
 	"github.com/redis/go-redis/v9"
 	"github.com/redis/go-redis/v9/maintnotifications"
 
@@ -30,6 +31,7 @@ type Registry interface {
 	InitByConfig(config *Config) error
 	SetOption(key string, value any)
 	RegisterRedisStream(name string, redisPool string)
+	EnableMetrics(factory promauto.Factory)
 }
 
 type registry struct {
@@ -41,6 +43,7 @@ type registry struct {
 	options           map[string]any
 	redisStreamGroups map[string]map[string]string
 	redisStreamPools  map[string]string
+	metricsFactory    *promauto.Factory
 }
 
 func NewRegistry() Registry {
@@ -51,6 +54,7 @@ func (r *registry) Validate() (Engine, error) {
 	maxPoolLen := 0
 	e := &engineImplementation{}
 	e.registry = &engineRegistryImplementation{engine: e}
+	e.registry.hasMetrics = r.metricsFactory != nil
 	e.registry.options = make(map[string]any)
 	l := len(r.entities)
 	e.registry.entitySchemas = make(map[reflect.Type]*entitySchema, l)
@@ -249,6 +253,9 @@ func (r *registry) Validate() (Engine, error) {
 	}
 	e.registry.redisStreamGroups = r.redisStreamGroups
 	e.registry.redisStreamPools = r.redisStreamPools
+	if e.registry.hasMetrics {
+		e.registry.metricsRegistry = initMetricsRegistry(*r.metricsFactory)
+	}
 	return e, nil
 }
 
@@ -262,6 +269,10 @@ func (r *registry) RegisterRedisStream(name string, redisPool string) {
 		r.redisStreamGroups[redisPool] = make(map[string]string)
 	}
 	r.redisStreamGroups[redisPool][name] = consumerGroupName
+}
+
+func (r *registry) EnableMetrics(factory promauto.Factory) {
+	r.metricsFactory = &factory
 }
 
 func (r *registry) SetOption(key string, value any) {

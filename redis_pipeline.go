@@ -97,8 +97,9 @@ func (rp *RedisPipeLine) Exec(ctx Context) (response []redis.Cmder, err error) {
 		return make([]redis.Cmder, 0), nil
 	}
 	hasLog, loggers := rp.ctx.getRedisLoggers()
-	start := getNow(hasLog)
+	start := time.Now()
 	res, err := rp.pipeLine.Exec(rp.ctx.Context())
+	end := time.Since(start)
 	rp.pipeLine = rp.r.client.Pipeline()
 	if err != nil && errors.Is(err, redis.Nil) {
 		err = nil
@@ -115,7 +116,7 @@ func (rp *RedisPipeLine) Exec(ctx Context) (response []redis.Cmder, err error) {
 				query += " " + fmt.Sprintf(strings.TrimRight(errorTemplate, "\n"), v.Err())
 			}
 		}
-		fillLogFields(ctx, loggers, rp.pool, sourceRedis, "PIPELINE EXEC", query, start, false, nil)
+		fillLogFields(ctx, loggers, rp.pool, sourceRedis, "PIPELINE EXEC", query, &end, false, nil)
 	}
 	rp.commands = 0
 	return res, err

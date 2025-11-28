@@ -90,14 +90,6 @@ func (orm *ormImplementation) EnableQueryDebugCustom(mysql, redis, local bool) {
 	orm.RegisterQueryLogger(orm.engine.Registry().getDefaultQueryLogger(), mysql, redis, local)
 }
 
-func getNow(has bool) *time.Time {
-	if !has {
-		return nil
-	}
-	s := time.Now()
-	return &s
-}
-
 func (orm *ormImplementation) appendLog(logs []LogHandler, toAdd LogHandler) []LogHandler {
 	for _, v := range logs {
 		if v == toAdd {
@@ -107,7 +99,7 @@ func (orm *ormImplementation) appendLog(logs []LogHandler, toAdd LogHandler) []L
 	return append(logs, toAdd)
 }
 
-func fillLogFields(ctx Context, handlers []LogHandler, pool, source, operation, query string, start *time.Time, cacheMiss bool, err error) {
+func fillLogFields(ctx Context, handlers []LogHandler, pool, source, operation, query string, duration *time.Duration, cacheMiss bool, err error) {
 	fields := map[string]any{
 		"operation": operation,
 		"query":     query,
@@ -121,11 +113,11 @@ func fillLogFields(ctx Context, handlers []LogHandler, pool, source, operation, 
 	if len(meta) > 0 {
 		fields["meta"] = meta
 	}
-	if start != nil {
-		now := time.Now()
-		fields["microseconds"] = time.Since(*start).Microseconds()
-		fields["started"] = start.UnixNano()
-		fields["finished"] = now.UnixNano()
+	if duration != nil {
+		nano := time.Now().UnixNano()
+		fields["microseconds"] = duration.Microseconds()
+		fields["started"] = nano - duration.Nanoseconds()
+		fields["finished"] = nano
 	}
 	if err != nil {
 		fields["error"] = err.Error()

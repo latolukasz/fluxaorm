@@ -20,6 +20,7 @@ type EngineRegistry interface {
 	DisableLogTables()
 	getDefaultQueryLogger() LogHandler
 	getDBTables() map[string]map[string]bool
+	getMetricsRegistry() (*metricsRegistry, bool)
 }
 
 type EngineSetter interface {
@@ -50,6 +51,8 @@ type engineRegistryImplementation struct {
 	redisStreamGroups     map[string]map[string]string
 	redisStreamPools      map[string]string
 	disableLogTables      bool
+	hasMetrics            bool
+	metricsRegistry       *metricsRegistry
 }
 
 type engineImplementation struct {
@@ -69,6 +72,10 @@ func (e *engineImplementation) NewContext(context context.Context) Context {
 
 func (e *engineImplementation) Registry() EngineRegistry {
 	return e.registry
+}
+
+func (e *engineRegistryImplementation) getMetricsRegistry() (*metricsRegistry, bool) {
+	return e.metricsRegistry, e.hasMetrics
 }
 
 func (e *engineImplementation) Option(key string) any {

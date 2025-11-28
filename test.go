@@ -79,13 +79,6 @@ type MockDBClient struct {
 	RollbackMock        func() error
 }
 
-func (m *MockDBClient) Prepare(query string) (*sql.Stmt, error) {
-	if m.PrepareMock != nil {
-		return m.PrepareMock(query)
-	}
-	return m.OriginDB.Prepare(query)
-}
-
 func (m *MockDBClient) Exec(query string, args ...any) (sql.Result, error) {
 	if m.ExecMock != nil {
 		return m.ExecMock(query, args...)
