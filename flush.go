@@ -639,10 +639,46 @@ func (orm *ormImplementation) handleUpdates(async bool, schema *entitySchema, op
 				}
 			}
 		}
+		fakeDeleted := false
+		if schema.hasFakeDelete {
+			v, has := newBind["FakeDelete"]
+			if has {
+				b, isBool := v.(bool)
+				if isBool {
+					if b {
+						newBind["FakeDelete"] = update.ID()
+						fakeDeleted = true
+					} else {
+						newBind["FakeDelete"] = uint64(0)
+					}
+				} else {
+					i, isUint := v.(uint64)
+					if isUint {
+						if i > 0 {
+							newBind["FakeDelete"] = update.ID()
+							fakeDeleted = true
+						} else {
+							newBind["FakeDelete"] = uint64(0)
+						}
+					}
+				}
+
+			}
+		}
 		if len(schema.cachedUniqueIndexes) > 0 {
 			cache := orm.Engine().Redis(schema.getForcedRedisCode())
 			for indexName, definition := range schema.cachedUniqueIndexes {
-				ss
+				if fakeDeleted {
+					hSetKey := schema.getCacheKey() + ":" + indexName
+					hField, hasKey, err := buildUniqueKeyHSetField(schema, definition.Columns, newBind, forcedNew)
+					if err != nil {
+						return err
+					}
+					if hasKey {
+						orm.RedisPipeLine(cache.GetConfig().GetCode()).HDel(hSetKey, hField)
+					}
+					continue
+				}
 				indexChanged := false
 				for _, column := range definition.Columns {
 					_, changed := newBind[column]
@@ -691,19 +727,6 @@ func (orm *ormImplementation) handleUpdates(async bool, schema *entitySchema, op
 			asyncArgs = make([]any, len(newBind)+3)
 		} else {
 			args = make([]any, len(newBind)+1)
-		}
-		if schema.hasFakeDelete {
-			v, has := newBind["FakeDelete"]
-			if has {
-				b, isBool := v.(bool)
-				if isBool {
-					if b {
-						newBind["FakeDelete"] = update.ID()
-					} else {
-						newBind["FakeDelete"] = uint64(0)
-					}
-				}
-			}
 		}
 		for column, value := range newBind {
 			if k > 0 {
@@ -884,14 +907,6 @@ func (orm *ormImplementation) handleUpdates(async bool, schema *entitySchema, op
 				}
 			}
 		}
-		fakeDeleted := false
-		if schema.hasFakeDelete {
-			v, has := newBind["FakeDelete"]
-			if has && v.(uint64) > 0 {
-				fakeDeleted = true
-			}
-		}
-
 		for columnName := range schema.cachedReferences {
 			if fakeDeleted {
 				val := forcedNew[columnName]

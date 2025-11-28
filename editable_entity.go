@@ -148,15 +148,17 @@ func (f *editableFields) getBind() (new, old, forcedNew, forcedOld Bind, err err
 	uniqueIndexes := f.schema.GetUniqueIndexes()
 	if len(uniqueIndexes) > 0 {
 		for _, indexColumns := range uniqueIndexes {
-			if len(indexColumns) == 1 {
+			if len(indexColumns) == 1 && !fakeDeleted {
 				continue
 			}
-			indexChanged := false
-			for _, column := range indexColumns {
-				_, changed := f.newBind[column]
-				if changed {
-					indexChanged = true
-					break
+			indexChanged := fakeDeleted
+			if !indexChanged {
+				for _, column := range indexColumns {
+					_, changed := f.newBind[column]
+					if changed {
+						indexChanged = true
+						break
+					}
 				}
 			}
 			if !indexChanged {
@@ -196,6 +198,10 @@ func (f *editableFields) getBind() (new, old, forcedNew, forcedOld Bind, err err
 			continue
 		}
 		for _, column := range def.Columns {
+			_, calculated := forcedNew[column]
+			if calculated {
+				continue
+			}
 			_, changed := f.newBind[column]
 			getter := f.schema.fieldGetters[column]
 			val := getter(f.value.Elem())
