@@ -10,11 +10,12 @@ import (
 )
 
 type RedisPipeLine struct {
-	ctx      Context
-	r        *redisCache
-	pool     string
-	pipeLine redis.Pipeliner
-	commands int
+	ctx         Context
+	r           *redisCache
+	pool        string
+	pipeLine    redis.Pipeliner
+	commands    int
+	metricsGets []*PipeLineGet
 }
 
 func (rp *RedisPipeLine) LPush(key string, values ...any) {
@@ -39,7 +40,12 @@ func (rp *RedisPipeLine) Del(key ...string) {
 
 func (rp *RedisPipeLine) Get(key string) *PipeLineGet {
 	rp.commands++
-	return &PipeLineGet{p: rp, cmd: rp.pipeLine.Get(rp.ctx.Context(), key)}
+	res := &PipeLineGet{p: rp, cmd: rp.pipeLine.Get(rp.ctx.Context(), key)}
+	_, hasMetrics := rp.ctx.Engine().Registry().getMetricsRegistry()
+	if hasMetrics {
+		rp.metricsGets = append(rp.metricsGets, res)
+	}
+	return res
 }
 
 func (rp *RedisPipeLine) LRange(key string, start, stop int64) *PipeLineSlice {
@@ -118,8 +124,64 @@ func (rp *RedisPipeLine) Exec(ctx Context) (response []redis.Cmder, err error) {
 		}
 		fillLogFields(ctx, loggers, rp.pool, sourceRedis, "PIPELINE EXEC", query, &end, false, nil)
 	}
+	if rp.fillMetrics(ctx, end, res) {
+		rp.metricsGets = make([]*PipeLineGet, 0)
+	}
 	rp.commands = 0
 	return res, err
+}
+
+func (rp *RedisPipeLine) fillMetrics(ctx Context, end time.Duration, res []redis.Cmder) bool {
+	metrics, hasMetrics := ctx.Engine().Registry().getMetricsRegistry()
+	endSingle := end.Seconds() / float64(rp.commands)
+	if hasMetrics {
+		i := 0
+		for _, v := range res {
+			isMiss := false
+			isSet := false
+			operation := "key"
+			switch v.Name() {
+			case "get":
+				_, isMiss, _ = rp.metricsGets[i].Result()
+				isMiss = !isMiss
+				i++
+				break
+			case "set", "del", "mset", "expire":
+				isSet = true
+				break
+			case "lpush", "rpush", "lset":
+				isSet = true
+				operation = "list"
+				break
+			case "lrange":
+				operation = "list"
+				break
+			case "sadd", "srem":
+				operation = "set"
+				isSet = true
+				break
+			case "hincrby", "hset", "hdel":
+				operation = "hash"
+				isSet = true
+				break
+			case "xadd":
+				operation = "stream"
+				isSet = true
+				break
+			}
+			setValue := "0"
+			if isSet {
+				setValue = "1"
+			}
+			missValue := "0"
+			if isMiss {
+				missValue = "1"
+			}
+			metrics.queriesRedis.WithLabelValues(operation, rp.r.config.GetCode(), setValue, missValue, "1").Observe(endSingle)
+		}
+		return true
+	}
+	return false
 }
 
 type PipeLineGet struct {

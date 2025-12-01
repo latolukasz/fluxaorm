@@ -318,7 +318,7 @@ func (db *dbImplementation) Exec(ctx Context, query string, args ...any) (ExecRe
 func (db *dbImplementation) fillMetrics(ctx Context, end time.Duration, name string) {
 	metrics, hasMetrics := ctx.Engine().Registry().getMetricsRegistry()
 	if hasMetrics {
-		metrics.queriesDB.WithLabelValues(name, db.GetConfig().GetCode()).Observe(float64(end.Microseconds()))
+		metrics.queriesDB.WithLabelValues(name, db.GetConfig().GetCode()).Observe(end.Seconds())
 	}
 }
 

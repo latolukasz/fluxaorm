@@ -1527,14 +1527,14 @@ func (r *redisCache) fillMetrics(ctx Context, end time.Duration, operation strin
 	metrics, hasMetrics := ctx.Engine().Registry().getMetricsRegistry()
 	if hasMetrics {
 		missValue := "0"
-		if !miss {
+		if miss {
 			missValue = "1"
 		}
 		setValue := "0"
 		if set {
 			setValue = "1"
 		}
-		metrics.queriesRedis.WithLabelValues(operation, r.config.GetCode(), setValue, missValue, "0").Observe(float64(end.Microseconds()))
+		metrics.queriesRedis.WithLabelValues(operation, r.config.GetCode(), setValue, missValue, "0").Observe(end.Seconds())
 	}
 }
 

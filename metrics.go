@@ -14,15 +14,15 @@ type metricsRegistry struct {
 func initMetricsRegistry(factory promauto.Factory) *metricsRegistry {
 	reg := &metricsRegistry{}
 	reg.queriesDB = factory.NewHistogramVec(prometheus.HistogramOpts{
-		Name: "fluxaorm_db_queries",
+		Name: "fluxaorm_db_queries_seconds",
 		Help: "Total number of DB queries executed",
 	}, []string{"operation", "pool"})
 	reg.queriesRedis = factory.NewHistogramVec(prometheus.HistogramOpts{
-		Name: "fluxaorm_redis_queries",
+		Name: "fluxaorm_redis_queries_seconds",
 		Help: "Total number of Redis queries executed",
 	}, []string{"operation", "pool", "set", "miss", "pipeline"})
 	reg.queriesRedisBlock = factory.NewCounterVec(prometheus.CounterOpts{
-		Name: "fluxaorm_redis_queries_block",
+		Name: "fluxaorm_redis_queries_block_seconds",
 		Help: "Total number of Redis blocking queries executed",
 	}, []string{"operation", "pool"})
 	return reg
