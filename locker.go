@@ -63,7 +63,7 @@ func (l *Locker) Obtain(ctx Context, key string, ttl time.Duration, waitTimeout 
 				message := fmt.Sprintf("LOCK OBTAIN %s TTL %s WAIT %s", key, ttl.String(), waitTimeout.String())
 				l.fillLogFields(ctx, "LOCK OBTAIN", message, end, true, nil)
 			}
-			l.fillMetrics(ctx, end, true, true)
+			l.fillMetrics(ctx, end, true, true, nil)
 			return nil, false, nil
 		}
 	}
@@ -71,7 +71,7 @@ func (l *Locker) Obtain(ctx Context, key string, ttl time.Duration, waitTimeout 
 		message := fmt.Sprintf("LOCK OBTAIN %s TTL %s WAIT %s", key, ttl.String(), waitTimeout.String())
 		l.fillLogFields(ctx, "LOCK OBTAIN", message, end, false, nil)
 	}
-	l.fillMetrics(ctx, end, true, false)
+	l.fillMetrics(ctx, end, true, false, err)
 	if err != nil {
 		return nil, false, err
 	}
@@ -79,7 +79,7 @@ func (l *Locker) Obtain(ctx Context, key string, ttl time.Duration, waitTimeout 
 	return lock, true, nil
 }
 
-func (l *Locker) fillMetrics(ctx Context, end time.Duration, set, miss bool) {
+func (l *Locker) fillMetrics(ctx Context, end time.Duration, set, miss bool, err error) {
 	metrics, hasMetrics := ctx.Engine().Registry().getMetricsRegistry()
 	if hasMetrics {
 		missValue := "0"
@@ -91,6 +91,9 @@ func (l *Locker) fillMetrics(ctx Context, end time.Duration, set, miss bool) {
 			setValue = "1"
 		}
 		metrics.queriesRedis.WithLabelValues(metricsOperationLock, l.r.config.GetCode(), setValue, missValue).Observe(end.Seconds())
+		if err != nil {
+			metrics.queriesRedisErrors.WithLabelValues(l.r.config.GetCode()).Inc()
+		}
 	}
 }
 
@@ -119,7 +122,7 @@ func (l *Lock) Release(ctx Context) {
 	if hasLogger {
 		l.locker.fillLogFields(ctx, "LOCK RELEASE", "LOCK RELEASE "+l.key, end, !ok, err)
 	}
-	l.locker.fillMetrics(ctx, end, true, false)
+	l.locker.fillMetrics(ctx, end, true, false, err)
 }
 
 func (l *Lock) TTL(ctx Context) (time.Duration, error) {
@@ -130,7 +133,7 @@ func (l *Lock) TTL(ctx Context) (time.Duration, error) {
 	if hasLogger {
 		l.locker.fillLogFields(ctx, "LOCK TTL", "LOCK TTL "+l.key, end, false, err)
 	}
-	l.locker.fillMetrics(ctx, end, true, false)
+	l.locker.fillMetrics(ctx, end, true, false, err)
 	return t, err
 }
 
@@ -152,7 +155,7 @@ func (l *Lock) Refresh(ctx Context, ttl time.Duration) (bool, error) {
 		message := fmt.Sprintf("LOCK REFRESH %s %s", l.key, l.ttl)
 		l.locker.fillLogFields(ctx, "LOCK REFRESH", message, end, !ok, err)
 	}
-	l.locker.fillMetrics(ctx, end, true, false)
+	l.locker.fillMetrics(ctx, end, true, false, err)
 	if err != nil {
 		return false, err
 	}

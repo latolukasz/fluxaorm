@@ -146,9 +146,9 @@ func (r *redisCache) Info(ctx Context, section ...string) (string, error) {
 	val, err := res.Result()
 	end := time.Since(start)
 	if hasLogger {
-		r.fillLogFields(ctx, res, end, false, nil)
+		r.fillLogFields(ctx, res, end, false, err)
 	}
-	r.fillMetrics(ctx, end, metricsOperationOther, false, false)
+	r.fillMetrics(ctx, end, metricsOperationOther, false, false, err)
 	if err != nil {
 		return "", err
 	}
@@ -172,13 +172,13 @@ func (r *redisCache) Get(ctx Context, key string) (value string, has bool, err e
 		if hasLogger {
 			r.fillLogFields(ctx, res, end, true, err)
 		}
-		r.fillMetrics(ctx, end, metricsOperationKey, false, true)
+		r.fillMetrics(ctx, end, metricsOperationKey, false, true, err)
 		return "", false, err
 	}
 	if hasLogger {
 		r.fillLogFields(ctx, res, end, false, err)
 	}
-	r.fillMetrics(ctx, end, metricsOperationKey, false, false)
+	r.fillMetrics(ctx, end, metricsOperationKey, false, false, err)
 	return val, true, nil
 }
 
@@ -191,7 +191,7 @@ func (r *redisCache) Eval(ctx Context, script string, keys []string, args ...any
 	if hasLogger {
 		r.fillLogFields(ctx, req, end, false, err)
 	}
-	r.fillMetrics(ctx, end, metricsOperationOther, false, false)
+	r.fillMetrics(ctx, end, metricsOperationOther, false, false, err)
 	if err != nil {
 		return nil, err
 	}
@@ -207,17 +207,18 @@ func (r *redisCache) EvalSha(ctx Context, sha1 string, keys []string, args ...an
 	if hasLogger {
 		r.fillLogFields(ctx, req, end, false, err)
 	}
-	r.fillMetrics(ctx, end, metricsOperationOther, false, false)
 	if err != nil {
 		exists, err = r.ScriptExists(ctx, sha1)
 		if err != nil {
+			r.fillMetrics(ctx, end, metricsOperationOther, false, false, err)
 			return nil, false, err
 		}
 		if !exists {
+			r.fillMetrics(ctx, end, metricsOperationOther, false, false, nil)
 			return nil, false, nil
 		}
-
 	}
+	r.fillMetrics(ctx, end, metricsOperationOther, false, false, nil)
 	return res, true, nil
 }
 
@@ -230,7 +231,7 @@ func (r *redisCache) ScriptExists(ctx Context, sha1 string) (bool, error) {
 	if hasLogger {
 		r.fillLogFields(ctx, req, end, false, err)
 	}
-	r.fillMetrics(ctx, end, metricsOperationOther, false, false)
+	r.fillMetrics(ctx, end, metricsOperationOther, false, false, err)
 	if err != nil {
 		return false, err
 	}
@@ -246,7 +247,7 @@ func (r *redisCache) ScriptLoad(ctx Context, script string) (string, error) {
 	if hasLogger {
 		r.fillLogFields(ctx, req, end, false, err)
 	}
-	r.fillMetrics(ctx, end, metricsOperationOther, false, false)
+	r.fillMetrics(ctx, end, metricsOperationOther, false, false, err)
 	if err != nil {
 		return "", err
 	}
@@ -262,7 +263,7 @@ func (r *redisCache) Set(ctx Context, key string, value any, expiration time.Dur
 	if hasLogger {
 		r.fillLogFields(ctx, req, end, false, err)
 	}
-	r.fillMetrics(ctx, end, metricsOperationKey, true, false)
+	r.fillMetrics(ctx, end, metricsOperationKey, true, false, err)
 	return err
 }
 
@@ -275,7 +276,7 @@ func (r *redisCache) SetNX(ctx Context, key string, value any, expiration time.D
 	if hasLogger {
 		r.fillLogFields(ctx, req, end, false, err)
 	}
-	r.fillMetrics(ctx, end, metricsOperationKey, true, false)
+	r.fillMetrics(ctx, end, metricsOperationKey, true, false, err)
 	return isSet, err
 }
 
@@ -288,7 +289,7 @@ func (r *redisCache) LPush(ctx Context, key string, values ...any) (int64, error
 	if hasLogger {
 		r.fillLogFields(ctx, req, end, false, err)
 	}
-	r.fillMetrics(ctx, end, metricsOperationList, true, false)
+	r.fillMetrics(ctx, end, metricsOperationList, true, false, err)
 	return val, err
 }
 
@@ -301,7 +302,7 @@ func (r *redisCache) LPop(ctx Context, key string) (string, error) {
 	if hasLogger {
 		r.fillLogFields(ctx, req, end, false, err)
 	}
-	r.fillMetrics(ctx, end, metricsOperationList, false, false)
+	r.fillMetrics(ctx, end, metricsOperationList, false, false, err)
 	return val, err
 }
 
@@ -318,7 +319,7 @@ func (r *redisCache) RPush(ctx Context, key string, values ...any) (int64, error
 		}
 		r.fillLogFields(ctx, req, end, false, err)
 	}
-	r.fillMetrics(ctx, end, metricsOperationList, true, false)
+	r.fillMetrics(ctx, end, metricsOperationList, true, false, err)
 	return val, err
 }
 
@@ -331,7 +332,7 @@ func (r *redisCache) LLen(ctx Context, key string) (int64, error) {
 	if hasLogger {
 		r.fillLogFields(ctx, req, end, false, err)
 	}
-	r.fillMetrics(ctx, end, metricsOperationList, false, false)
+	r.fillMetrics(ctx, end, metricsOperationList, false, false, err)
 	return val, err
 }
 
@@ -344,7 +345,7 @@ func (r *redisCache) Exists(ctx Context, keys ...string) (int64, error) {
 	if hasLogger {
 		r.fillLogFields(ctx, req, end, false, err)
 	}
-	r.fillMetrics(ctx, end, metricsOperationKey, false, false)
+	r.fillMetrics(ctx, end, metricsOperationKey, false, false, err)
 	return val, err
 }
 
@@ -357,7 +358,7 @@ func (r *redisCache) Type(ctx Context, key string) (string, error) {
 	if hasLogger {
 		r.fillLogFields(ctx, req, end, false, err)
 	}
-	r.fillMetrics(ctx, end, metricsOperationKey, false, false)
+	r.fillMetrics(ctx, end, metricsOperationKey, false, false, err)
 	return val, err
 }
 
@@ -370,7 +371,7 @@ func (r *redisCache) LRange(ctx Context, key string, start, stop int64) ([]strin
 	if hasLogger {
 		r.fillLogFields(ctx, req, end, false, err)
 	}
-	r.fillMetrics(ctx, end, metricsOperationList, false, false)
+	r.fillMetrics(ctx, end, metricsOperationList, false, false, err)
 	return val, err
 }
 
@@ -389,9 +390,10 @@ func (r *redisCache) LIndex(ctx Context, key string, index int64) (string, bool,
 		r.fillLogFields(ctx, req, end, false, err)
 	}
 	if err != nil {
+		r.fillMetrics(ctx, end, metricsOperationList, false, false, err)
 		return "", false, err
 	}
-	r.fillMetrics(ctx, end, metricsOperationList, false, false)
+	r.fillMetrics(ctx, end, metricsOperationList, false, false, nil)
 	return val, found, nil
 }
 
@@ -404,7 +406,7 @@ func (r *redisCache) LSet(ctx Context, key string, index int64, value any) error
 	if hasLogger {
 		r.fillLogFields(ctx, req, end, false, err)
 	}
-	r.fillMetrics(ctx, end, metricsOperationList, true, false)
+	r.fillMetrics(ctx, end, metricsOperationList, true, false, err)
 	return err
 }
 
@@ -417,7 +419,7 @@ func (r *redisCache) BLMove(ctx Context, source, destination, srcPos, destPos st
 	if hasLogger {
 		r.fillLogFields(ctx, req, end, false, err)
 	}
-	r.fillMetrics(ctx, end, metricsOperationList, true, false)
+	r.fillMetrics(ctx, end, metricsOperationList, true, false, err)
 	return value, err
 }
 
@@ -430,7 +432,7 @@ func (r *redisCache) LMove(ctx Context, source, destination, srcPos, destPos str
 	if hasLogger {
 		r.fillLogFields(ctx, req, end, false, err)
 	}
-	r.fillMetrics(ctx, end, metricsOperationList, true, false)
+	r.fillMetrics(ctx, end, metricsOperationList, true, false, err)
 	return value, err
 }
 
@@ -447,13 +449,13 @@ func (r *redisCache) RPop(ctx Context, key string) (value string, found bool, er
 		if hasLogger {
 			r.fillLogFields(ctx, req, end, false, err)
 		}
-		r.fillMetrics(ctx, end, metricsOperationList, false, false)
+		r.fillMetrics(ctx, end, metricsOperationList, false, false, err)
 		return "", false, err
 	}
 	if hasLogger {
 		r.fillLogFields(ctx, req, end, false, err)
 	}
-	r.fillMetrics(ctx, end, metricsOperationList, false, false)
+	r.fillMetrics(ctx, end, metricsOperationList, false, false, err)
 	return val, true, nil
 }
 
@@ -466,7 +468,7 @@ func (r *redisCache) LRem(ctx Context, key string, count int64, value any) error
 	if hasLogger {
 		r.fillLogFields(ctx, req, end, false, err)
 	}
-	r.fillMetrics(ctx, end, metricsOperationList, false, false)
+	r.fillMetrics(ctx, end, metricsOperationList, false, false, err)
 	return err
 }
 
@@ -479,7 +481,7 @@ func (r *redisCache) Ltrim(ctx Context, key string, start, stop int64) error {
 	if hasLogger {
 		r.fillLogFields(ctx, req, end, false, err)
 	}
-	r.fillMetrics(ctx, end, metricsOperationList, false, false)
+	r.fillMetrics(ctx, end, metricsOperationList, false, false, err)
 	return err
 }
 
@@ -492,7 +494,7 @@ func (r *redisCache) HSet(ctx Context, key string, values ...any) error {
 	if hasLogger {
 		r.fillLogFields(ctx, req, end, false, err)
 	}
-	r.fillMetrics(ctx, end, metricsOperationHash, true, false)
+	r.fillMetrics(ctx, end, metricsOperationHash, true, false, err)
 	return err
 }
 
@@ -505,7 +507,7 @@ func (r *redisCache) HSetNx(ctx Context, key, field string, value any) (bool, er
 	if hasLogger {
 		r.fillLogFields(ctx, req, end, false, err)
 	}
-	r.fillMetrics(ctx, end, metricsOperationHash, true, false)
+	r.fillMetrics(ctx, end, metricsOperationHash, true, false, err)
 	return res, err
 }
 
@@ -518,7 +520,7 @@ func (r *redisCache) HDel(ctx Context, key string, fields ...string) error {
 	if hasLogger {
 		r.fillLogFields(ctx, req, end, false, err)
 	}
-	r.fillMetrics(ctx, end, metricsOperationHash, true, false)
+	r.fillMetrics(ctx, end, metricsOperationHash, true, false, err)
 	return err
 }
 
@@ -539,7 +541,7 @@ func (r *redisCache) HMGet(ctx Context, key string, fields ...string) (map[strin
 	if hasLogger {
 		r.fillLogFields(ctx, req, end, misses > 0, err)
 	}
-	r.fillMetrics(ctx, end, metricsOperationHash, false, misses > 0)
+	r.fillMetrics(ctx, end, metricsOperationHash, false, misses > 0, err)
 	return results, err
 }
 
@@ -552,7 +554,7 @@ func (r *redisCache) HGetAll(ctx Context, key string) (map[string]string, error)
 	if hasLogger {
 		r.fillLogFields(ctx, req, end, false, err)
 	}
-	r.fillMetrics(ctx, end, metricsOperationHash, false, false)
+	r.fillMetrics(ctx, end, metricsOperationHash, false, false, err)
 	return val, err
 }
 
@@ -570,7 +572,7 @@ func (r *redisCache) HGet(ctx Context, key, field string) (value string, has boo
 	if hasLogger {
 		r.fillLogFields(ctx, req, end, misses, err)
 	}
-	r.fillMetrics(ctx, end, metricsOperationHash, false, misses)
+	r.fillMetrics(ctx, end, metricsOperationHash, false, misses, err)
 	return val, !misses, err
 }
 
@@ -583,7 +585,7 @@ func (r *redisCache) HLen(ctx Context, key string) (int64, error) {
 	if hasLogger {
 		r.fillLogFields(ctx, req, end, false, err)
 	}
-	r.fillMetrics(ctx, end, metricsOperationHash, false, false)
+	r.fillMetrics(ctx, end, metricsOperationHash, false, false, err)
 	return val, err
 }
 
@@ -596,7 +598,7 @@ func (r *redisCache) HIncrBy(ctx Context, key, field string, incr int64) (int64,
 	if hasLogger {
 		r.fillLogFields(ctx, req, end, false, err)
 	}
-	r.fillMetrics(ctx, end, metricsOperationHash, true, false)
+	r.fillMetrics(ctx, end, metricsOperationHash, true, false, err)
 	return val, err
 }
 
@@ -609,7 +611,7 @@ func (r *redisCache) IncrBy(ctx Context, key string, incr int64) (int64, error) 
 	if hasLogger {
 		r.fillLogFields(ctx, req, end, false, err)
 	}
-	r.fillMetrics(ctx, end, metricsOperationKey, true, false)
+	r.fillMetrics(ctx, end, metricsOperationKey, true, false, err)
 	return val, err
 }
 
@@ -622,7 +624,7 @@ func (r *redisCache) Incr(ctx Context, key string) (int64, error) {
 	if hasLogger {
 		r.fillLogFields(ctx, req, end, false, err)
 	}
-	r.fillMetrics(ctx, end, metricsOperationKey, true, false)
+	r.fillMetrics(ctx, end, metricsOperationKey, true, false, err)
 	return val, err
 }
 
@@ -637,7 +639,7 @@ func (r *redisCache) IncrWithExpire(ctx Context, key string, expire time.Duratio
 	if hasLogger {
 		r.fillLogFields(ctx, res, end, false, err)
 	}
-	r.fillMetrics(ctx, end, metricsOperationKey, true, false)
+	r.fillMetrics(ctx, end, metricsOperationKey, true, false, err)
 	if err != nil {
 		return 0, err
 	}
@@ -654,7 +656,7 @@ func (r *redisCache) Expire(ctx Context, key string, expiration time.Duration) (
 	if hasLogger {
 		r.fillLogFields(ctx, req, end, false, err)
 	}
-	r.fillMetrics(ctx, end, metricsOperationKey, true, false)
+	r.fillMetrics(ctx, end, metricsOperationKey, true, false, err)
 	return val, err
 }
 
@@ -667,7 +669,7 @@ func (r *redisCache) ZAdd(ctx Context, key string, members ...redis.Z) (int64, e
 	if hasLogger {
 		r.fillLogFields(ctx, req, end, false, err)
 	}
-	r.fillMetrics(ctx, end, metricsOperationSet, true, false)
+	r.fillMetrics(ctx, end, metricsOperationSet, true, false, err)
 	return val, err
 }
 
@@ -680,7 +682,7 @@ func (r *redisCache) ZRevRange(ctx Context, key string, start, stop int64) ([]st
 	if hasLogger {
 		r.fillLogFields(ctx, req, end, false, err)
 	}
-	r.fillMetrics(ctx, end, metricsOperationSet, false, false)
+	r.fillMetrics(ctx, end, metricsOperationSet, false, false, err)
 	return val, err
 }
 
@@ -693,7 +695,7 @@ func (r *redisCache) ZRevRangeWithScores(ctx Context, key string, start, stop in
 	if hasLogger {
 		r.fillLogFields(ctx, req, end, false, err)
 	}
-	r.fillMetrics(ctx, end, metricsOperationSet, false, false)
+	r.fillMetrics(ctx, end, metricsOperationSet, false, false, err)
 	return val, err
 }
 
@@ -706,7 +708,7 @@ func (r *redisCache) ZRangeWithScores(ctx Context, key string, start, stop int64
 	if hasLogger {
 		r.fillLogFields(ctx, req, end, false, err)
 	}
-	r.fillMetrics(ctx, end, metricsOperationSet, false, false)
+	r.fillMetrics(ctx, end, metricsOperationSet, false, false, err)
 	return val, err
 }
 
@@ -719,7 +721,7 @@ func (r *redisCache) ZRangeArgsWithScores(ctx Context, z redis.ZRangeArgs) ([]re
 	if hasLogger {
 		r.fillLogFields(ctx, req, end, false, err)
 	}
-	r.fillMetrics(ctx, end, metricsOperationSet, false, false)
+	r.fillMetrics(ctx, end, metricsOperationSet, false, false, err)
 	return val, err
 }
 
@@ -732,7 +734,7 @@ func (r *redisCache) ZCard(ctx Context, key string) (int64, error) {
 	if hasLogger {
 		r.fillLogFields(ctx, req, end, false, err)
 	}
-	r.fillMetrics(ctx, end, metricsOperationSet, false, false)
+	r.fillMetrics(ctx, end, metricsOperationSet, false, false, err)
 	return val, err
 }
 
@@ -745,7 +747,7 @@ func (r *redisCache) ZCount(ctx Context, key string, min, max string) (int64, er
 	if hasLogger {
 		r.fillLogFields(ctx, req, end, false, err)
 	}
-	r.fillMetrics(ctx, end, metricsOperationSet, false, false)
+	r.fillMetrics(ctx, end, metricsOperationSet, false, false, err)
 	return val, err
 }
 
@@ -758,7 +760,7 @@ func (r *redisCache) ZScore(ctx Context, key, member string) (float64, error) {
 	if hasLogger {
 		r.fillLogFields(ctx, req, end, false, err)
 	}
-	r.fillMetrics(ctx, end, metricsOperationSet, false, false)
+	r.fillMetrics(ctx, end, metricsOperationSet, false, false, err)
 	return val, err
 }
 
@@ -771,7 +773,7 @@ func (r *redisCache) MSet(ctx Context, pairs ...any) error {
 	if hasLogger {
 		r.fillLogFields(ctx, req, end, false, err)
 	}
-	r.fillMetrics(ctx, end, metricsOperationKey, true, false)
+	r.fillMetrics(ctx, end, metricsOperationKey, true, false, err)
 	return err
 }
 
@@ -792,7 +794,7 @@ func (r *redisCache) MGet(ctx Context, keys ...string) ([]any, error) {
 	if hasLogger {
 		r.fillLogFields(ctx, req, end, misses > 0, err)
 	}
-	r.fillMetrics(ctx, end, metricsOperationKey, false, misses > 0)
+	r.fillMetrics(ctx, end, metricsOperationKey, false, misses > 0, err)
 	return results, err
 }
 
@@ -805,7 +807,7 @@ func (r *redisCache) SAdd(ctx Context, key string, members ...any) (int64, error
 	if hasLogger {
 		r.fillLogFields(ctx, req, end, false, err)
 	}
-	r.fillMetrics(ctx, end, metricsOperationSet, true, false)
+	r.fillMetrics(ctx, end, metricsOperationSet, true, false, err)
 	return val, err
 }
 
@@ -818,7 +820,7 @@ func (r *redisCache) SMembers(ctx Context, key string) ([]string, error) {
 	if hasLogger {
 		r.fillLogFields(ctx, req, end, false, err)
 	}
-	r.fillMetrics(ctx, end, metricsOperationSet, false, false)
+	r.fillMetrics(ctx, end, metricsOperationSet, false, false, err)
 	return val, err
 }
 
@@ -831,7 +833,7 @@ func (r *redisCache) SIsMember(ctx Context, key string, member any) (bool, error
 	if hasLogger {
 		r.fillLogFields(ctx, req, end, false, err)
 	}
-	r.fillMetrics(ctx, end, metricsOperationSet, false, false)
+	r.fillMetrics(ctx, end, metricsOperationSet, false, false, err)
 	return val, err
 }
 
@@ -844,7 +846,7 @@ func (r *redisCache) SCard(ctx Context, key string) (int64, error) {
 	if hasLogger {
 		r.fillLogFields(ctx, req, end, false, err)
 	}
-	r.fillMetrics(ctx, end, metricsOperationSet, false, false)
+	r.fillMetrics(ctx, end, metricsOperationSet, false, false, err)
 	return val, err
 }
 
@@ -862,7 +864,7 @@ func (r *redisCache) SPop(ctx Context, key string) (string, bool, error) {
 	if hasLogger {
 		r.fillLogFields(ctx, req, end, false, err)
 	}
-	r.fillMetrics(ctx, end, metricsOperationSet, false, false)
+	r.fillMetrics(ctx, end, metricsOperationSet, false, false, err)
 	return val, found, err
 }
 
@@ -875,7 +877,7 @@ func (r *redisCache) SPopN(ctx Context, key string, max int64) ([]string, error)
 	if hasLogger {
 		r.fillLogFields(ctx, req, end, false, err)
 	}
-	r.fillMetrics(ctx, end, metricsOperationSet, false, false)
+	r.fillMetrics(ctx, end, metricsOperationSet, false, false, err)
 	return val, err
 }
 
@@ -888,7 +890,7 @@ func (r *redisCache) Del(ctx Context, keys ...string) error {
 	if hasLogger {
 		r.fillLogFields(ctx, req, end, false, err)
 	}
-	r.fillMetrics(ctx, end, metricsOperationKey, true, false)
+	r.fillMetrics(ctx, end, metricsOperationKey, true, false, err)
 	return err
 }
 
@@ -901,7 +903,7 @@ func (r *redisCache) XTrim(ctx Context, stream string, maxLen int64) (deleted in
 	if hasLogger {
 		r.fillLogFields(ctx, req, end, false, err)
 	}
-	r.fillMetrics(ctx, end, metricsOperationStream, false, false)
+	r.fillMetrics(ctx, end, metricsOperationStream, false, false, err)
 	return deleted, err
 }
 
@@ -914,7 +916,7 @@ func (r *redisCache) XRange(ctx Context, stream, start, stop string, count int64
 	if hasLogger {
 		r.fillLogFields(ctx, req, end, false, err)
 	}
-	r.fillMetrics(ctx, end, metricsOperationStream, false, false)
+	r.fillMetrics(ctx, end, metricsOperationStream, false, false, err)
 	return deleted, err
 }
 
@@ -927,7 +929,7 @@ func (r *redisCache) XRevRange(ctx Context, stream, start, stop string, count in
 	if hasLogger {
 		r.fillLogFields(ctx, req, end, false, err)
 	}
-	r.fillMetrics(ctx, end, metricsOperationStream, false, false)
+	r.fillMetrics(ctx, end, metricsOperationStream, false, false, err)
 	return deleted, err
 }
 
@@ -940,7 +942,7 @@ func (r *redisCache) XInfoStream(ctx Context, stream string) (*redis.XInfoStream
 	if hasLogger {
 		r.fillLogFields(ctx, req, end, false, err)
 	}
-	r.fillMetrics(ctx, end, metricsOperationStream, false, false)
+	r.fillMetrics(ctx, end, metricsOperationStream, false, false, err)
 	return info, err
 }
 
@@ -957,13 +959,13 @@ func (r *redisCache) XInfoGroups(ctx Context, stream string) ([]redis.XInfoGroup
 		if hasLogger {
 			r.fillLogFields(ctx, req, end, false, err)
 		}
-		r.fillMetrics(ctx, end, metricsOperationStream, false, false)
+		r.fillMetrics(ctx, end, metricsOperationStream, false, false, err)
 		return make([]redis.XInfoGroup, 0), nil
 	}
 	if hasLogger {
 		r.fillLogFields(ctx, req, end, false, err)
 	}
-	r.fillMetrics(ctx, end, metricsOperationStream, false, false)
+	r.fillMetrics(ctx, end, metricsOperationStream, false, false, err)
 	return info, err
 }
 
@@ -973,7 +975,7 @@ func (r *redisCache) XGroupCreate(ctx Context, stream, group, start string) (key
 	req := r.client.XGroupCreate(ctx.Context(), stream, group, start)
 	res, err := req.Result()
 	end := time.Since(s)
-	r.fillMetrics(ctx, end, metricsOperationStream, true, false)
+	r.fillMetrics(ctx, end, metricsOperationStream, true, false, err)
 	if err != nil && strings.HasPrefix(err.Error(), "BUSYGROUP") {
 		if hasLogger {
 			r.fillLogFields(ctx, req, end, false, err)
@@ -993,7 +995,7 @@ func (r *redisCache) XGroupCreateMkStream(ctx Context, stream, group, start stri
 	res, err := req.Result()
 	end := time.Since(s)
 	created := false
-	r.fillMetrics(ctx, end, metricsOperationStream, true, false)
+	r.fillMetrics(ctx, end, metricsOperationStream, true, false, err)
 	if err != nil && strings.HasPrefix(err.Error(), "BUSYGROUP") {
 		created = true
 		err = nil
@@ -1011,7 +1013,7 @@ func (r *redisCache) XGroupDestroy(ctx Context, stream, group string) (int64, er
 	req := r.client.XGroupDestroy(ctx.Context(), stream, group)
 	res, err := req.Result()
 	end := time.Since(start)
-	r.fillMetrics(ctx, end, metricsOperationStream, true, false)
+	r.fillMetrics(ctx, end, metricsOperationStream, true, false, err)
 	if hasLogger {
 		r.fillLogFields(ctx, req, end, false, err)
 	}
@@ -1024,7 +1026,7 @@ func (r *redisCache) XRead(ctx Context, a *redis.XReadArgs) ([]redis.XStream, er
 	req := r.client.XRead(ctx.Context(), a)
 	info, err := req.Result()
 	end := time.Since(start)
-	r.fillMetrics(ctx, end, metricsOperationStream, false, false)
+	r.fillMetrics(ctx, end, metricsOperationStream, false, false, err)
 	if hasLogger {
 		r.fillLogFields(ctx, req, end, false, err)
 	}
@@ -1037,7 +1039,7 @@ func (r *redisCache) XDel(ctx Context, stream string, ids ...string) (int64, err
 	req := r.client.XDel(ctx.Context(), stream, ids...)
 	deleted, err := req.Result()
 	end := time.Since(start)
-	r.fillMetrics(ctx, end, metricsOperationStream, true, false)
+	r.fillMetrics(ctx, end, metricsOperationStream, true, false, err)
 	if hasLogger {
 		r.fillLogFields(ctx, req, end, false, err)
 	}
@@ -1053,7 +1055,7 @@ func (r *redisCache) XAutoClaim(ctx Context, a *redis.XAutoClaimArgs) (messages 
 	if hasLogger {
 		r.fillLogFields(ctx, req, end, false, err)
 	}
-	r.fillMetrics(ctx, end, metricsOperationStream, false, false)
+	r.fillMetrics(ctx, end, metricsOperationStream, false, false, err)
 	return messages, start, err
 }
 
@@ -1066,7 +1068,7 @@ func (r *redisCache) XGroupDelConsumer(ctx Context, stream, group, consumer stri
 	if hasLogger {
 		r.fillLogFields(ctx, req, end, false, err)
 	}
-	r.fillMetrics(ctx, end, metricsOperationStream, true, false)
+	r.fillMetrics(ctx, end, metricsOperationStream, true, false, err)
 	return deleted, err
 }
 
@@ -1081,7 +1083,7 @@ func (r *redisCache) XReadGroup(ctx Context, a *redis.XReadGroupArgs) (streams [
 		start := time.Now()
 		req := r.client.XReadGroup(ctx.Context(), a)
 		end := time.Since(start)
-		r.fillMetrics(ctx, end, metricsOperationStream, false, false)
+		r.fillMetrics(ctx, end, metricsOperationStream, false, false, err)
 		streams, err = req.Result()
 	}
 
@@ -1103,7 +1105,7 @@ func (r *redisCache) XPending(ctx Context, stream, group string) (*redis.XPendin
 	if hasLogger {
 		r.fillLogFields(ctx, req, end, false, err)
 	}
-	r.fillMetrics(ctx, end, metricsOperationStream, false, false)
+	r.fillMetrics(ctx, end, metricsOperationStream, false, false, err)
 	return res, err
 }
 
@@ -1116,7 +1118,7 @@ func (r *redisCache) XPendingExt(ctx Context, a *redis.XPendingExtArgs) ([]redis
 	if hasLogger {
 		r.fillLogFields(ctx, req, end, false, err)
 	}
-	r.fillMetrics(ctx, end, metricsOperationStream, false, false)
+	r.fillMetrics(ctx, end, metricsOperationStream, false, false, err)
 	return res, err
 }
 
@@ -1129,7 +1131,7 @@ func (r *redisCache) XLen(ctx Context, stream string) (int64, error) {
 	if hasLogger {
 		r.fillLogFields(ctx, req, end, false, err)
 	}
-	r.fillMetrics(ctx, end, metricsOperationStream, false, false)
+	r.fillMetrics(ctx, end, metricsOperationStream, false, false, err)
 	return l, err
 }
 
@@ -1142,7 +1144,7 @@ func (r *redisCache) XClaim(ctx Context, a *redis.XClaimArgs) ([]redis.XMessage,
 	if hasLogger {
 		r.fillLogFields(ctx, req, end, false, err)
 	}
-	r.fillMetrics(ctx, end, metricsOperationStream, false, false)
+	r.fillMetrics(ctx, end, metricsOperationStream, false, false, err)
 	return res, err
 }
 
@@ -1155,7 +1157,7 @@ func (r *redisCache) XClaimJustID(ctx Context, a *redis.XClaimArgs) ([]string, e
 	if hasLogger {
 		r.fillLogFields(ctx, req, end, false, err)
 	}
-	r.fillMetrics(ctx, end, metricsOperationStream, false, false)
+	r.fillMetrics(ctx, end, metricsOperationStream, false, false, err)
 	return res, err
 }
 
@@ -1168,7 +1170,7 @@ func (r *redisCache) XAck(ctx Context, stream, group string, ids ...string) (int
 	if hasLogger {
 		r.fillLogFields(ctx, req, end, false, err)
 	}
-	r.fillMetrics(ctx, end, metricsOperationStream, true, false)
+	r.fillMetrics(ctx, end, metricsOperationStream, true, false, err)
 	return res, err
 }
 
@@ -1179,7 +1181,7 @@ func (r *redisCache) xAdd(ctx Context, stream string, values interface{}) (id st
 	req := r.client.XAdd(context.Background(), a)
 	id, err = req.Result()
 	end := time.Since(start)
-	r.fillMetrics(ctx, end, metricsOperationStream, true, false)
+	r.fillMetrics(ctx, end, metricsOperationStream, true, false, err)
 	if hasLogger {
 		r.fillLogFields(ctx, req, end, false, err)
 	}
@@ -1195,7 +1197,7 @@ func (r *redisCache) FTList(ctx Context) ([]string, error) {
 	if hasLogger {
 		r.fillLogFields(ctx, req, end, false, err)
 	}
-	r.fillMetrics(ctx, end, metricsOperationSearch, false, false)
+	r.fillMetrics(ctx, end, metricsOperationSearch, false, false, err)
 	return res, err
 }
 
@@ -1209,7 +1211,7 @@ func (r *redisCache) FTDrop(ctx Context, index string, dropDocuments bool) error
 		if hasLogger {
 			r.fillLogFields(ctx, req, end, false, err)
 		}
-		r.fillMetrics(ctx, end, metricsOperationSearch, true, false)
+		r.fillMetrics(ctx, end, metricsOperationSearch, true, false, err)
 		return err
 	}
 	req := r.client.FTDropIndex(ctx.Context(), index)
@@ -1218,7 +1220,7 @@ func (r *redisCache) FTDrop(ctx Context, index string, dropDocuments bool) error
 	if hasLogger {
 		r.fillLogFields(ctx, req, end, false, err)
 	}
-	r.fillMetrics(ctx, end, metricsOperationSearch, true, false)
+	r.fillMetrics(ctx, end, metricsOperationSearch, true, false, err)
 	return err
 }
 
@@ -1237,7 +1239,7 @@ func (r *redisCache) FTSearch(ctx Context, index string, query string, options *
 	if hasLogger {
 		r.fillLogFields(ctx, req, end, false, err)
 	}
-	r.fillMetrics(ctx, end, metricsOperationSearch, false, false)
+	r.fillMetrics(ctx, end, metricsOperationSearch, false, false, err)
 	if err != nil {
 		return redis.FTSearchResult{}, err
 	}
@@ -1299,7 +1301,7 @@ func (r *redisCache) FTInfo(ctx Context, index string) (info *redis.FTInfoResult
 		if hasLogger {
 			r.fillLogFields(ctx, req, end, true, err)
 		}
-		r.fillMetrics(ctx, end, metricsOperationSearch, false, false)
+		r.fillMetrics(ctx, end, metricsOperationSearch, false, false, err)
 		return nil, false, nil
 	}
 	info = &redis.FTInfoResult{}
@@ -1342,7 +1344,7 @@ func (r *redisCache) FTInfo(ctx Context, index string) (info *redis.FTInfoResult
 				WithSuffixtrie:  false,
 			}
 		}
-		r.fillMetrics(ctx, end, metricsOperationSearch, false, false)
+		r.fillMetrics(ctx, end, metricsOperationSearch, false, false, err)
 		return info, true, nil
 	}
 	info.SortableValuesSizeMB = asMap["sortable_values_size_mb"].(float64)
@@ -1462,7 +1464,7 @@ func (r *redisCache) FTInfo(ctx Context, index string) (info *redis.FTInfoResult
 	if hasLogger {
 		r.fillLogFields(ctx, req, end, false, err)
 	}
-	r.fillMetrics(ctx, end, metricsOperationSearch, false, false)
+	r.fillMetrics(ctx, end, metricsOperationSearch, false, false, err)
 	return info, true, nil
 }
 
@@ -1475,7 +1477,7 @@ func (r *redisCache) FTCreate(ctx Context, index string, options *redis.FTCreate
 	if hasLogger {
 		r.fillLogFields(ctx, req, end, false, err)
 	}
-	r.fillMetrics(ctx, end, metricsOperationSearch, true, false)
+	r.fillMetrics(ctx, end, metricsOperationSearch, true, false, err)
 	return err
 }
 
@@ -1488,7 +1490,7 @@ func (r *redisCache) FlushAll(ctx Context) error {
 	if hasLogger {
 		r.fillLogFields(ctx, req, end, false, err)
 	}
-	r.fillMetrics(ctx, end, metricsOperationOther, true, false)
+	r.fillMetrics(ctx, end, metricsOperationOther, true, false, err)
 	return err
 }
 
@@ -1501,7 +1503,7 @@ func (r *redisCache) FlushDB(ctx Context) error {
 	if hasLogger {
 		r.fillLogFields(ctx, req, end, false, err)
 	}
-	r.fillMetrics(ctx, end, metricsOperationOther, true, false)
+	r.fillMetrics(ctx, end, metricsOperationOther, true, false, err)
 	return err
 }
 
@@ -1514,7 +1516,7 @@ func (r *redisCache) Scan(ctx Context, cursor uint64, match string, count int64)
 	if hasLogger {
 		r.fillLogFields(ctx, req, end, false, err)
 	}
-	r.fillMetrics(ctx, end, metricsOperationOther, false, false)
+	r.fillMetrics(ctx, end, metricsOperationOther, false, false, err)
 	return keys, cursorNext, err
 }
 
@@ -1531,7 +1533,7 @@ func (r *redisCache) Client() *redis.Client {
 	return r.client
 }
 
-func (r *redisCache) fillMetrics(ctx Context, end time.Duration, operation string, set, miss bool) {
+func (r *redisCache) fillMetrics(ctx Context, end time.Duration, operation string, set, miss bool, err error) {
 	metrics, hasMetrics := ctx.Engine().Registry().getMetricsRegistry()
 	if hasMetrics {
 		missValue := "0"
@@ -1543,6 +1545,9 @@ func (r *redisCache) fillMetrics(ctx Context, end time.Duration, operation strin
 			setValue = "1"
 		}
 		metrics.queriesRedis.WithLabelValues(operation, r.config.GetCode(), setValue, missValue, "0").Observe(end.Seconds())
+		if err != nil {
+			metrics.queriesRedisErrors.WithLabelValues(r.config.GetCode()).Inc()
+		}
 	}
 }
 

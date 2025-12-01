@@ -259,7 +259,7 @@ func (db *dbImplementation) Commit(ctx Context) error {
 	if hasLogger {
 		db.fillLogFields(ctx, "TRANSACTION", "COMMIT", end, err)
 	}
-	db.fillMetrics(ctx, end, metricsOperationTransaction)
+	db.fillMetrics(ctx, end, metricsOperationTransaction, err)
 	return err
 }
 
@@ -275,7 +275,7 @@ func (db *dbImplementation) Rollback(ctx Context) error {
 	if hasLogger {
 		db.fillLogFields(ctx, "TRANSACTION", "ROLLBACK", end, err)
 	}
-	db.fillMetrics(ctx, end, metricsOperationTransaction)
+	db.fillMetrics(ctx, end, metricsOperationTransaction, err)
 	return err
 }
 
@@ -287,7 +287,7 @@ func (db *dbImplementation) Begin(ctx Context) (DBTransaction, error) {
 	if hasLogger {
 		db.fillLogFields(ctx, "TRANSACTION", "START TRANSACTION", end, err)
 	}
-	db.fillMetrics(ctx, end, metricsOperationTransaction)
+	db.fillMetrics(ctx, end, metricsOperationTransaction, err)
 	if err != nil {
 		return nil, err
 	}
@@ -315,14 +315,17 @@ func (db *dbImplementation) Exec(ctx Context, query string, args ...any) (ExecRe
 		}
 		db.fillLogFields(ctx, "EXEC", message, end, err)
 	}
-	db.fillMetrics(ctx, end, metricsOperationExec)
+	db.fillMetrics(ctx, end, metricsOperationExec, err)
 	return &execResult{r: rows}, err
 }
 
-func (db *dbImplementation) fillMetrics(ctx Context, end time.Duration, name string) {
+func (db *dbImplementation) fillMetrics(ctx Context, end time.Duration, name string, err error) {
 	metrics, hasMetrics := ctx.Engine().Registry().getMetricsRegistry()
 	if hasMetrics {
 		metrics.queriesDB.WithLabelValues(name, db.GetConfig().GetCode()).Observe(end.Seconds())
+		if err != nil {
+			metrics.queriesDBErrors.WithLabelValues(db.GetConfig().GetCode()).Inc()
+		}
 	}
 }
 
@@ -337,7 +340,7 @@ func (db *dbImplementation) QueryRow(ctx Context, query Where, toFill ...any) (f
 			if len(query.GetParameters()) > 0 {
 				message += " " + fmt.Sprintf("%v", query.GetParameters())
 			}
-			db.fillMetrics(ctx, end, metricsOperationSelect)
+			db.fillMetrics(ctx, end, metricsOperationSelect, err)
 			db.fillLogFields(ctx, "SELECT", message, end, err)
 		}
 		return false, row.Err()
@@ -355,19 +358,19 @@ func (db *dbImplementation) QueryRow(ctx Context, query Where, toFill ...any) (f
 			if hasLogger {
 				db.fillLogFields(ctx, "SELECT", message, end, nil)
 			}
-			db.fillMetrics(ctx, end, metricsOperationSelect)
+			db.fillMetrics(ctx, end, metricsOperationSelect, nil)
 			return false, nil
 		}
 		if hasLogger {
 			db.fillLogFields(ctx, "SELECT", message, end, err)
 		}
-		db.fillMetrics(ctx, end, metricsOperationSelect)
+		db.fillMetrics(ctx, end, metricsOperationSelect, err)
 		return false, err
 	}
 	if hasLogger {
 		db.fillLogFields(ctx, "SELECT", message, end, nil)
 	}
-	db.fillMetrics(ctx, end, metricsOperationSelect)
+	db.fillMetrics(ctx, end, metricsOperationSelect, nil)
 	return true, nil
 }
 
@@ -384,10 +387,10 @@ func (db *dbImplementation) Query(ctx Context, query string, args ...any) (rows 
 		db.fillLogFields(ctx, "SELECT", message, end, err)
 	}
 	if err != nil {
-		db.fillMetrics(ctx, end, metricsOperationSelect)
+		db.fillMetrics(ctx, end, metricsOperationSelect, err)
 		return nil, nil, err
 	}
-	db.fillMetrics(ctx, end, metricsOperationSelect)
+	db.fillMetrics(ctx, end, metricsOperationSelect, err)
 	return &rowsStruct{result}, func() {
 		if result != nil {
 			_ = result.Close()

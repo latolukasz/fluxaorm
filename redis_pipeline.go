@@ -124,14 +124,14 @@ func (rp *RedisPipeLine) Exec(ctx Context) (response []redis.Cmder, err error) {
 		}
 		fillLogFields(ctx, loggers, rp.pool, sourceRedis, "PIPELINE EXEC", query, &end, false, nil)
 	}
-	if rp.fillMetrics(ctx, end, res) {
+	if rp.fillMetrics(ctx, end, res, err) {
 		rp.metricsGets = make([]*PipeLineGet, 0)
 	}
 	rp.commands = 0
 	return res, err
 }
 
-func (rp *RedisPipeLine) fillMetrics(ctx Context, end time.Duration, res []redis.Cmder) bool {
+func (rp *RedisPipeLine) fillMetrics(ctx Context, end time.Duration, res []redis.Cmder, err error) bool {
 	metrics, hasMetrics := ctx.Engine().Registry().getMetricsRegistry()
 	endSingle := end.Seconds() / float64(rp.commands)
 	if hasMetrics {
@@ -178,6 +178,9 @@ func (rp *RedisPipeLine) fillMetrics(ctx Context, end time.Duration, res []redis
 				missValue = "1"
 			}
 			metrics.queriesRedis.WithLabelValues(operation, rp.r.config.GetCode(), setValue, missValue, "1").Observe(endSingle)
+		}
+		if err != nil {
+			metrics.queriesRedisErrors.WithLabelValues(rp.r.config.GetCode()).Inc()
 		}
 		return true
 	}
