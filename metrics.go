@@ -5,6 +5,8 @@ import (
 	"github.com/prometheus/client_golang/prometheus/promauto"
 )
 
+const MetricsMetaKey = "MetrictMetaKey"
+
 type metricsRegistry struct {
 	queriesDB          *prometheus.HistogramVec
 	queriesRedis       *prometheus.HistogramVec
@@ -18,22 +20,22 @@ func initMetricsRegistry(factory promauto.Factory) *metricsRegistry {
 	reg.queriesDB = factory.NewHistogramVec(prometheus.HistogramOpts{
 		Name: "fluxaorm_db_queries_seconds",
 		Help: "Total number of DB queries executed",
-	}, []string{"operation", "pool"})
+	}, []string{"operation", "pool", "source"})
 	reg.queriesRedis = factory.NewHistogramVec(prometheus.HistogramOpts{
 		Name: "fluxaorm_redis_queries_seconds",
 		Help: "Total number of Redis queries executed",
-	}, []string{"operation", "pool", "set", "miss", "pipeline"})
+	}, []string{"operation", "pool", "set", "miss", "pipeline", "source"})
 	reg.queriesRedisBlock = factory.NewCounterVec(prometheus.CounterOpts{
 		Name: "fluxaorm_redis_queries_block",
 		Help: "Total number of Redis blocking queries executed",
-	}, []string{"operation", "pool"})
+	}, []string{"operation", "pool", "source"})
 	reg.queriesDBErrors = factory.NewCounterVec(prometheus.CounterOpts{
 		Name: "fluxaorm_db_queries_errors",
 		Help: "Total number of DB queries errors",
-	}, []string{"pool"})
+	}, []string{"pool", "source"})
 	reg.queriesRedisErrors = factory.NewCounterVec(prometheus.CounterOpts{
 		Name: "fluxaorm_redis_queries_errors",
 		Help: "Total number of Redis queries errors",
-	}, []string{"pool"})
+	}, []string{"pool", "source"})
 	return reg
 }

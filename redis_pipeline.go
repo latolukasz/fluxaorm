@@ -177,10 +177,10 @@ func (rp *RedisPipeLine) fillMetrics(ctx Context, end time.Duration, res []redis
 			if isMiss {
 				missValue = "1"
 			}
-			metrics.queriesRedis.WithLabelValues(operation, rp.r.config.GetCode(), setValue, missValue, "1").Observe(endSingle)
+			metrics.queriesRedis.WithLabelValues(operation, rp.r.config.GetCode(), setValue, missValue, "1", ctx.getMetricsSourceTag()).Observe(endSingle)
 		}
 		if err != nil {
-			metrics.queriesRedisErrors.WithLabelValues(rp.r.config.GetCode()).Inc()
+			metrics.queriesRedisErrors.WithLabelValues(rp.r.config.GetCode(), ctx.getMetricsSourceTag()).Inc()
 		}
 		return true
 	}

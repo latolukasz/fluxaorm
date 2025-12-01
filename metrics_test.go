@@ -39,8 +39,8 @@ func TestMetrics(t *testing.T) {
 	assert.Equal(t, io_prometheus_client.MetricType_HISTOGRAM, stat.GetType())
 	assert.Len(t, stat.Metric, 1)
 	assert.Equal(t, uint64(1), stat.Metric[0].GetHistogram().GetSampleCount())
-	assert.Len(t, stat.Metric[0].Label, 2)
-	testMetricLabel(t, stat, map[string]string{"operation": "select", "pool": DefaultPoolCode}, 0)
+	assert.Len(t, stat.Metric[0].Label, 3)
+	testMetricLabel(t, stat, map[string]string{"operation": "select", "pool": DefaultPoolCode, "source": "default"}, 0)
 
 	_, cl, err := db.Query(orm, "SELECT 1")
 	defer cl()
@@ -48,7 +48,7 @@ func TestMetrics(t *testing.T) {
 	stat = testMetric(t, "fluxaorm_db_queries_seconds")
 	assert.Len(t, stat.Metric, 1)
 	assert.Equal(t, uint64(2), stat.Metric[0].GetHistogram().GetSampleCount())
-	testMetricLabel(t, stat, map[string]string{"operation": "select", "pool": DefaultPoolCode}, 0)
+	testMetricLabel(t, stat, map[string]string{"operation": "select", "pool": DefaultPoolCode, "source": "default"}, 0)
 	cl()
 
 	_, err = db.Exec(orm, "SELECT 1")
@@ -56,9 +56,9 @@ func TestMetrics(t *testing.T) {
 	stat = testMetric(t, "fluxaorm_db_queries_seconds")
 	assert.Len(t, stat.Metric, 2)
 	assert.Equal(t, uint64(2), stat.Metric[1].GetHistogram().GetSampleCount())
-	testMetricLabel(t, stat, map[string]string{"operation": "select", "pool": DefaultPoolCode}, 1)
+	testMetricLabel(t, stat, map[string]string{"operation": "select", "pool": DefaultPoolCode, "source": "default"}, 1)
 	assert.Equal(t, uint64(1), stat.Metric[0].GetHistogram().GetSampleCount())
-	testMetricLabel(t, stat, map[string]string{"operation": "exec", "pool": DefaultPoolCode}, 0)
+	testMetricLabel(t, stat, map[string]string{"operation": "exec", "pool": DefaultPoolCode, "source": "default"}, 0)
 
 	tx, err := db.Begin(orm)
 	assert.NoError(t, err)
@@ -68,6 +68,7 @@ func TestMetrics(t *testing.T) {
 	assert.Len(t, stat.Metric, 3)
 
 	m.queriesRedis.Reset()
+	orm.SetMetaData(MetricsMetaKey, "TestValue")
 	r := orm.Engine().Redis(DefaultPoolCode)
 	err = r.Set(orm, "test", "test", 0)
 	assert.NoError(t, err)
@@ -78,8 +79,8 @@ func TestMetrics(t *testing.T) {
 	assert.Equal(t, io_prometheus_client.MetricType_HISTOGRAM, stat.GetType())
 	assert.Len(t, stat.Metric, 1)
 	assert.Equal(t, uint64(1), stat.Metric[0].GetHistogram().GetSampleCount())
-	assert.Len(t, stat.Metric[0].Label, 5)
-	testMetricLabel(t, stat, map[string]string{"operation": "key", "pool": DefaultPoolCode, "miss": "0", "pipeline": "0", "set": "1"}, 0)
+	assert.Len(t, stat.Metric[0].Label, 6)
+	testMetricLabel(t, stat, map[string]string{"operation": "key", "pool": DefaultPoolCode, "miss": "0", "pipeline": "0", "set": "1", "source": "TestValue"}, 0)
 
 	m.queriesRedis.Reset()
 	p := orm.RedisPipeLine(DefaultPoolCode)
@@ -91,10 +92,10 @@ func TestMetrics(t *testing.T) {
 	assert.NotNil(t, stat)
 	assert.Len(t, stat.Metric, 2)
 	assert.Equal(t, uint64(1), stat.Metric[0].GetHistogram().GetSampleCount())
-	assert.Len(t, stat.Metric[0].Label, 5)
-	testMetricLabel(t, stat, map[string]string{"operation": "key", "pool": DefaultPoolCode, "miss": "0", "pipeline": "1", "set": "1"}, 0)
-	assert.Len(t, stat.Metric[1].Label, 5)
-	testMetricLabel(t, stat, map[string]string{"operation": "key", "pool": DefaultPoolCode, "miss": "1", "pipeline": "1", "set": "0"}, 1)
+	assert.Len(t, stat.Metric[0].Label, 6)
+	testMetricLabel(t, stat, map[string]string{"operation": "key", "pool": DefaultPoolCode, "miss": "0", "pipeline": "1", "set": "1", "source": "TestValue"}, 0)
+	assert.Len(t, stat.Metric[1].Label, 6)
+	testMetricLabel(t, stat, map[string]string{"operation": "key", "pool": DefaultPoolCode, "miss": "1", "pipeline": "1", "set": "0", "source": "TestValue"}, 1)
 }
 
 func testMetric(t *testing.T, name string) *io_prometheus_client.MetricFamily {

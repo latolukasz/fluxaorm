@@ -322,9 +322,9 @@ func (db *dbImplementation) Exec(ctx Context, query string, args ...any) (ExecRe
 func (db *dbImplementation) fillMetrics(ctx Context, end time.Duration, name string, err error) {
 	metrics, hasMetrics := ctx.Engine().Registry().getMetricsRegistry()
 	if hasMetrics {
-		metrics.queriesDB.WithLabelValues(name, db.GetConfig().GetCode()).Observe(end.Seconds())
+		metrics.queriesDB.WithLabelValues(name, db.GetConfig().GetCode(), ctx.getMetricsSourceTag()).Observe(end.Seconds())
 		if err != nil {
-			metrics.queriesDBErrors.WithLabelValues(db.GetConfig().GetCode()).Inc()
+			metrics.queriesDBErrors.WithLabelValues(db.GetConfig().GetCode(), ctx.getMetricsSourceTag()).Inc()
 		}
 	}
 }

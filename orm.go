@@ -46,6 +46,7 @@ type Context interface {
 	GetEventBroker() EventBroker
 	getEntityFromCache(schema *entitySchema, id uint64) (e any, found bool)
 	cacheEntity(schema *entitySchema, id uint64, e any)
+	getMetricsSourceTag() string
 }
 
 type ormImplementation struct {
@@ -192,6 +193,14 @@ func (orm *ormImplementation) cacheEntity(schema *entitySchema, id uint64, e any
 	if loaded {
 		entities.Store(id, e)
 	}
+}
+
+func (orm *ormImplementation) getMetricsSourceTag() string {
+	userTag, has := orm.meta[MetricsMetaKey]
+	if has {
+		return userTag
+	}
+	return "default"
 }
 
 func (orm *ormImplementation) getEntityFromCache(schema *entitySchema, id uint64) (e any, found bool) {

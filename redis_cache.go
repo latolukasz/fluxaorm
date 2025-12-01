@@ -1077,7 +1077,7 @@ func (r *redisCache) XReadGroup(ctx Context, a *redis.XReadGroupArgs) (streams [
 		streams, err = r.client.XReadGroup(ctx.Context(), a).Result()
 		metrics, hasMetrics := ctx.Engine().Registry().getMetricsRegistry()
 		if hasMetrics {
-			metrics.queriesRedisBlock.WithLabelValues("stream", r.config.GetCode()).Inc()
+			metrics.queriesRedisBlock.WithLabelValues("stream", r.config.GetCode(), ctx.getMetricsSourceTag()).Inc()
 		}
 	} else {
 		start := time.Now()
@@ -1544,9 +1544,9 @@ func (r *redisCache) fillMetrics(ctx Context, end time.Duration, operation strin
 		if set {
 			setValue = "1"
 		}
-		metrics.queriesRedis.WithLabelValues(operation, r.config.GetCode(), setValue, missValue, "0").Observe(end.Seconds())
+		metrics.queriesRedis.WithLabelValues(operation, r.config.GetCode(), setValue, missValue, "0", ctx.getMetricsSourceTag()).Observe(end.Seconds())
 		if err != nil {
-			metrics.queriesRedisErrors.WithLabelValues(r.config.GetCode()).Inc()
+			metrics.queriesRedisErrors.WithLabelValues(r.config.GetCode(), ctx.getMetricsSourceTag()).Inc()
 		}
 	}
 }
