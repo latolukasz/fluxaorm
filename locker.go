@@ -90,7 +90,7 @@ func (l *Locker) fillMetrics(ctx Context, end time.Duration, set, miss bool, err
 		if set {
 			setValue = "1"
 		}
-		metrics.queriesRedis.WithLabelValues(metricsOperationLock, l.r.config.GetCode(), setValue, missValue, ctx.getMetricsSourceTag()).Observe(end.Seconds())
+		metrics.queriesRedis.WithLabelValues(metricsOperationLock, l.r.config.GetCode(), setValue, missValue, "0", ctx.getMetricsSourceTag()).Observe(end.Seconds())
 		if err != nil {
 			metrics.queriesRedisErrors.WithLabelValues(l.r.config.GetCode(), ctx.getMetricsSourceTag()).Inc()
 		}
