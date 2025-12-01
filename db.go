@@ -8,6 +8,10 @@ import (
 	"time"
 )
 
+const metricsOperationTransaction = "transaction"
+const metricsOperationExec = "exec"
+const metricsOperationSelect = "select"
+
 type MySQLConfig interface {
 	GetCode() string
 	GetDatabaseName() string
@@ -255,7 +259,7 @@ func (db *dbImplementation) Commit(ctx Context) error {
 	if hasLogger {
 		db.fillLogFields(ctx, "TRANSACTION", "COMMIT", end, err)
 	}
-	db.fillMetrics(ctx, end, "transaction")
+	db.fillMetrics(ctx, end, metricsOperationTransaction)
 	return err
 }
 
@@ -271,7 +275,7 @@ func (db *dbImplementation) Rollback(ctx Context) error {
 	if hasLogger {
 		db.fillLogFields(ctx, "TRANSACTION", "ROLLBACK", end, err)
 	}
-	db.fillMetrics(ctx, end, "transaction")
+	db.fillMetrics(ctx, end, metricsOperationTransaction)
 	return err
 }
 
@@ -283,7 +287,7 @@ func (db *dbImplementation) Begin(ctx Context) (DBTransaction, error) {
 	if hasLogger {
 		db.fillLogFields(ctx, "TRANSACTION", "START TRANSACTION", end, err)
 	}
-	db.fillMetrics(ctx, end, "transaction")
+	db.fillMetrics(ctx, end, metricsOperationTransaction)
 	if err != nil {
 		return nil, err
 	}
@@ -311,7 +315,7 @@ func (db *dbImplementation) Exec(ctx Context, query string, args ...any) (ExecRe
 		}
 		db.fillLogFields(ctx, "EXEC", message, end, err)
 	}
-	db.fillMetrics(ctx, end, "exec")
+	db.fillMetrics(ctx, end, metricsOperationExec)
 	return &execResult{r: rows}, err
 }
 
@@ -333,7 +337,7 @@ func (db *dbImplementation) QueryRow(ctx Context, query Where, toFill ...any) (f
 			if len(query.GetParameters()) > 0 {
 				message += " " + fmt.Sprintf("%v", query.GetParameters())
 			}
-			db.fillMetrics(ctx, end, "select")
+			db.fillMetrics(ctx, end, metricsOperationSelect)
 			db.fillLogFields(ctx, "SELECT", message, end, err)
 		}
 		return false, row.Err()
@@ -351,19 +355,19 @@ func (db *dbImplementation) QueryRow(ctx Context, query Where, toFill ...any) (f
 			if hasLogger {
 				db.fillLogFields(ctx, "SELECT", message, end, nil)
 			}
-			db.fillMetrics(ctx, end, "select")
+			db.fillMetrics(ctx, end, metricsOperationSelect)
 			return false, nil
 		}
 		if hasLogger {
 			db.fillLogFields(ctx, "SELECT", message, end, err)
 		}
-		db.fillMetrics(ctx, end, "select")
+		db.fillMetrics(ctx, end, metricsOperationSelect)
 		return false, err
 	}
 	if hasLogger {
 		db.fillLogFields(ctx, "SELECT", message, end, nil)
 	}
-	db.fillMetrics(ctx, end, "select")
+	db.fillMetrics(ctx, end, metricsOperationSelect)
 	return true, nil
 }
 
@@ -380,10 +384,10 @@ func (db *dbImplementation) Query(ctx Context, query string, args ...any) (rows 
 		db.fillLogFields(ctx, "SELECT", message, end, err)
 	}
 	if err != nil {
-		db.fillMetrics(ctx, end, "select")
+		db.fillMetrics(ctx, end, metricsOperationSelect)
 		return nil, nil, err
 	}
-	db.fillMetrics(ctx, end, "select")
+	db.fillMetrics(ctx, end, metricsOperationSelect)
 	return &rowsStruct{result}, func() {
 		if result != nil {
 			_ = result.Close()

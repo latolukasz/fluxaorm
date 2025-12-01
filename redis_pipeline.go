@@ -139,7 +139,7 @@ func (rp *RedisPipeLine) fillMetrics(ctx Context, end time.Duration, res []redis
 		for _, v := range res {
 			isMiss := false
 			isSet := false
-			operation := "key"
+			operation := metricsOperationKey
 			switch v.Name() {
 			case "get":
 				_, isMiss, _ = rp.metricsGets[i].Result()
@@ -151,21 +151,21 @@ func (rp *RedisPipeLine) fillMetrics(ctx Context, end time.Duration, res []redis
 				break
 			case "lpush", "rpush", "lset":
 				isSet = true
-				operation = "list"
+				operation = metricsOperationList
 				break
 			case "lrange":
 				operation = "list"
 				break
 			case "sadd", "srem":
-				operation = "set"
+				operation = metricsOperationSet
 				isSet = true
 				break
 			case "hincrby", "hset", "hdel":
-				operation = "hash"
+				operation = metricsOperationHash
 				isSet = true
 				break
 			case "xadd":
-				operation = "stream"
+				operation = metricsOperationStream
 				isSet = true
 				break
 			}
