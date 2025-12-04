@@ -10,6 +10,20 @@ import (
 	jsoniter "github.com/json-iterator/go"
 )
 
+type IndexDefinition struct {
+	Columns string
+	Cached  bool
+}
+
+type UniqueIndexDefinition struct {
+	Columns string
+	Cached  bool
+}
+
+type IndexInterface interface {
+	Indexes() any
+}
+
 type indexDefinition struct {
 	Cached     bool
 	Columns    []string
@@ -42,11 +56,15 @@ func (d indexDefinition) CreteWhere(hasNil bool, attributes []any) Where {
 	return NewWhere(query, newAttributes)
 }
 
-func GetByIndex[E any](ctx Context, pager *Pager, indexName string, attributes ...any) (EntityIterator[E], error) {
+func GetByIndex[E any](ctx Context, pager *Pager, index IndexDefinition, attributes ...any) (EntityIterator[E], error) {
 	var e E
 	schema, err := getEntitySchemaFromSource(ctx, e)
 	if err != nil {
 		return nil, err
+	}
+	indexName, hasName := schema.indexesMapping[index]
+	if !hasName {
+		return nil, fmt.Errorf("unknown index for columns `%s`", index.Columns)
 	}
 	def, has := schema.indexes[indexName]
 	if !has {
@@ -75,11 +93,15 @@ func GetByIndex[E any](ctx Context, pager *Pager, indexName string, attributes .
 	return iterator, err
 }
 
-func GetByIndexWithCount[E any](ctx Context, pager *Pager, indexName string, attributes ...any) (res EntityIterator[E], total int, err error) {
+func GetByIndexWithCount[E any](ctx Context, pager *Pager, index IndexDefinition, attributes ...any) (res EntityIterator[E], total int, err error) {
 	var e E
 	schema, err := getEntitySchemaFromSource(ctx, e)
 	if err != nil {
 		return nil, 0, err
+	}
+	indexName, hasName := schema.indexesMapping[index]
+	if !hasName {
+		return nil, 0, fmt.Errorf("unknown index for columns `%s`", index.Columns)
 	}
 	def, has := schema.indexes[indexName]
 	if !has {

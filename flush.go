@@ -668,6 +668,7 @@ func (orm *ormImplementation) handleUpdates(async bool, schema *entitySchema, op
 		if len(schema.cachedUniqueIndexes) > 0 {
 			cache := orm.Engine().Redis(schema.getForcedRedisCode())
 			for indexName, definition := range schema.cachedUniqueIndexes {
+
 				if fakeDeleted {
 					hSetKey := schema.getCacheKey() + ":" + indexName
 					hField, hasKey, err := buildUniqueKeyHSetField(schema, definition.Columns, newBind, forcedNew)
@@ -999,7 +1000,7 @@ func (orm *ormImplementation) handleUpdates(async bool, schema *entitySchema, op
 					})
 				}
 				redisSetKey := schema.cacheKey + ":" + key + ":" + strconv.FormatUint(id, 10)
-				idAsString := strconv.FormatUint(update.ID(), 10)
+				idAsString = strconv.FormatUint(update.ID(), 10)
 				orm.RedisPipeLine(schema.getForcedRedisCode()).SAdd(redisSetKey, idAsString)
 				if schema.cacheTTL > 0 {
 					orm.RedisPipeLine(schema.getForcedRedisCode()).Expire(redisSetKey, time.Duration(schema.cacheTTL)*time.Second)

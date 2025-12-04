@@ -8,11 +8,25 @@ import (
 )
 
 type getByIndexEntity struct {
-	ID    uint64     `orm:"localCache;redisCache"`
-	Name  string     `orm:"index=Name"`
-	Age   uint32     `orm:"index=Age;unique=Fake;cached"`
-	Born  *time.Time `orm:"index=Age:2;unique=Fake:2;cached"`
-	Other int        `orm:"unique=Fake:3"`
+	ID    uint64 `orm:"localCache;redisCache"`
+	Name  string
+	Age   uint32
+	Born  *time.Time
+	Other int
+}
+
+var getByIndexEntityIndexes = struct {
+	Name IndexDefinition
+	Age  IndexDefinition
+	Fake UniqueIndexDefinition
+}{
+	Name: IndexDefinition{"Name", false},
+	Age:  IndexDefinition{"Age,Born", true},
+	Fake: UniqueIndexDefinition{"Age,Born,Other", false},
+}
+
+func (e *getByIndexEntity) Indexes() any {
+	return getByIndexEntityIndexes
 }
 
 func TestGetByIndexNoCache(t *testing.T) {
@@ -44,11 +58,11 @@ func testGetByIndex(t *testing.T, local, redis bool) {
 	now := time.Now().UTC()
 	nextWeek := now.Add(time.Hour * 24 * 7)
 	// getting missing rows
-	rows, err := GetByIndex[getByIndexEntity](orm, NewPager(1, 100), "Age", 23, now)
+	rows, err := GetByIndex[getByIndexEntity](orm, NewPager(1, 100), getByIndexEntityIndexes.Age, 23, now)
 	assert.NoError(t, err)
 	assert.Equal(t, 0, rows.Len())
 	loggerDB.Clear()
-	rows, err = GetByIndex[getByIndexEntity](orm, nil, "Age", 23, now)
+	rows, err = GetByIndex[getByIndexEntity](orm, nil, getByIndexEntityIndexes.Age, 23, now)
 	assert.NoError(t, err)
 	assert.Equal(t, 0, rows.Len())
 	assert.Len(t, loggerDB.Logs, 0)
@@ -73,7 +87,7 @@ func testGetByIndex(t *testing.T, local, redis bool) {
 	}
 	assert.NoError(t, orm.Flush())
 
-	rows, err = GetByIndex[getByIndexEntity](orm, NewPager(1, 5), "Name", nil)
+	rows, err = GetByIndex[getByIndexEntity](orm, NewPager(1, 5), getByIndexEntityIndexes.Name, nil)
 	assert.NoError(t, err)
 	assert.Equal(t, 5, rows.Len())
 	rows.Next()
@@ -82,12 +96,12 @@ func testGetByIndex(t *testing.T, local, redis bool) {
 	assert.NoError(t, err)
 	assert.Equal(t, entities[0].ID, e.ID)
 
-	rows, total, err := GetByIndexWithCount[getByIndexEntity](orm, nil, "Name", nil)
+	rows, total, err := GetByIndexWithCount[getByIndexEntity](orm, nil, getByIndexEntityIndexes.Name, nil)
 	assert.NoError(t, err)
 	assert.Equal(t, 5, rows.Len())
 	assert.Equal(t, 5, total)
 
-	rows, err = GetByIndex[getByIndexEntity](orm, nil, "Name", "Test name")
+	rows, err = GetByIndex[getByIndexEntity](orm, nil, getByIndexEntityIndexes.Name, "Test name")
 	assert.NoError(t, err)
 	assert.Equal(t, 3, rows.Len())
 	rows.Next()
@@ -95,7 +109,7 @@ func testGetByIndex(t *testing.T, local, redis bool) {
 	assert.NoError(t, err)
 	assert.Equal(t, entities[5].ID, e.ID)
 
-	rows, err = GetByIndex[getByIndexEntity](orm, NewPager(1, 100), "Age", 10, nil)
+	rows, err = GetByIndex[getByIndexEntity](orm, NewPager(1, 100), getByIndexEntityIndexes.Age, 10, nil)
 	assert.NoError(t, err)
 	assert.Equal(t, 5, rows.Len())
 	rows.Next()
@@ -103,7 +117,7 @@ func testGetByIndex(t *testing.T, local, redis bool) {
 	assert.NoError(t, err)
 	assert.Equal(t, entities[0].ID, e.ID)
 	loggerDB.Clear()
-	rows, err = GetByIndex[getByIndexEntity](orm, NewPager(1, 100), "Age", 10, nil)
+	rows, err = GetByIndex[getByIndexEntity](orm, NewPager(1, 100), getByIndexEntityIndexes.Age, 10, nil)
 	assert.NoError(t, err)
 	assert.Equal(t, 5, rows.Len())
 	if local || redis {
@@ -111,7 +125,7 @@ func testGetByIndex(t *testing.T, local, redis bool) {
 	}
 	loggerDB.Clear()
 
-	rows, err = GetByIndex[getByIndexEntity](orm, nil, "Age", 18, now)
+	rows, err = GetByIndex[getByIndexEntity](orm, nil, getByIndexEntityIndexes.Age, 18, now)
 	assert.NoError(t, err)
 	assert.Equal(t, 3, rows.Len())
 	rows.Next()
@@ -119,7 +133,7 @@ func testGetByIndex(t *testing.T, local, redis bool) {
 	assert.NoError(t, err)
 	loggerDB.Clear()
 	assert.Equal(t, entities[5].ID, e.ID)
-	rows, err = GetByIndex[getByIndexEntity](orm, nil, "Age", 18, now)
+	rows, err = GetByIndex[getByIndexEntity](orm, nil, getByIndexEntityIndexes.Age, 18, now)
 	assert.NoError(t, err)
 	assert.Equal(t, 3, rows.Len())
 	if local || redis {
@@ -134,7 +148,7 @@ func testGetByIndex(t *testing.T, local, redis bool) {
 	entities = append(entities, entity)
 
 	loggerDB.Clear()
-	rows, err = GetByIndex[getByIndexEntity](orm, nil, "Age", 10, nil)
+	rows, err = GetByIndex[getByIndexEntity](orm, nil, getByIndexEntityIndexes.Age, 10, nil)
 	assert.NoError(t, err)
 	all, err := rows.All()
 	assert.NoError(t, err)
@@ -149,7 +163,7 @@ func testGetByIndex(t *testing.T, local, redis bool) {
 	assert.NoError(t, orm.Flush())
 
 	loggerDB.Clear()
-	rows, err = GetByIndex[getByIndexEntity](orm, nil, "Age", 10, nil)
+	rows, err = GetByIndex[getByIndexEntity](orm, nil, getByIndexEntityIndexes.Age, 10, nil)
 	assert.NoError(t, err)
 	all, err = rows.All()
 	assert.NoError(t, err)
@@ -166,7 +180,7 @@ func testGetByIndex(t *testing.T, local, redis bool) {
 	assert.NoError(t, orm.Flush())
 
 	loggerDB.Clear()
-	rows, err = GetByIndex[getByIndexEntity](orm, nil, "Name", nil)
+	rows, err = GetByIndex[getByIndexEntity](orm, nil, getByIndexEntityIndexes.Name, nil)
 	assert.NoError(t, err)
 	all, err = rows.All()
 	assert.NoError(t, err)
@@ -174,7 +188,7 @@ func testGetByIndex(t *testing.T, local, redis bool) {
 	assert.Equal(t, all[4].ID, entities[6].ID)
 
 	loggerDB.Clear()
-	rows, err = GetByIndex[getByIndexEntity](orm, NewPager(1, 100), "Name", "Test name")
+	rows, err = GetByIndex[getByIndexEntity](orm, NewPager(1, 100), getByIndexEntityIndexes.Name, "Test name")
 	assert.NoError(t, err)
 	all, err = rows.All()
 	assert.NoError(t, err)
@@ -182,34 +196,34 @@ func testGetByIndex(t *testing.T, local, redis bool) {
 	assert.Equal(t, all[0].ID, entities[5].ID)
 
 	// Pager
-	rows, err = GetByIndex[getByIndexEntity](orm, NewPager(1, 1), "Name", "Test name")
+	rows, err = GetByIndex[getByIndexEntity](orm, NewPager(1, 1), getByIndexEntityIndexes.Name, "Test name")
 	assert.NoError(t, err)
 	all, err = rows.All()
 	assert.NoError(t, err)
 	assert.Equal(t, 1, rows.Len())
 	assert.Equal(t, all[0].ID, entities[5].ID)
 
-	rows, err = GetByIndex[getByIndexEntity](orm, NewPager(2, 1), "Name", "Test name")
+	rows, err = GetByIndex[getByIndexEntity](orm, NewPager(2, 1), getByIndexEntityIndexes.Name, "Test name")
 	assert.NoError(t, err)
 	all, err = rows.All()
 	assert.NoError(t, err)
 	assert.Equal(t, 1, rows.Len())
 	assert.Equal(t, all[0].ID, entities[7].ID)
 
-	rows, err = GetByIndex[getByIndexEntity](orm, NewPager(3, 1), "Name", "Test name")
+	rows, err = GetByIndex[getByIndexEntity](orm, NewPager(3, 1), getByIndexEntityIndexes.Name, "Test name")
 	assert.NoError(t, err)
 	all, err = rows.All()
 	assert.NoError(t, err)
 	assert.Equal(t, 0, rows.Len())
 
-	rows, err = GetByIndex[getByIndexEntity](orm, nil, "Age", 40, now)
+	rows, err = GetByIndex[getByIndexEntity](orm, nil, getByIndexEntityIndexes.Age, 40, now)
 	assert.NoError(t, err)
 	all, err = rows.All()
 	assert.NoError(t, err)
 	assert.Equal(t, 1, rows.Len())
 	assert.Equal(t, all[0].ID, entities[6].ID)
 	loggerDB.Clear()
-	rows, err = GetByIndex[getByIndexEntity](orm, nil, "Age", 40, now)
+	rows, err = GetByIndex[getByIndexEntity](orm, nil, getByIndexEntityIndexes.Age, 40, now)
 	assert.NoError(t, err)
 	all, err = rows.All()
 	assert.Equal(t, 1, rows.Len())
@@ -219,7 +233,7 @@ func testGetByIndex(t *testing.T, local, redis bool) {
 	}
 
 	loggerDB.Clear()
-	rows, err = GetByIndex[getByIndexEntity](orm, nil, "Age", 18, now)
+	rows, err = GetByIndex[getByIndexEntity](orm, nil, getByIndexEntityIndexes.Age, 18, now)
 	assert.NoError(t, err)
 	all, err = rows.All()
 	assert.NoError(t, err)
@@ -233,7 +247,7 @@ func testGetByIndex(t *testing.T, local, redis bool) {
 	assert.NoError(t, orm.Flush())
 
 	loggerDB.Clear()
-	rows, err = GetByIndex[getByIndexEntity](orm, nil, "Age", 18, now)
+	rows, err = GetByIndex[getByIndexEntity](orm, nil, getByIndexEntityIndexes.Age, 18, now)
 	assert.NoError(t, err)
 	all, err = rows.All()
 	assert.NoError(t, err)
@@ -244,7 +258,7 @@ func testGetByIndex(t *testing.T, local, redis bool) {
 	}
 
 	loggerDB.Clear()
-	rows, err = GetByIndex[getByIndexEntity](orm, nil, "Age", 40, now)
+	rows, err = GetByIndex[getByIndexEntity](orm, nil, getByIndexEntityIndexes.Age, 40, now)
 	assert.NoError(t, err)
 	all, err = rows.All()
 	assert.NoError(t, err)

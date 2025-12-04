@@ -24,13 +24,21 @@ type updateEntityReference struct {
 	ID uint64
 }
 
+var updateEntityIndexes = struct {
+	Name  UniqueIndexDefinition
+	Multi UniqueIndexDefinition
+}{
+	Name:  UniqueIndexDefinition{"Name", false},
+	Multi: UniqueIndexDefinition{"Uint,Int", false},
+}
+
 type updateEntity struct {
 	ID             uint32 `orm:"localCache;redisCache"`
-	Name           string `orm:"length=10;required;unique=Name"`
-	Uint           uint16 `orm:"unique=Multi"`
+	Name           string `orm:"length=10;required"`
+	Uint           uint16
 	UintArray      [3]uint16
 	SubFieldArray  [3]updateSubField
-	Int            int16 `orm:"unique=Multi:2"`
+	Int            int16
 	UintNullable   *uint16
 	IntNullable    *int16
 	Level1         updateSubField
@@ -48,6 +56,10 @@ type updateEntity struct {
 	TimeNullable   *time.Time `orm:"time"`
 	Date           time.Time
 	DateNullable   *time.Time
+}
+
+func (e *updateEntity) Indexes() any {
+	return updateEntityIndexes
 }
 
 func TestUpdateFieldExecuteNoCache(t *testing.T) {
@@ -553,13 +565,13 @@ func testUpdateFieldExecute(t *testing.T, async, local, redis bool) {
 		orm.ClearFlush()
 		err = runEditEntityField(orm, entity, "Name", "name 100", async)
 		assert.NoError(t, err)
-		entity, _, err = GetByUniqueIndex[updateEntity](orm, "Name", "name 100")
+		entity, _, err = GetByUniqueIndex[updateEntity](orm, updateEntityIndexes.Name, "name 100")
 		assert.NoError(t, err)
 		assert.NotNil(t, entity)
 		assert.Equal(t, ids[1], uint64(entity.ID))
 		err = runEditEntityField(orm, entity, "Int", 100, async)
 		assert.NoError(t, err)
-		entity, _, err = GetByUniqueIndex[updateEntity](orm, "Multi", 13, 100)
+		entity, _, err = GetByUniqueIndex[updateEntity](orm, updateEntityIndexes.Multi, 13, 100)
 		assert.NoError(t, err)
 		assert.NotNil(t, entity)
 		assert.Equal(t, ids[1], uint64(entity.ID))

@@ -27,5 +27,5 @@ func TestClearEntity(t *testing.T) {
 	assert.NoError(t, err)
 	cleared, err := schema.ClearCache(orm)
 	assert.NoError(t, err)
-	assert.Equal(t, 5, cleared)
+	assert.Equal(t, 3, cleared)
 }

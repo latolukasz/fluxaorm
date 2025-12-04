@@ -63,10 +63,18 @@ var testSetDefinition = struct {
 	F: "f",
 }
 
+var flushEntityIndexes = struct {
+	City UniqueIndexDefinition
+	Name UniqueIndexDefinition
+}{
+	City: UniqueIndexDefinition{"City", false},
+	Name: UniqueIndexDefinition{"Name", false},
+}
+
 type flushEntity struct {
 	ID                        uint16 `orm:"localCache;redisCache;ttl=30"`
-	City                      string `orm:"unique=city;length=40"`
-	Name                      string `orm:"unique=name;required"`
+	City                      string `orm:"length=40"`
+	Name                      string `orm:"required"`
 	StringArray               [2]string
 	Age                       int
 	IntArray                  [2]int
@@ -130,6 +138,10 @@ type flushEntity struct {
 	TestJsons                 Struct[flushStructJSON]
 	References                References[flushEntityReference]
 	flushStructAnonymous
+}
+
+func (e *flushEntity) Indexes() any {
+	return flushEntityIndexes
 }
 
 type flushEntityReference struct {
@@ -728,9 +740,9 @@ func testFlushInsert(t *testing.T, async, local, redis bool) {
 		newEntity.ReferenceRequired = Reference[flushEntityReference](reference.ID)
 		err = testFlush(orm, async)
 		duplicateKeyError, isDuplicateKeyError := err.(*DuplicateKeyError)
-		assert.EqualError(t, err, "Duplicate entry 'Name' for key 'flushEntity.name'")
+		assert.EqualError(t, err, "Duplicate entry 'Name' for key 'flushEntity.Name'")
 		assert.True(t, isDuplicateKeyError)
-		assert.Equal(t, "name", duplicateKeyError.Index)
+		assert.Equal(t, "Name", duplicateKeyError.Index)
 		orm.ClearFlush()
 
 		err = orm.Engine().Redis(DefaultPoolCode).FlushDB(orm)
@@ -740,7 +752,7 @@ func testFlushInsert(t *testing.T, async, local, redis bool) {
 		newEntity.Name = "Name"
 		newEntity.ReferenceRequired = Reference[flushEntityReference](reference.ID)
 		err = testFlush(orm, async)
-		assert.EqualError(t, err, "Duplicate entry 'Name' for key 'flushEntity.name'")
+		assert.EqualError(t, err, "Duplicate entry 'Name' for key 'flushEntity.Name'")
 		orm.ClearFlush()
 	}
 }
@@ -1275,7 +1287,7 @@ func testFlushUpdate(t *testing.T, async, local, redis bool) {
 		assert.NoError(t, err)
 		editedEntity.Name = "Name 2"
 		err = testFlush(orm, async)
-		assert.EqualError(t, err, "Duplicate entry 'Name 2' for key 'flushEntity.name'")
+		assert.EqualError(t, err, "Duplicate entry 'Name 2' for key 'flushEntity.Name'")
 		orm.ClearFlush()
 	}
 

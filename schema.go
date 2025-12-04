@@ -550,37 +550,34 @@ func checkColumn(engine Engine, schema *entitySchema, field *reflect.StructField
 			}
 			columnName += "_" + strconv.Itoa(i+1)
 		}
-		keys := []string{"index", "unique"}
-		for _, key := range keys {
-			indexAttribute, has := attributes[key]
-			unique := key == "unique"
-			if has {
-				indexColumns := strings.Split(indexAttribute, ",")
-				for _, value := range indexColumns {
-					indexColumn := strings.Split(value, ":")
-					location := 1
-					if len(indexColumn) > 1 {
-						userLocation, err := strconv.Atoi(indexColumn[1])
-						if err != nil {
-							return nil, fmt.Errorf("invalid index position '%s' in index '%s'", indexColumn[1], indexColumn[0])
-						}
-						location = userLocation
-					}
-					current, has := indexes[indexColumn[0]]
-					if !has {
-						current = &IndexSchemaDefinition{Name: indexColumn[0], Unique: unique, columnsMap: map[int]string{location: prefix + field.Name}}
-						schemaDef, hasDef := schema.indexes[indexColumn[0]]
-						if hasDef && schemaDef.Duplicated {
-							current.Duplicated = true
-						}
-						indexes[indexColumn[0]] = current
-					} else {
-						current.columnsMap[location] = prefix + field.Name
-					}
+		for indexName, indexDef := range schema.uniqueIndexes {
+			_, hasIndex := indexes[indexName]
+			if !hasIndex {
+				current := &IndexSchemaDefinition{Name: indexName, Unique: true, columnsMap: map[int]string{}}
+				for k, v := range indexDef.Columns {
+					current.columnsMap[k+1] = v
 				}
+				schemaDef, hasDef := schema.indexes[indexName]
+				if hasDef && schemaDef.Duplicated {
+					current.Duplicated = true
+				}
+				indexes[indexName] = current
 			}
 		}
-
+		for indexName, indexDef := range schema.indexes {
+			_, hasIndex := indexes[indexName]
+			if !hasIndex {
+				current := &IndexSchemaDefinition{Name: indexName, Unique: false, columnsMap: map[int]string{}}
+				for k, v := range indexDef.Columns {
+					current.columnsMap[k+1] = v
+				}
+				schemaDef, hasDef := schema.indexes[indexName]
+				if hasDef && schemaDef.Duplicated {
+					current.Duplicated = true
+				}
+				indexes[indexName] = current
+			}
+		}
 		required, hasRequired := attributes["required"]
 		isRequired := hasRequired && required == "true"
 

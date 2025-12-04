@@ -6,11 +6,15 @@ import (
 	"strconv"
 )
 
-func GetByUniqueIndex[E any](ctx Context, indexName string, attributes ...any) (entity *E, found bool, err error) {
+func GetByUniqueIndex[E any](ctx Context, index UniqueIndexDefinition, attributes ...any) (entity *E, found bool, err error) {
 	var e E
 	schema, err := getEntitySchemaFromSource(ctx, e)
 	if err != nil {
 		return nil, false, err
+	}
+	indexName, hasName := schema.uniqueIndexesMapping[index]
+	if !hasName {
+		return nil, false, fmt.Errorf("unknown unique index for columns `%s`", index.Columns)
 	}
 	definition, has := schema.uniqueIndexes[indexName]
 	if !has {

@@ -109,12 +109,14 @@ type entitySchema struct {
 	fieldSetters              map[string]fieldSetter
 	fieldGetters              map[string]fieldGetter
 	uniqueIndexes             map[string]indexDefinition
+	uniqueIndexesMapping      map[UniqueIndexDefinition]string
 	uniqueIndexesColumns      map[string][]string
 	cachedUniqueIndexes       map[string]indexDefinition
 	references                map[string]referenceDefinition
 	cachedReferences          map[string]referenceDefinition
 	structJSONs               map[string]structDefinition
 	indexes                   map[string]indexDefinition
+	indexesMapping            map[IndexDefinition]string
 	cachedIndexes             map[string]indexDefinition
 	dirtyAdded                []*dirtyDefinition
 	dirtyUpdated              []*dirtyDefinition
@@ -359,6 +361,9 @@ func (e *entitySchema) init(registry *registry, entityType reflect.Type) error {
 	e.cachedReferences = make(map[string]referenceDefinition)
 	e.structJSONs = make(map[string]structDefinition)
 	e.indexes = make(map[string]indexDefinition)
+	e.indexesMapping = make(map[IndexDefinition]string)
+	e.uniqueIndexes = make(map[string]indexDefinition)
+	e.uniqueIndexesMapping = make(map[UniqueIndexDefinition]string)
 	e.cachedIndexes = make(map[string]indexDefinition)
 	e.redisSearchFields = make(map[string]redisSearchIndexDefinition)
 	e.mapBindToScanPointer = mapBindToScanPointer{}
@@ -385,19 +390,6 @@ func (e *entitySchema) init(registry *registry, entityType reflect.Type) error {
 		cacheKey = e.mysqlPoolCode
 	}
 	cacheKey += e.tableName
-	uniqueIndices := make(map[string]map[int]string)
-	indices := make(map[string]map[int]string)
-	uniqueGlobal := e.getTag("unique", "", "")
-	if uniqueGlobal != "" {
-		parts := strings.Split(uniqueGlobal, "|")
-		for _, part := range parts {
-			def := strings.Split(part, ":")
-			uniqueIndices[def[0]] = make(map[int]string)
-			for i, field := range strings.Split(def[1], ",") {
-				uniqueIndices[def[0]][i+1] = field
-			}
-		}
-	}
 	addList := make([]*dirtyDefinition, 0)
 	editList := make([]*dirtyDefinition, 0)
 	deleteList := make([]*dirtyDefinition, 0)
@@ -465,42 +457,19 @@ func (e *entitySchema) init(registry *registry, entityType reflect.Type) error {
 		e.dirtyAdded = addList
 		e.dirtyUpdated = editList
 		e.dirtyDeleted = deleteList
-		keys, has = v["unique"]
-		if has {
-			values := strings.Split(keys, ",")
-			for _, indexName := range values {
-				parts := strings.Split(indexName, ":")
-				id := int64(1)
-				if len(parts) > 1 {
-					id, _ = strconv.ParseInt(parts[1], 10, 64)
-				}
-				if uniqueIndices[parts[0]] == nil {
-					uniqueIndices[parts[0]] = make(map[int]string)
-				}
-				uniqueIndices[parts[0]][int(id)] = k
-			}
-		}
-		keys, has = v["index"]
-		if has {
-			values := strings.Split(keys, ",")
-			for _, indexName := range values {
-				parts := strings.Split(indexName, ":")
-				id := int64(1)
-				if len(parts) > 1 {
-					id, _ = strconv.ParseInt(parts[1], 10, 64)
-				}
-				if indices[parts[0]] == nil {
-					indices[parts[0]] = make(map[int]string)
-				}
-				indices[parts[0]][int(id)] = k
-			}
-		}
 	}
 	e.columnAttrToStringSetters = make(map[string]columnAttrToStringSetter)
 	e.fieldBindSetters = make(map[string]fieldBindSetter)
 	e.fieldDefinitions = make(map[string]schemaFieldAttributes)
 	e.fieldSetters = make(map[string]fieldSetter)
 	e.fieldGetters = make(map[string]fieldGetter)
+	e.cachedIndexes = make(map[string]indexDefinition)
+	e.cachedUniqueIndexes = make(map[string]indexDefinition)
+	e.uniqueIndexesColumns = make(map[string][]string)
+	err := e.initIndexes(entityType)
+	if err != nil {
+		return err
+	}
 	fields, err := e.buildTableFields(entityType, registry, 0, "", nil, e.tags, "")
 	if err != nil {
 		return err
@@ -536,28 +505,6 @@ func (e *entitySchema) init(registry *registry, entityType reflect.Type) error {
 		return fmt.Errorf("virtual entity '%s' has no cache pool defined", e.t.String())
 	}
 	e.cacheKey = cacheKey
-	e.uniqueIndexes = make(map[string]indexDefinition)
-	e.cachedIndexes = make(map[string]indexDefinition)
-	e.cachedUniqueIndexes = make(map[string]indexDefinition)
-	e.uniqueIndexesColumns = make(map[string][]string)
-	for indexName, index := range uniqueIndices {
-		e.uniqueIndexesColumns[indexName] = make([]string, len(index))
-		for i := 1; i <= len(index); i++ {
-			e.uniqueIndexesColumns[indexName][i-1] = index[i]
-		}
-		definition := createIndexDefinition(index, e)
-		e.uniqueIndexes[indexName] = definition
-		if definition.Cached {
-			e.cachedUniqueIndexes[indexName] = definition
-		}
-	}
-	for indexName, indexColumns := range indices {
-		definition := createIndexDefinition(indexColumns, e)
-		e.indexes[indexName] = definition
-		if definition.Cached {
-			e.cachedIndexes[indexName] = definition
-		}
-	}
 
 	redisCode := e.getTag("redisSearch", DefaultPoolCode, "")
 	if redisCode != "" {
@@ -733,7 +680,7 @@ func (e *entitySchema) init(registry *registry, entityType reflect.Type) error {
 		e.redisSearchIndexPrefix = e.redisSearchIndexName + ":"
 	}
 
-	err = e.validateIndexes(uniqueIndices, indices)
+	err = e.validateIndexes()
 	if err != nil {
 		return err
 	}
@@ -749,35 +696,84 @@ func (e *entitySchema) init(registry *registry, entityType reflect.Type) error {
 	return nil
 }
 
-func createIndexDefinition(indexColumns map[int]string, e *entitySchema) indexDefinition {
+func (e *entitySchema) initIndexes(entityType reflect.Type) error {
+	eInstance := reflect.New(entityType).Interface()
+	indexInterface, isIndexInterface := eInstance.(IndexInterface)
+	if isIndexInterface {
+		indexDefinitionSource := indexInterface.Indexes()
+		indexDefinitionSourceValue := reflect.ValueOf(indexDefinitionSource)
+		if indexDefinitionSourceValue.Kind() != reflect.Struct {
+			return fmt.Errorf("invalid index definition source '%s' for entity '%s'", indexDefinitionSourceValue.Kind(), e.t.String())
+		}
+		for i := 0; i < indexDefinitionSourceValue.NumField(); i++ {
+			fDef := indexDefinitionSourceValue.Type().Field(i)
+			if fDef.Anonymous {
+				return fmt.Errorf("invalid index definition source '%s' for entity '%s' - anonymous fields are not supported", indexDefinitionSourceValue.Kind(), e.t.String())
+			}
+			if fDef.Type.String() == "fluxaorm.UniqueIndexDefinition" {
+				uniqueDef := indexDefinitionSourceValue.Field(i).Interface().(UniqueIndexDefinition)
+				e.uniqueIndexesColumns[fDef.Name] = strings.Split(uniqueDef.Columns, ",")
+				definition, err := createIndexDefinition(e.uniqueIndexesColumns[fDef.Name], uniqueDef.Cached, e)
+				if err != nil {
+					return fmt.Errorf("invalid unique index for entity '%s': %s", e.t.String(), err.Error())
+				}
+				e.uniqueIndexes[fDef.Name] = *definition
+				e.uniqueIndexesMapping[uniqueDef] = fDef.Name
+				if definition.Cached {
+					e.cachedUniqueIndexes[fDef.Name] = *definition
+				}
+			} else if fDef.Type.String() == "fluxaorm.IndexDefinition" {
+				def := indexDefinitionSourceValue.Field(i).Interface().(IndexDefinition)
+				definition, err := createIndexDefinition(strings.Split(def.Columns, ","), def.Cached, e)
+				if err != nil {
+					return fmt.Errorf("invalid index for entity '%s': %s", e.t.String(), err.Error())
+				}
+				e.indexes[fDef.Name] = *definition
+				e.indexesMapping[def] = fDef.Name
+				if definition.Cached {
+					e.cachedIndexes[fDef.Name] = *definition
+				}
+			} else {
+				return fmt.Errorf("invalid index definition source '%s' for entity '%s' - only fluxaorm.IndexDefinition and fluxaorm.UniqueIndexDefinition are supported", indexDefinitionSourceValue.Kind(), e.t.String())
+			}
+		}
+	}
+	return nil
+}
+
+func createIndexDefinition(columns []string, cached bool, e *entitySchema) (*indexDefinition, error) {
 	where := ""
-	for i := 0; i < len(indexColumns); i++ {
+	for i, columnName := range columns {
 		if i > 0 {
 			where += " AND "
 		}
-		where += "`" + indexColumns[i+1] + "`=?"
+		where += "`" + columnName + "`=?"
 	}
-	cached := false
-	tags, hasTag := e.tags[indexColumns[1]]
-	if hasTag {
-		cached = tags["cached"] == "true"
-	}
-	columnsList := make([]string, len(indexColumns))
-	for j := 0; j < len(indexColumns); j++ {
-		columnsList[j] = indexColumns[j+1]
-	}
-
-	definition := indexDefinition{Where: where, Cached: cached, Columns: columnsList}
-	return definition
+	definition := indexDefinition{Where: where, Cached: cached, Columns: columns}
+	return &definition, nil
 }
 
-func (e *entitySchema) validateIndexes(uniqueIndices map[string]map[int]string, indices map[string]map[int]string) error {
+func (e *entitySchema) validateIndexes() error {
 	all := make(map[string]map[int]string)
-	for k, v := range uniqueIndices {
-		all[k] = v
+	for indexName, def := range e.indexes {
+		all[indexName] = make(map[int]string)
+		for i, columnName := range def.Columns {
+			_, has := e.columnMapping[columnName]
+			if !has {
+				return fmt.Errorf("index column '%s' not found in entity '%s'", columnName, e.t.String())
+			}
+			all[indexName][i+1] = columnName
+		}
 	}
-	for k, v := range indices {
-		all[k] = v
+	for indexName, def := range e.uniqueIndexes {
+		all[indexName] = make(map[int]string)
+		for i, columnName := range def.Columns {
+			_, has := e.columnMapping[columnName]
+			if !has {
+				return fmt.Errorf("unique index column '%s' not found in entity '%s'", columnName, e.t.String())
+			}
+			all[indexName][i+1] = columnName
+		}
 	}
 	for k, v := range all {
 		for k2, v2 := range all {
@@ -1282,12 +1278,24 @@ func (e *entitySchema) buildTableFields(t reflect.Type, registry *registry,
 		if has {
 			continue
 		}
-		_, has = tags["unique"]
-		if has {
+		hasUnique := false
+		for _, def := range e.uniqueIndexes {
+			if slices.Contains(def.Columns, prefix+f.Name) {
+				hasUnique = true
+				break
+			}
+		}
+		if hasUnique {
 			fields.forcedOldBid[i] = true
 		}
-		_, has = tags["index"]
-		if has && tags["cached"] == "true" {
+		hasIndex := false
+		for _, def := range e.cachedIndexes {
+			if slices.Contains(def.Columns, prefix+f.Name) {
+				hasIndex = true
+				break
+			}
+		}
+		if hasIndex {
 			fields.forcedOldBid[i] = true
 		}
 		attributes := schemaFieldAttributes{
