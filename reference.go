@@ -15,8 +15,7 @@ type ReferenceInterface interface {
 }
 
 type referenceDefinition struct {
-	Cached bool
-	Type   reflect.Type
+	Type reflect.Type
 }
 
 type Reference[E any] uint64

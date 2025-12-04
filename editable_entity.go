@@ -216,22 +216,6 @@ func (f *editableFields) getBind() (new, old, forcedNew, forcedOld Bind, err err
 			forcedOld[column] = val
 		}
 	}
-	if fakeDeleted {
-		for column := range f.schema.cachedReferences {
-			_, calculated := forcedNew[column]
-			if calculated {
-				continue
-			}
-			getter := f.schema.fieldGetters[column]
-			val := getter(f.value.Elem())
-			setter := f.schema.fieldBindSetters[column]
-			val, err = setter(val)
-			if err != nil {
-				return nil, nil, nil, nil, err
-			}
-			forcedNew[column] = val
-		}
-	}
 	return f.newBind, f.oldBind, forcedNew, forcedOld, nil
 }
 

@@ -113,7 +113,6 @@ type entitySchema struct {
 	uniqueIndexesColumns      map[string][]string
 	cachedUniqueIndexes       map[string]indexDefinition
 	references                map[string]referenceDefinition
-	cachedReferences          map[string]referenceDefinition
 	structJSONs               map[string]structDefinition
 	indexes                   map[string]indexDefinition
 	indexesMapping            map[IndexDefinition]string
@@ -358,7 +357,6 @@ func (e *entitySchema) init(registry *registry, entityType reflect.Type) error {
 
 	e.options = make(map[string]any)
 	e.references = make(map[string]referenceDefinition)
-	e.cachedReferences = make(map[string]referenceDefinition)
 	e.structJSONs = make(map[string]structDefinition)
 	e.indexes = make(map[string]indexDefinition)
 	e.indexesMapping = make(map[IndexDefinition]string)
@@ -1481,11 +1479,7 @@ func (e *entitySchema) buildReferenceField(attributes schemaFieldAttributes) {
 		if i == 0 {
 			refType = reflect.New(fType).Interface().(ReferenceInterface).getType()
 			def := referenceDefinition{
-				Cached: attributes.Tags["cached"] == "true",
-				Type:   refType,
-			}
-			if def.Cached {
-				e.cachedReferences[columnName] = def
+				Type: refType,
 			}
 			e.references[columnName] = def
 		}

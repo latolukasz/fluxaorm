@@ -10,6 +10,8 @@ import (
 	jsoniter "github.com/json-iterator/go"
 )
 
+const redisValidSetValue = "Y"
+
 type IndexDefinition struct {
 	Columns string
 	Cached  bool

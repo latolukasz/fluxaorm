@@ -25,7 +25,6 @@ type testFakeDeleteEntity struct {
 	CodeCached string
 	AgeCached  int
 	Ref        Reference[testFakeDeleteEntityReference]
-	RefCached  Reference[testFakeDeleteEntityReference] `orm:"cached"`
 	FakeDelete bool
 }
 
@@ -78,7 +77,6 @@ func testFakeDelete(t *testing.T, local, redis bool) {
 	entity2.Code = "b"
 	entity2.CodeCached = "b"
 	entity2.AgeCached = 2
-	entity2.RefCached = Reference[testFakeDeleteEntityReference](ref.ID)
 	entity3, err := NewEntity[testFakeDeleteEntity](orm)
 	assert.NoError(t, err)
 	entity3.Name = "c"
@@ -124,7 +122,6 @@ func testFakeDelete(t *testing.T, local, redis bool) {
 	_, err = GetByIndex[testFakeDeleteEntity](orm, nil, testFakeDeleteEntityIndexes.AgeCached, 3)
 	assert.NoError(t, err)
 
-	_, err = GetByReference[testFakeDeleteEntity](orm, nil, "RefCached", ref.ID)
 	_, _, err = GetByUniqueIndex[testFakeDeleteEntity](orm, testFakeDeleteEntityIndexes.CodeCached, "b")
 
 	err = DeleteEntity(orm, entity3)
@@ -168,14 +165,6 @@ func testFakeDelete(t *testing.T, local, redis bool) {
 	assert.NoError(t, err)
 	assert.False(t, found)
 	assert.Nil(t, row)
-
-	rows, err = GetByReference[testFakeDeleteEntity](orm, nil, "Ref", ref.ID)
-	assert.NoError(t, err)
-	assert.Equal(t, 0, rows.Len())
-
-	rows, err = GetByReference[testFakeDeleteEntity](orm, nil, "RefCached", ref.ID)
-	assert.NoError(t, err)
-	assert.Equal(t, 0, rows.Len())
 
 	rows, err = GetAll[testFakeDeleteEntity](orm)
 	assert.NoError(t, err)
