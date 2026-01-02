@@ -19,7 +19,7 @@ var testFakeDeleteEntityIndexes = struct {
 }
 
 type testFakeDeleteEntity struct {
-	ID         uint64 `orm:"redisSearch"`
+	ID         uint64 `orm:"localCache;redisCache;redisSearch"`
 	Name       string `orm:"searchable"`
 	Code       string
 	CodeCached string

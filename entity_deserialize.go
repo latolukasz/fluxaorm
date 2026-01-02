@@ -270,7 +270,7 @@ func deserializeIntFromRedis(v string, f reflect.Value) {
 }
 
 func deserializeBoolFromRedis(v string, f reflect.Value) {
-	f.SetBool(v == "1")
+	f.SetBool(v != "0")
 }
 
 func deserializeFloatFromRedis(v string, f reflect.Value) {
