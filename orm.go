@@ -28,6 +28,7 @@ type Context interface {
 	EditEntity(entity any) (any, error)
 	DeleteEntity(entity any) error
 	ForceDeleteEntity(entity any) error
+	PushDirty(entities ...any) error
 	ClearCache()
 	EnableContextCache()
 	Flush() error
