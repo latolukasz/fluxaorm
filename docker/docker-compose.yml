@@ -7,6 +7,7 @@ services:
       - ${LOCAL_IP}:${MYSQL_PORT}:3306
     environment:
       MYSQL_ROOT_PASSWORD: root
+      MYSQL_DATABASE: test
       MYSQL_ROOT_HOST: "%"
   redis:
     image: redis:8.2.2

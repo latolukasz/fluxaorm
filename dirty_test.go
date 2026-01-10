@@ -18,19 +18,15 @@ func TestDirtyManualPush(t *testing.T) {
 	err := orm.Engine().Redis(DefaultPoolCode).FlushDB(orm)
 	assert.NoError(t, err)
 
-	entity := &dirtyEntity{
-		ID:      1,
-		Name:    "Manual",
-		Age:     30,
-		Balance: 10,
-	}
+	entity1 := &dirtyEntity{ID: 1}
+	entity2 := &dirtyEntity{ID: 2}
 
-	err = orm.PushDirty(entity)
+	err = orm.PushDirty(entity1, entity2)
 	assert.NoError(t, err)
 
 	stats, err := orm.GetEventBroker().GetStreamStatistics("dirty_All")
 	assert.NoError(t, err)
-	assert.Equal(t, uint64(1), stats.Len)
+	assert.Equal(t, uint64(2), stats.Len)
 }
 
 type dirtyEntity struct {
