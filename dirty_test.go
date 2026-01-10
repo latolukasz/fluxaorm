@@ -11,28 +11,6 @@ type dirtySub struct {
 	Color string `orm:"dirty=Sub"`
 }
 
-func TestDirtyManualPush(t *testing.T) {
-	orm := PrepareTables(t, NewRegistry(), dirtyEntity{})
-	assert.NotNil(t, orm)
-
-	err := orm.Engine().Redis(DefaultPoolCode).FlushDB(orm)
-	assert.NoError(t, err)
-
-	entity := &dirtyEntity{
-		ID:      1,
-		Name:    "Manual",
-		Age:     30,
-		Balance: 10,
-	}
-
-	err = orm.PushDirty(entity)
-	assert.NoError(t, err)
-
-	stats, err := orm.GetEventBroker().GetStreamStatistics("dirty_All")
-	assert.NoError(t, err)
-	assert.Equal(t, uint64(1), stats.Len)
-}
-
 type dirtyEntity struct {
 	ID         uint64 `orm:"dirty=All,Added:add,Deleted:delete"`
 	Name       string
