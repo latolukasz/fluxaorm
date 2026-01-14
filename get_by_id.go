@@ -1,7 +1,6 @@
 package fluxaorm
 
 import (
-	"fmt"
 	"reflect"
 	"strconv"
 )
@@ -89,7 +88,6 @@ func getByID(orm *ormImplementation, id uint64, schema *entitySchema) (any, bool
 			if err != nil {
 				return nil, false, err
 			}
-			fmt.Printf("%T %v\n", bind["TestJsons"], bind["TestJsons"])
 			values := convertBindToRedisValue(bind, schema)
 			_, err = cacheRedis.RPush(orm, cacheKey, values...)
 			if err != nil {

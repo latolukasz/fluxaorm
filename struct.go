@@ -46,6 +46,7 @@ func (r *Struct[E]) Get() *E {
 
 func (r *Struct[E]) setSerialized(v string) {
 	r.serialized = v
+	r.isSerialized = true
 }
 
 func (r Struct[E]) getSerialized() (string, error) {
