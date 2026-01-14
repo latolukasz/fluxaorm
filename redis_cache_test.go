@@ -12,7 +12,7 @@ import (
 
 func TestRedis(t *testing.T) {
 	registry := NewRegistry()
-	registry.RegisterRedis("localhost:6385", 15, DefaultPoolCode, nil)
+	registry.RegisterRedis("localhost:6395", 15, DefaultPoolCode, nil)
 	validatedRegistry, err := registry.Validate()
 	assert.Nil(t, err)
 	orm := validatedRegistry.NewContext(context.Background())
@@ -305,7 +305,7 @@ func TestRedis(t *testing.T) {
 	assert.True(t, b)
 
 	registry = NewRegistry()
-	registry.RegisterRedis("localhost:6385", 15, DefaultPoolCode, &RedisOptions{User: "user", Password: "pass"})
+	registry.RegisterRedis("localhost:6395", 15, DefaultPoolCode, &RedisOptions{User: "user", Password: "pass"})
 	validatedRegistry, err = registry.Validate()
 	assert.Error(t, err, "WRONGPASS invalid username-password pair or user is disabled.")
 }

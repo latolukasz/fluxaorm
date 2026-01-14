@@ -36,14 +36,14 @@ jobs:
       dragonfly:
         image: docker.dragonflydb.io/dragonflydb/dragonfly
         ports:
-          - 6385:6379
+          - 6395:6379
       mysql:
         image: mysql/mysql-server:8.0
         env:
           MYSQL_ROOT_PASSWORD: root
           MYSQL_ROOT_HOST: "%"
         ports:
-          - 3377:3306
+          - 3397:3306
         options: --health-cmd="mysqladmin ping" --health-interval=5s --health-timeout=5s --health-retries=3
     steps:
 
@@ -65,8 +65,8 @@ jobs:
       - name: Create database
         run: |
           sudo apt-get update
-          mysql -uroot -h127.0.0.1 --port=3377 -proot -e 'CREATE DATABASE IF NOT EXISTS test;'
-          mysql -uroot -h127.0.0.1 --port=3377 -proot -e 'set global max_connections = 300;'
+          mysql -uroot -h127.0.0.1 --port=3397 -proot -e 'CREATE DATABASE IF NOT EXISTS test;'
+          mysql -uroot -h127.0.0.1 --port=3397 -proot -e 'set global max_connections = 300;'
 
       - name: Run unit tests with coverage.
         run: |

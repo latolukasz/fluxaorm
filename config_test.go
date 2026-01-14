@@ -10,13 +10,13 @@ func TestConfig(t *testing.T) {
 	registry := NewRegistry()
 	config := &Config{
 		MySQlPools: []ConfigMysql{
-			{URI: "root:root@tcp(localhost:3377)/test", Code: "default"},
+			{URI: "root:root@tcp(localhost:3397)/test", Code: "default"},
 		},
 		RedisPools: []ConfigRedis{
-			{URI: "localhost:6385", Code: "default", Database: 0, Streams: []string{
+			{URI: "localhost:6395", Code: "default", Database: 0, Streams: []string{
 				"test-stream", "test-group",
 			}},
-			{URI: "localhost:6385", Code: "test", Database: 1},
+			{URI: "localhost:6395", Code: "test", Database: 1},
 		},
 		LocalCachePools: []ConfigLocalCache{
 			{Code: "test", Limit: 10000},

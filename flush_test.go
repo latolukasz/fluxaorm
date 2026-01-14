@@ -233,6 +233,47 @@ func TestFlushUpdateUpdateRedis(t *testing.T) {
 	testFlushUpdate(t, true, false, true)
 }
 
+func TestStruct(t *testing.T) {
+	r := NewRegistry()
+	orm := PrepareTables(t, r, flushEntity{}, flushEntityReference{})
+
+	schema, err := GetEntitySchema[flushEntity](orm)
+	assert.NoError(t, err)
+	schema.DisableCache(true, false)
+
+	reference, err := NewEntity[flushEntityReference](orm)
+	assert.NoError(t, err)
+	reference.Name = "test reference"
+	err = testFlush(orm, false)
+	assert.NoError(t, err)
+
+	nE, err := schema.NewEntity(orm)
+	assert.NoError(t, err)
+	newEntity := nE.(*flushEntity)
+	assert.NoError(t, err)
+	assert.NotNil(t, newEntity.BoolArray)
+	newEntity.ReferenceRequired = Reference[flushEntityReference](reference.ID)
+	newEntity.Name = "Name"
+	newEntity.TestJsons.Set(&flushStructJSON{"Hi", 12})
+	assert.NotEmpty(t, newEntity.ID)
+	orm.EnableQueryDebug()
+	assert.NoError(t, testFlush(orm, false))
+
+	_ = orm.Engine().Redis(DefaultPoolCode).FlushDB(orm)
+	entity, _, err := GetByID[flushEntity](orm, uint64(newEntity.ID))
+	assert.NoError(t, err)
+	assert.NotNil(t, entity)
+	assert.NotNil(t, entity.TestJsons)
+	assert.Equal(t, "Hi", entity.TestJsons.Get().A)
+
+	entity, _, err = GetByID[flushEntity](orm, uint64(newEntity.ID))
+	assert.NoError(t, err)
+	assert.NotNil(t, entity)
+	assert.NotNil(t, entity.TestJsons)
+	assert.NotNil(t, entity.TestJsons.Get())
+	assert.Equal(t, "Hi", entity.TestJsons.Get().A)
+}
+
 func testFlushInsert(t *testing.T, async, local, redis bool) {
 	r := NewRegistry()
 	orm := PrepareTables(t, r, flushEntity{}, flushEntityReference{})

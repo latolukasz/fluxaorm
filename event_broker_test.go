@@ -14,7 +14,7 @@ import (
 
 func TestRedisStreamGroupConsumerClean(t *testing.T) {
 	registry := NewRegistry()
-	registry.RegisterRedis("localhost:6385", 0, DefaultPoolCode, nil)
+	registry.RegisterRedis("localhost:6395", 0, DefaultPoolCode, nil)
 	registry.RegisterRedisStream("test-stream", "default")
 	validatedRegistry, err := registry.Validate()
 	assert.NoError(t, err)
@@ -65,7 +65,7 @@ func TestRedisStreamGroupConsumerClean(t *testing.T) {
 
 func TestRedisStreamGroupConsumerAutoScaled(t *testing.T) {
 	registry := NewRegistry()
-	registry.RegisterRedis("localhost:6385", 0, DefaultPoolCode, nil)
+	registry.RegisterRedis("localhost:6395", 0, DefaultPoolCode, nil)
 	registry.RegisterRedisStream("test-stream", "default")
 	validatedRegistry, err := registry.Validate()
 	assert.NoError(t, err)

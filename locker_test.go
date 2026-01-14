@@ -10,7 +10,7 @@ import (
 
 func TestLocker(t *testing.T) {
 	registry := NewRegistry()
-	registry.RegisterRedis("localhost:6385", 15, DefaultPoolCode, nil)
+	registry.RegisterRedis("localhost:6395", 15, DefaultPoolCode, nil)
 	validatedRegistry, err := registry.Validate()
 	assert.Nil(t, err)
 	orm := validatedRegistry.NewContext(context.Background())
