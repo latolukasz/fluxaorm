@@ -604,6 +604,16 @@ func testFlushInsert(t *testing.T, async, local, redis bool) {
 		assert.Equal(t, i+1, entity.FlushStructArray[i].Sub.Age3)
 	}
 
+	// Clear references
+	entity, err = EditEntity(orm, entity)
+	assert.NoError(t, err)
+	entity.References.SetIDs(nil)
+	assert.Equal(t, 0, entity.References.Len())
+	assert.NoError(t, testFlush(orm, async))
+
+	entity, _, _ = GetByID[flushEntity](orm, 4)
+	assert.Equal(t, 0, entity.References.Len())
+
 	// rounding dates
 	newEntity = &flushEntity{}
 	err = NewEntityFromSource(orm, newEntity)

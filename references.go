@@ -84,5 +84,6 @@ func (r *References[E]) GetEntities(ctx Context) (EntityIterator[E], error) {
 
 func (r *References[E]) SetIDs(ids []uint64) {
 	r.unserialized = ids
+	r.serialized = ""
 	r.isSerialized = false
 }
