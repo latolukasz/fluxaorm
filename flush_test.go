@@ -256,7 +256,6 @@ func TestStruct(t *testing.T) {
 	newEntity.Name = "Name"
 	newEntity.TestJsons.Set(&flushStructJSON{"Hi", 12})
 	assert.NotEmpty(t, newEntity.ID)
-	orm.EnableQueryDebug()
 	assert.NoError(t, testFlush(orm, false))
 
 	_ = orm.Engine().Redis(DefaultPoolCode).FlushDB(orm)
