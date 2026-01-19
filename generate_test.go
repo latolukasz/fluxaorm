@@ -4,8 +4,9 @@ import (
 	"os"
 	"testing"
 
-	"github.com/stretchr/testify/assert"
 	"path/filepath"
+
+	"github.com/stretchr/testify/assert"
 )
 
 type generateEntity struct {
@@ -16,7 +17,6 @@ type generateEntity struct {
 func TestGenerate(t *testing.T) {
 	orm := PrepareTables(t, NewRegistry(), generateEntity{})
 	_ = os.MkdirAll("test_output", 0755)
-	defer os.RemoveAll("test_output")
 
 	f, _ := os.Create(filepath.Join("test_output", "test_file.txt"))
 	_ = f.Close()
@@ -24,6 +24,12 @@ func TestGenerate(t *testing.T) {
 	err := Generate(orm.Engine(), "test_output")
 	assert.NoError(t, err)
 
-	files, _ := os.ReadDir("test_output")
-	assert.Len(t, files, 0, "output directory should be empty")
+	_, err = os.Stat(filepath.Join("test_output", "test_file.txt"))
+	assert.True(t, os.IsNotExist(err), "test_file.txt should have been deleted")
+
+	content, err := os.ReadFile(filepath.Join("test_output", "generateEntity.go"))
+	assert.NoError(t, err)
+	assert.Contains(t, string(content), "package test_output\n")
+
+	//_ = os.RemoveAll("test_output")
 }

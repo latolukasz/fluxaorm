@@ -3,6 +3,7 @@ package fluxaorm
 import (
 	"fmt"
 	"os"
+	"path"
 	"path/filepath"
 	"strings"
 )
@@ -32,10 +33,6 @@ func Generate(engine Engine, outputDirectory string) error {
 	_ = f.Close()
 	_ = os.Remove(tmp)
 
-	for _, schema := range engine.Registry().Entities() {
-		err = generateCodeForEntity(engine, schema.(*entitySchema))
-	}
-
 	files, err := os.ReadDir(outputDirectory)
 	if err != nil {
 		return fmt.Errorf("cannot read output directory: %w", err)
@@ -49,10 +46,32 @@ func Generate(engine Engine, outputDirectory string) error {
 		}
 	}
 
+	for _, schema := range engine.Registry().Entities() {
+		err = generateCodeForEntity(engine, schema.(*entitySchema), outputDirectory)
+		if err != nil {
+			return err
+		}
+	}
+
 	return nil
 }
 
-func generateCodeForEntity(engine Engine, schema *entitySchema) error {
+func generateCodeForEntity(engine Engine, schema *entitySchema, dir string) error {
+
+	packageName := filepath.Base(dir)
+	fileName := path.Join(dir, fmt.Sprintf("%s.go", schema.GetTableName()))
+	f, err := os.Create(fileName)
+	if err != nil {
+		return fmt.Errorf("cannot create file %s: %w", fileName, err)
+	}
+	defer func() {
+		_ = f.Close()
+	}()
+	_, err = f.WriteString(fmt.Sprintf("package %s\n", packageName))
+	if err != nil {
+		return fmt.Errorf("cannot write to file %s: %w", fileName, err)
+	}
 	fmt.Println(schema.GetTableName())
+
 	return nil
 }
