@@ -18,11 +18,10 @@ func TestLogTable(t *testing.T) {
 	orm := PrepareTables(t, NewRegistry(), entity, LogEntity[logTableEntity]{})
 	assert.NotNil(t, orm)
 
-	entity, err := NewEntity[logTableEntity](orm)
-	assert.NoError(t, err)
+	entity = NewEntity[logTableEntity](orm)
 	entity.Name = "Test"
 	entity.Age = 18
-	err = orm.Flush()
+	err := orm.Flush()
 	assert.NoError(t, err)
 	err = runLogTablesConsumer(orm)
 	assert.Nil(t, err)
@@ -45,8 +44,7 @@ func TestLogTable(t *testing.T) {
 	assert.Equal(t, float64(18), bind["Age"])
 
 	orm.SetMetaData("source", "test case")
-	entity, err = NewEntity[logTableEntity](orm)
-	assert.NoError(t, err)
+	entity = NewEntity[logTableEntity](orm)
 	entity.Name = "Test 2"
 	entity.Age = 30
 	err = orm.Flush()
@@ -71,8 +69,7 @@ func TestLogTable(t *testing.T) {
 	assert.Len(t, bind, 1)
 	assert.Equal(t, "test case", bind["source"])
 
-	entity, err = EditEntity(orm, entity)
-	assert.NoError(t, err)
+	entity = EditEntity(orm, entity)
 	entity.Name = "Test 3"
 	entity.Age = 40
 	err = orm.Flush()
@@ -107,8 +104,7 @@ func TestLogTable(t *testing.T) {
 	assert.Equal(t, "Test 3", bind["Name"])
 	assert.Equal(t, float64(40), bind["Age"])
 
-	err = DeleteEntity(orm, entity)
-	assert.NoError(t, err)
+	DeleteEntity(orm, entity)
 	err = orm.Flush()
 	assert.NoError(t, err)
 	err = runLogTablesConsumer(orm)
@@ -138,8 +134,7 @@ func TestLogTable(t *testing.T) {
 	assert.Equal(t, "Test 3", bind["Name"])
 	assert.Equal(t, float64(40), bind["Age"])
 
-	entity, err = NewEntity[logTableEntity](orm)
-	assert.NoError(t, err)
+	entity = NewEntity[logTableEntity](orm)
 	entity.Name = "Tom"
 	entity.Age = 41
 	assert.NoError(t, orm.Flush())
@@ -170,8 +165,7 @@ func TestLogTable(t *testing.T) {
 	assert.Equal(t, float64(42), bind["Age"])
 
 	orm.Engine().Registry().DisableLogTables()
-	entity, err = NewEntity[logTableEntity](orm)
-	assert.NoError(t, err)
+	entity = NewEntity[logTableEntity](orm)
 	entity.Name = "Tom2"
 	entity.Age = 42
 	assert.NoError(t, orm.Flush())

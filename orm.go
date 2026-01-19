@@ -24,10 +24,10 @@ type Context interface {
 	Clone() Context
 	CloneWithContext(context context.Context) Context
 	Engine() Engine
-	NewEntity(entity any) error
-	EditEntity(entity any) (any, error)
-	DeleteEntity(entity any) error
-	ForceDeleteEntity(entity any) error
+	NewEntity(entity any)
+	EditEntity(entity any) any
+	DeleteEntity(entity any)
+	ForceDeleteEntity(entity any)
 	PushDirty(entities ...any) error
 	ClearCache()
 	EnableContextCache()

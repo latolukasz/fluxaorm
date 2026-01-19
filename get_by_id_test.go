@@ -31,18 +31,16 @@ func TestGetByIdLocalRedisCache(t *testing.T) {
 func testGetByID(t *testing.T, local, redis bool) {
 	var entity *getByIDEntity
 	orm := PrepareTables(t, NewRegistry(), entity)
-	schema, err := GetEntitySchema[getByIDEntity](orm)
-	assert.NoError(t, err)
+	schema := GetEntitySchema[getByIDEntity](orm)
 	schema.DisableCache(!local, !redis)
 
 	var ids []uint64
 	for i := 0; i < 10; i++ {
-		entity, err := NewEntity[getByIDEntity](orm)
-		assert.NoError(t, err)
+		entity = NewEntity[getByIDEntity](orm)
 		entity.Name = fmt.Sprintf("Name %d", i)
 		ids = append(ids, entity.ID)
 	}
-	err = orm.Flush()
+	err := orm.Flush()
 	assert.NoError(t, err)
 
 	loggerDB := &MockLogHandler{}

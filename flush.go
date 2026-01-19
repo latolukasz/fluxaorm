@@ -288,10 +288,7 @@ func (orm *ormImplementation) handleDeletes(async bool, schema *entitySchema, op
 		if hasLogTable && !orm.engine.registry.disableLogTables {
 			data := make([]any, 7)
 			data[0] = "INSERT INTO `" + logTableSchema.tableName + "`(ID,EntityID,Date,Meta,`Before`) VALUES(?,?,?,?,?)"
-			uuid, err := logTableSchema.uuid(orm)
-			if err != nil {
-				return err
-			}
+			uuid := logTableSchema.uuid(orm)
 			data[1] = strconv.FormatUint(uuid, 10)
 			data[2] = strconv.FormatUint(operation.ID(), 10)
 			data[3] = time.Now().Format(time.DateTime)
@@ -460,10 +457,7 @@ func (orm *ormImplementation) handleInserts(async bool, schema *entitySchema, op
 		if hasLogTable && !orm.engine.registry.disableLogTables {
 			data := make([]any, 7)
 			data[0] = "INSERT INTO `" + logTableSchema.tableName + "`(ID,EntityID,Date,Meta,`After`) VALUES(?,?,?,?,?)"
-			uuid, err := logTableSchema.uuid(orm)
-			if err != nil {
-				return err
-			}
+			uuid := logTableSchema.uuid(orm)
 			data[1] = strconv.FormatUint(uuid, 10)
 			data[2] = strconv.FormatUint(bind["ID"].(uint64), 10)
 			data[3] = time.Now().Format(time.DateTime)
@@ -735,10 +729,7 @@ func (orm *ormImplementation) handleUpdates(async bool, schema *entitySchema, op
 		if hasLogTable && !orm.engine.registry.disableLogTables {
 			data := make([]any, 8)
 			data[0] = "INSERT INTO `" + logTableSchema.tableName + "`(ID,EntityID,Date,Meta,`Before`,`After`) VALUES(?,?,?,?,?,?)"
-			uuid, err := logTableSchema.uuid(orm)
-			if err != nil {
-				return err
-			}
+			uuid := logTableSchema.uuid(orm)
 			data[1] = strconv.FormatUint(uuid, 10)
 			data[2] = strconv.FormatUint(update.ID(), 10)
 			data[3] = time.Now().Format(time.DateTime)

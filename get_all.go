@@ -12,9 +12,9 @@ var allEntitiesWhere = NewWhere("1")
 
 func GetAll[E any](ctx Context) (EntityIterator[E], error) {
 	var e E
-	schema, err := getEntitySchemaFromSource(ctx, e)
-	if err != nil {
-		return nil, err
+	schema := getEntitySchemaFromSource(ctx, e)
+	if schema == nil {
+		return nil, nil
 	}
 	if !schema.cacheAll {
 		return Search[E](ctx, allEntitiesWhere, nil)

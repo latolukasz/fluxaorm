@@ -45,8 +45,8 @@ func PrepareTables(t *testing.T, registry Registry, entities ...any) (orm Contex
 	}
 
 	for _, entity := range entities {
-		schema, err := orm.Engine().Registry().EntitySchema(entity)
-		assert.NoError(t, err)
+		schema := orm.Engine().Registry().EntitySchema(entity)
+		assert.NotNil(t, schema)
 		err = schema.TruncateTable(orm)
 		assert.NoError(t, err)
 		err = schema.UpdateSchema(orm)

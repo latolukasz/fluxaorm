@@ -8,9 +8,9 @@ import (
 func GetByID[E any, I ID](ctx Context, id I) (entity *E, found bool, err error) {
 	var e E
 	cE := ctx.(*ormImplementation)
-	schema, err := getEntitySchemaFromSource(ctx, e)
-	if err != nil {
-		return nil, false, err
+	schema := getEntitySchemaFromSource(ctx, e)
+	if schema == nil {
+		return nil, false, nil
 	}
 	value, found, err := getByID(cE, uint64(id), schema)
 	if err != nil {

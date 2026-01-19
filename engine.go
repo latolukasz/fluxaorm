@@ -10,7 +10,7 @@ import (
 const DefaultPoolCode = "default"
 
 type EngineRegistry interface {
-	EntitySchema(entity any) (EntitySchema, error)
+	EntitySchema(entity any) EntitySchema
 	DBPools() map[string]DB
 	LocalCachePools() map[string]LocalCache
 	RedisPools() map[string]RedisCache
@@ -121,15 +121,16 @@ func (er *engineRegistryImplementation) DBPools() map[string]DB {
 	return er.engine.dbServers
 }
 
-func (er *engineRegistryImplementation) EntitySchema(entity any) (EntitySchema, error) {
+func (er *engineRegistryImplementation) EntitySchema(entity any) EntitySchema {
 
 	switch entity.(type) {
 	case reflect.Type:
 		e, has := er.entitySchemas[entity.(reflect.Type)]
 		if !has {
-			return nil, fmt.Errorf("entity '%T' is not registered", entity)
+			panic(fmt.Errorf("entity '%T' is not registered", entity))
+			return nil
 		}
-		return e, nil
+		return e
 	case string:
 		name := entity.(string)
 		if strings.HasPrefix(name, "*") {
@@ -137,9 +138,10 @@ func (er *engineRegistryImplementation) EntitySchema(entity any) (EntitySchema, 
 		}
 		t, has := er.entities[name]
 		if !has {
-			return nil, fmt.Errorf("entity '%T' is not registered", entity)
+			panic(fmt.Errorf("entity '%T' is not registered", entity))
+			return nil
 		}
-		return er.entitySchemas[t], nil
+		return er.entitySchemas[t]
 	default:
 		t := reflect.TypeOf(entity)
 		if t.Kind() == reflect.Ptr {
@@ -147,9 +149,10 @@ func (er *engineRegistryImplementation) EntitySchema(entity any) (EntitySchema, 
 		}
 		e, has := er.entitySchemas[t]
 		if !has {
-			return nil, fmt.Errorf("entity '%T' is not registered", entity)
+			panic(fmt.Errorf("entity '%T' is not registered", entity))
+			return nil
 		}
-		return e, nil
+		return e
 	}
 }
 

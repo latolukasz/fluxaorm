@@ -59,15 +59,15 @@ func TestDirty(t *testing.T) {
 	assert.Equal(t, consumerGroupName, streams["dirty_Deleted"])
 	assert.Equal(t, consumerGroupName, streams["dirty_Sub"])
 
-	entity, err := NewEntity[dirtyEntity](orm)
-	assert.NoError(t, err)
+	entity := NewEntity[dirtyEntity](orm)
+	assert.NotNil(t, entity)
 	entity.Name = "Test"
 	entity.Age = 18
 	entity.Balance = 100
 	entity.Sub.Color = "red"
 
-	entity2, err := NewEntity[dirtyEntity2](orm)
-	assert.NoError(t, err)
+	entity2 := NewEntity[dirtyEntity2](orm)
+	assert.NotNil(t, entity2)
 	entity2.Name = "Test2"
 	entity2.Age = 19
 
@@ -121,8 +121,7 @@ func TestDirty(t *testing.T) {
 	err = orm.Engine().Redis(DefaultPoolCode).FlushDB(orm)
 	assert.NoError(t, err)
 
-	entity, err = EditEntity(orm, entity)
-	assert.NoError(t, err)
+	entity = EditEntity(orm, entity)
 	entity.Age = 20
 	entity.AgeUpdated = 20
 	assert.NoError(t, orm.Flush())
@@ -170,8 +169,7 @@ func TestDirty(t *testing.T) {
 	err = orm.Engine().Redis(DefaultPoolCode).FlushDB(orm)
 	assert.NoError(t, err)
 
-	err = DeleteEntity(orm, entity2)
-	assert.NoError(t, err)
+	DeleteEntity(orm, entity2)
 	assert.NoError(t, orm.Flush())
 
 	stats, err = orm.GetEventBroker().GetStreamStatistics("dirty_All")
@@ -217,8 +215,7 @@ func TestDirty(t *testing.T) {
 	err = orm.Engine().Redis(DefaultPoolCode).FlushDB(orm)
 	assert.NoError(t, err)
 
-	err = DeleteEntity(orm, entity)
-	assert.NoError(t, err)
+	DeleteEntity(orm, entity)
 	assert.NoError(t, orm.Flush())
 
 	stats, err = orm.GetEventBroker().GetStreamStatistics("dirty_All")

@@ -48,8 +48,7 @@ func TestGetByIndexLocalRedisCache(t *testing.T) {
 func testGetByIndex(t *testing.T, local, redis bool) {
 	var entity *getByIndexEntity
 	orm := PrepareTables(t, NewRegistry(), entity)
-	schema, err := GetEntitySchema[getByIndexEntity](orm)
-	assert.NoError(t, err)
+	schema := GetEntitySchema[getByIndexEntity](orm)
 	schema.DisableCache(!local, !redis)
 
 	loggerDB := &MockLogHandler{}
@@ -69,8 +68,7 @@ func testGetByIndex(t *testing.T, local, redis bool) {
 
 	var entities []*getByIndexEntity
 	for i := 0; i < 10; i++ {
-		entity, err = NewEntity[getByIndexEntity](orm)
-		assert.NoError(t, err)
+		entity = NewEntity[getByIndexEntity](orm)
 		entity.Age = 10
 		entity.Other = i
 		if i >= 5 {
@@ -141,8 +139,7 @@ func testGetByIndex(t *testing.T, local, redis bool) {
 	}
 	loggerDB.Clear()
 
-	entity, err = NewEntity[getByIndexEntity](orm)
-	assert.NoError(t, err)
+	entity = NewEntity[getByIndexEntity](orm)
 	entity.Age = 10
 	assert.NoError(t, orm.Flush())
 	entities = append(entities, entity)
@@ -158,8 +155,7 @@ func testGetByIndex(t *testing.T, local, redis bool) {
 		assert.Len(t, loggerDB.Logs, 0)
 	}
 
-	err = DeleteEntity(orm, entities[0])
-	assert.NoError(t, err)
+	DeleteEntity(orm, entities[0])
 	assert.NoError(t, orm.Flush())
 
 	loggerDB.Clear()
@@ -173,8 +169,7 @@ func testGetByIndex(t *testing.T, local, redis bool) {
 		assert.Len(t, loggerDB.Logs, 0)
 	}
 
-	entity, err = EditEntity(orm, entities[6])
-	assert.NoError(t, err)
+	entity = EditEntity(orm, entities[6])
 	entity.Name = ""
 	entity.Age = 40
 	assert.NoError(t, orm.Flush())

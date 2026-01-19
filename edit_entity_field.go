@@ -1,6 +1,7 @@
 package fluxaorm
 
 import (
+	"fmt"
 	"hash/maphash"
 	"reflect"
 
@@ -12,9 +13,9 @@ func EditEntityField(ctx Context, entity any, field string, value any) error {
 }
 
 func editEntityField(ctx Context, entity any, field string, value any, fakeDelete bool) error {
-	schema, err := getEntitySchemaFromSource(ctx, entity)
-	if err != nil {
-		return err
+	schema := getEntitySchemaFromSource(ctx, entity)
+	if schema == nil {
+		return fmt.Errorf("entity is not registered: %T", entity)
 	}
 	setter, has := schema.fieldBindSetters[field]
 	if !has {

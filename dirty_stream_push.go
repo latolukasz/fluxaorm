@@ -85,5 +85,9 @@ func getEntitySchemaFromEntities(ctx Context, entities []any) (*entitySchema, er
 		return nil, fmt.Errorf("entities[0] must be a struct or pointer to struct")
 	}
 	zero := reflect.New(value.Type()).Interface()
-	return getEntitySchemaFromSource(ctx, zero)
+	schema := getEntitySchemaFromSource(ctx, zero)
+	if schema == nil {
+		return nil, fmt.Errorf("entities[0] is not an entity")
+	}
+	return schema, nil
 }

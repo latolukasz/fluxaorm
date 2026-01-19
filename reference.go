@@ -35,8 +35,7 @@ func (r Reference[E]) GetEntity(ctx Context) (*E, error) {
 }
 
 func (r Reference[E]) Schema(ctx Context) EntitySchema {
-	s, _ := ctx.Engine().Registry().EntitySchema(r.getType())
-	return s
+	return ctx.Engine().Registry().EntitySchema(r.getType())
 }
 
 func (r Reference[E]) getType() reflect.Type {

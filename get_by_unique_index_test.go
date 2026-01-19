@@ -64,8 +64,7 @@ func TestGetByUniqueIndexLocalRedisCache(t *testing.T) {
 func testGetByUniqueIndex(t *testing.T, local, redis bool) {
 	var entity *getByUniqueIndexEntity
 	orm := PrepareTables(t, NewRegistry(), entity, getByUniqueIndexReference{})
-	schema, err := GetEntitySchema[getByUniqueIndexEntity](orm)
-	assert.NoError(t, err)
+	schema := GetEntitySchema[getByUniqueIndexEntity](orm)
 	schema.DisableCache(!local, !redis)
 
 	var entities []*getByUniqueIndexEntity
@@ -73,11 +72,9 @@ func testGetByUniqueIndex(t *testing.T, local, redis bool) {
 	date := time.Now().UTC()
 	died := time.Now().UTC()
 	for i := 0; i < 10; i++ {
-		ref, err := NewEntity[getByUniqueIndexReference](orm)
-		assert.NoError(t, err)
+		ref := NewEntity[getByUniqueIndexReference](orm)
 		ref.Name = fmt.Sprintf("Ref %d", i)
-		entity, err = NewEntity[getByUniqueIndexEntity](orm)
-		assert.NoError(t, err)
+		entity = NewEntity[getByUniqueIndexEntity](orm)
 		entity.Name = fmt.Sprintf("Name %d", i)
 		entity.Age = uint8(i)
 		entity.Ref = Reference[getByUniqueIndexReference](ref.ID)
@@ -92,7 +89,7 @@ func testGetByUniqueIndex(t *testing.T, local, redis bool) {
 		entities = append(entities, entity)
 		refs = append(refs, ref)
 	}
-	err = orm.Flush()
+	err := orm.Flush()
 	assert.NoError(t, err)
 
 	entity, found, err := GetByUniqueIndex[getByUniqueIndexEntity](orm, getByUniqueIndexEntityIndexes.Name, "Name 3")
@@ -197,9 +194,6 @@ func testGetByUniqueIndex(t *testing.T, local, redis bool) {
 
 	_, _, err = GetByUniqueIndex[getByUniqueIndexEntity](orm, getByUniqueIndexEntityIndexes.Name, nil)
 	assert.EqualError(t, err, "nil attribute for index name `Name` is not allowed")
-
-	_, _, err = GetByUniqueIndex[time.Time](orm, getByUniqueIndexEntityIndexes.Name, nil)
-	assert.EqualError(t, err, "entity 'time.Time' is not registered")
 
 	_, _, err = GetByUniqueIndex[getByUniqueIndexEntity](orm, UniqueIndexDefinition{"Invalid", false}, 23)
 	assert.EqualError(t, err, "unknown unique index for columns `Invalid`")

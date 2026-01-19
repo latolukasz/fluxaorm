@@ -5,9 +5,9 @@ import (
 )
 
 func GetEntityFieldDefinition[E any](ctx Context, field string) (t reflect.Type, tags map[string]string, err error) {
-	schema, err := getEntitySchema[E](ctx)
-	if err != nil {
-		return nil, nil, err
+	schema := getEntitySchema[E](ctx)
+	if schema == nil {
+		return nil, nil, nil
 	}
 	if schema == nil {
 		return nil, nil, nil
@@ -24,9 +24,9 @@ func GetEntityField(ctx Context, entity any, field string) (any, error) {
 }
 
 func GetEntityFields(ctx Context, entity any, field ...string) (map[string]any, error) {
-	schema, err := getEntitySchemaFromSource(ctx, entity)
-	if err != nil {
-		return nil, err
+	schema := getEntitySchemaFromSource(ctx, entity)
+	if schema == nil {
+		return nil, nil
 	}
 	reflectValue := reflect.ValueOf(entity)
 	elem := reflectValue.Elem()
@@ -41,9 +41,9 @@ func GetEntityFields(ctx Context, entity any, field ...string) (map[string]any, 
 }
 
 func getEntityField(ctx Context, entity any, field string) (any, error) {
-	schema, err := getEntitySchemaFromSource(ctx, entity)
-	if err != nil {
-		return nil, err
+	schema := getEntitySchemaFromSource(ctx, entity)
+	if schema == nil {
+		return nil, nil
 	}
 	getter, has := schema.fieldGetters[field]
 	if !has {

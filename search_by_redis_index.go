@@ -284,17 +284,17 @@ type RedisSearchFilter struct {
 }
 
 func RedisSearchIDs[E any](ctx Context, query *RedisSearchQuery, pager *Pager) (results []uint64, totalRows int, err error) {
-	schema, err := getEntitySchema[E](ctx)
-	if err != nil {
-		return nil, 0, err
+	schema := getEntitySchema[E](ctx)
+	if schema == nil {
+		return nil, 0, nil
 	}
 	return redisSearchIDs(ctx, schema, query, pager)
 }
 
 func RedisSearch[E any](ctx Context, query *RedisSearchQuery, pager *Pager) (results EntityIterator[E], totalRows int, err error) {
-	schema, err := getEntitySchema[E](ctx)
-	if err != nil {
-		return nil, 0, err
+	schema := getEntitySchema[E](ctx)
+	if schema == nil {
+		return nil, 0, nil
 	}
 	ids, totalRows, err := redisSearchIDs(ctx, schema, query, pager)
 	if err != nil {

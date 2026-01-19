@@ -98,16 +98,14 @@ func TestPlugin(t *testing.T) {
 	registry = NewRegistry()
 	registry.RegisterPlugin(&testPluginToTest{})
 	orm = PrepareTables(t, registry, testPluginEntity{})
-	schema, err := GetEntitySchema[testPluginEntity](orm)
-	assert.NoError(t, err)
+	schema := GetEntitySchema[testPluginEntity](orm)
 	assert.Equal(t, "c", schema.Option("ValidateEntitySchema"))
 
 	registry = NewRegistry()
 	p = &testPluginToTest{option: 5}
 	registry.RegisterPlugin(p)
 	orm = PrepareTables(t, registry, testPluginEntity{})
-	entity, err := NewEntity[testPluginEntity](orm)
-	assert.NoError(t, err)
+	entity := NewEntity[testPluginEntity](orm)
 	entity.Name = "a"
 	err = orm.Flush()
 	assert.NoError(t, err)
@@ -123,8 +121,7 @@ func TestPlugin(t *testing.T) {
 	assert.NoError(t, err)
 	assert.Equal(t, "a1", entity.Name)
 
-	entity, err = NewEntity[testPluginEntity](orm)
-	assert.NoError(t, err)
+	entity = NewEntity[testPluginEntity](orm)
 	entity.Name = "b"
 	err = orm.FlushAsync()
 	err = runAsyncConsumer(orm)
@@ -138,8 +135,7 @@ func TestPlugin(t *testing.T) {
 	assert.Equal(t, "a1", entity.Name)
 
 	p.option = 4
-	entity, err = NewEntity[testPluginEntity](orm)
-	assert.NoError(t, err)
+	entity = NewEntity[testPluginEntity](orm)
 	entity.Name = "a"
 	err = orm.Flush()
 	assert.EqualError(t, err, "error 4")
@@ -148,12 +144,10 @@ func TestPlugin(t *testing.T) {
 	p = &testPluginToTest{option: 6}
 	registry.RegisterPlugin(p)
 	orm = PrepareTables(t, registry, testPluginEntity{})
-	entity, err = NewEntity[testPluginEntity](orm)
-	assert.NoError(t, err)
+	entity = NewEntity[testPluginEntity](orm)
 	entity.Name = "a"
 	err = orm.Flush()
-	entity, err = EditEntity(orm, entity)
-	assert.NoError(t, err)
+	entity = EditEntity(orm, entity)
 	entity.Name = "b"
 	err = orm.Flush()
 	assert.NoError(t, err)
@@ -169,8 +163,7 @@ func TestPlugin(t *testing.T) {
 	assert.NoError(t, err)
 	assert.Equal(t, "b1", entity.Name)
 
-	entity, err = EditEntity(orm, entity)
-	assert.NoError(t, err)
+	entity = EditEntity(orm, entity)
 	entity.Name = "c"
 	err = orm.FlushAsync()
 	err = runAsyncConsumer(orm)
@@ -196,15 +189,13 @@ func TestPlugin(t *testing.T) {
 	assert.Equal(t, "c2", values[3].(Bind)["Name"])
 
 	p.option = 4
-	entity, err = EditEntity(orm, entity)
-	assert.NoError(t, err)
+	entity = EditEntity(orm, entity)
 	entity.Name = "d"
 	err = orm.Flush()
 	assert.EqualError(t, err, "error 4")
 
 	p.option = 4
-	entity, err = NewEntity[testPluginEntity](orm)
-	assert.NoError(t, err)
+	entity = NewEntity[testPluginEntity](orm)
 	entity.Name = "a"
 	err = orm.Flush()
 	assert.EqualError(t, err, "error 4")
@@ -213,12 +204,10 @@ func TestPlugin(t *testing.T) {
 	p = &testPluginToTest{option: 7}
 	registry.RegisterPlugin(p)
 	orm = PrepareTables(t, registry, testPluginEntity{})
-	entity, err = NewEntity[testPluginEntity](orm)
-	assert.NoError(t, err)
+	entity = NewEntity[testPluginEntity](orm)
 	entity.Name = "a"
 	err = orm.Flush()
-	err = DeleteEntity(orm, entity)
-	assert.NoError(t, err)
+	DeleteEntity(orm, entity)
 	err = orm.Flush()
 	assert.NoError(t, err)
 	values = p.lastValue.([]any)
@@ -232,13 +221,11 @@ func TestPlugin(t *testing.T) {
 	assert.Nil(t, entity)
 	assert.Equal(t, 100, p.option)
 
-	entity, err = NewEntity[testPluginEntity](orm)
-	assert.NoError(t, err)
+	entity = NewEntity[testPluginEntity](orm)
 	entity.Name = "a"
 	_ = orm.Flush()
 	p.option = 4
-	err = DeleteEntity(orm, entity)
-	assert.NoError(t, err)
+	DeleteEntity(orm, entity)
 	err = orm.Flush()
 	assert.EqualError(t, err, "error 4")
 }

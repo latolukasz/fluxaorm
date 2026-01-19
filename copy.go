@@ -4,24 +4,18 @@ import (
 	"reflect"
 )
 
-func Copy[E any](ctx Context, source E) (E, error) {
-	schemaI, err := ctx.Engine().Registry().EntitySchema(source)
-	if err != nil {
-		return *new(E), err
-	}
+func Copy[E any](ctx Context, source E) E {
+	schemaI := ctx.Engine().Registry().EntitySchema(source)
 	schema := schemaI.(*entitySchema)
-	insertable, err := newEntityInsertable(ctx, schema, 0)
-	if err != nil {
-		return *new(E), err
-	}
+	insertable := newEntityInsertable(ctx, schema, 0)
 	copyEntity(reflect.ValueOf(source).Elem(), insertable.value.Elem(), schema.fields, false)
-	return insertable.entity.(E), nil
+	return insertable.entity.(E)
 }
 
-func copyToEdit(ctx Context, source any) (*editableEntity, error) {
-	schema, err := getEntitySchemaFromSource(ctx, source)
-	if err != nil {
-		return nil, err
+func copyToEdit(ctx Context, source any) *editableEntity {
+	schema := getEntitySchemaFromSource(ctx, source)
+	if schema == nil {
+		return nil
 	}
 	value := reflect.New(schema.t)
 	writable := &editableEntity{}
@@ -31,7 +25,7 @@ func copyToEdit(ctx Context, source any) (*editableEntity, error) {
 	writable.value = value
 	writable.sourceValue = reflect.ValueOf(source)
 	copyEntity(writable.sourceValue.Elem(), value.Elem(), schema.fields, true)
-	return writable, nil
+	return writable
 }
 
 func copyEntity(source, target reflect.Value, fields *tableFields, withID bool) {

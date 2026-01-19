@@ -114,10 +114,7 @@ func (r *DirtyStreamConsumer) handleEvent(event Event) (*DirtyStreamEvent, error
 	if entity == "" {
 		return nil, event.Ack()
 	}
-	schema, err := r.consumer.ctx.Engine().Registry().EntitySchema(entity)
-	if err != nil {
-		return nil, err
-	}
+	schema := r.consumer.ctx.Engine().Registry().EntitySchema(entity)
 	if schema == nil {
 		return nil, event.Ack()
 	}

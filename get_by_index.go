@@ -60,9 +60,9 @@ func (d indexDefinition) CreteWhere(hasNil bool, attributes []any) Where {
 
 func GetByIndex[E any](ctx Context, pager *Pager, index IndexDefinition, attributes ...any) (EntityIterator[E], error) {
 	var e E
-	schema, err := getEntitySchemaFromSource(ctx, e)
-	if err != nil {
-		return nil, err
+	schema := getEntitySchemaFromSource(ctx, e)
+	if schema == nil {
+		return nil, nil
 	}
 	indexName, hasName := schema.indexesMapping[index]
 	if !hasName {
@@ -97,8 +97,8 @@ func GetByIndex[E any](ctx Context, pager *Pager, index IndexDefinition, attribu
 
 func GetByIndexWithCount[E any](ctx Context, pager *Pager, index IndexDefinition, attributes ...any) (res EntityIterator[E], total int, err error) {
 	var e E
-	schema, err := getEntitySchemaFromSource(ctx, e)
-	if err != nil {
+	schema := getEntitySchemaFromSource(ctx, e)
+	if schema == nil {
 		return nil, 0, err
 	}
 	indexName, hasName := schema.indexesMapping[index]

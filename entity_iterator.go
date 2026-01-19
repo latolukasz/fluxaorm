@@ -436,15 +436,16 @@ func loadReference(iterator iteratorBase, orm *ormImplementation, schema *entity
 		if len(ids) <= 1 {
 			return nil
 		}
-		s, err := orm.Engine().Registry().EntitySchema(reference.Type)
-		if err != nil {
+		s := orm.Engine().Registry().EntitySchema(reference.Type)
+		if s == nil {
+			return fmt.Errorf("reference not registered %s", reference.Type)
 		}
 		refSchema := s.(*entitySchema)
 		var subRefs string
 		if len(fields) > 1 {
 			subRefs = strings.Join(fields[1:], "/")
 		}
-		err = warmup(orm, refSchema, ids, subRefs)
+		err := warmup(orm, refSchema, ids, subRefs)
 		if err != nil {
 			return err
 		}

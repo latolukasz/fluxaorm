@@ -48,19 +48,16 @@ func TestRedisSearch(t *testing.T) {
 	var entity *redisSearchEntity
 	reg := NewRegistry()
 	orm := PrepareTables(t, reg, entity, redisSearchEntityReference{}, redisSearchCustom{})
-	schema, err := GetEntitySchema[redisSearchEntity](orm)
-	assert.NoError(t, err)
+	schema := GetEntitySchema[redisSearchEntity](orm)
 	r := orm.Engine().Redis(schema.GetRedisSearchPoolCode())
 
 	var ids []uint64
 	var idsReferences []uint64
 	now := time.Now().UTC()
 	for i := 1; i <= 10; i++ {
-		reference, err := NewEntity[redisSearchEntityReference](orm)
-		assert.NoError(t, err)
+		reference := NewEntity[redisSearchEntityReference](orm)
 		reference.Name = fmt.Sprintf("reference %d", reference.ID)
-		entity, err = NewEntity[redisSearchEntity](orm)
-		assert.NoError(t, err)
+		entity = NewEntity[redisSearchEntity](orm)
 		entity.Name = fmt.Sprintf("name %d", entity.ID)
 		entity.Age = uint8(i)
 		if i <= 3 {
@@ -86,7 +83,7 @@ func TestRedisSearch(t *testing.T) {
 		ids = append(ids, entity.ID)
 		idsReferences = append(idsReferences, reference.ID)
 	}
-	err = orm.Flush()
+	err := orm.Flush()
 	assert.NoError(t, err)
 
 	testRedisSearchResults(t, r, orm, schema, ids, now, idsReferences)
@@ -109,7 +106,7 @@ func TestRedisSearch(t *testing.T) {
 
 	e, _, err := GetByID[redisSearchEntity](orm, ids[0])
 	assert.NoError(t, err)
-	err = DeleteEntity(orm, e)
+	DeleteEntity(orm, e)
 	assert.NoError(t, err)
 	assert.NoError(t, orm.Flush())
 
@@ -136,8 +133,7 @@ func TestRedisSearch(t *testing.T) {
 
 	e, _, err = GetByID[redisSearchEntity](orm, ids[1])
 	assert.NoError(t, err)
-	e, err = EditEntity(orm, e)
-	assert.NoError(t, err)
+	e = EditEntity(orm, e)
 	e.Age = 100
 	assert.NoError(t, orm.Flush())
 
@@ -151,8 +147,7 @@ func TestRedisSearch(t *testing.T) {
 	_, _, err = RedisSearchIDs[redisSearchEntityReference](orm, query, nil)
 	assert.EqualError(t, err, "entity redisSearchEntityReference is not searchable by Redis Search")
 
-	custom, err := NewEntity[redisSearchCustom](orm)
-	assert.NoError(t, err)
+	custom := NewEntity[redisSearchCustom](orm)
 	assert.Equal(t, uint64(0), custom.ID)
 	custom.ID = 1
 	custom.Age = 18
@@ -171,8 +166,7 @@ func TestRedisSearch(t *testing.T) {
 	assert.Equal(t, uint8(18), row.Age)
 	assert.Equal(t, "Custom 1", row.Name)
 
-	custom, err = EditEntity(orm, custom)
-	assert.NoError(t, err)
+	custom = EditEntity(orm, custom)
 	custom.Age = 20
 	assert.NoError(t, orm.Flush())
 	query = NewRedisSearchQuery()
@@ -187,8 +181,7 @@ func TestRedisSearch(t *testing.T) {
 	assert.Equal(t, uint8(20), row.Age)
 	assert.Equal(t, "Custom 1", row.Name)
 
-	err = DeleteEntity(orm, custom)
-	assert.NoError(t, err)
+	DeleteEntity(orm, custom)
 	assert.NoError(t, orm.Flush())
 	rows, total, err = RedisSearch[redisSearchCustom](orm, query, nil)
 	assert.NoError(t, err)

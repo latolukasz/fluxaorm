@@ -32,20 +32,18 @@ func TestPlugin(t *testing.T) {
 	dateManual, _ := time.ParseInLocation(time.DateOnly, "2022-02-03", time.UTC)
 	timeManual, _ := time.ParseInLocation(time.DateTime, "2022-02-03 04:05:06", time.UTC)
 
-	entity, err := fluxaorm.NewEntity[testPluginModifiedEntity](engine)
-	assert.NoError(t, err)
+	entity := fluxaorm.NewEntity[testPluginModifiedEntity](engine)
 	entity.Name = "a"
 	assert.NoError(t, engine.Flush())
 	assert.NotNil(t, entity.AddedAtDate)
 	assert.Equal(t, entity.AddedAtDate.Format(time.DateOnly), now.Format(time.DateOnly))
 	assert.Equal(t, "0001-01-01", entity.ModifiedAtDate.Format(time.DateOnly))
-	entity, _, err = fluxaorm.GetByID[testPluginModifiedEntity](engine, entity.ID)
+	entity, _, err := fluxaorm.GetByID[testPluginModifiedEntity](engine, entity.ID)
 	assert.NoError(t, err)
 	assert.Equal(t, entity.AddedAtDate.Format(time.DateOnly), now.Format(time.DateOnly))
 	assert.Equal(t, "0001-01-01", entity.ModifiedAtDate.Format(time.DateOnly))
 
-	entity, err = fluxaorm.NewEntity[testPluginModifiedEntity](engine)
-	assert.NoError(t, err)
+	entity = fluxaorm.NewEntity[testPluginModifiedEntity](engine)
 	entity.Name = "a1"
 	entity.AddedAtDate = dateManual
 	assert.NoError(t, engine.Flush())
@@ -60,8 +58,7 @@ func TestPlugin(t *testing.T) {
 	registry.RegisterPlugin(p)
 	engine = fluxaorm.PrepareTables(t, registry, testPluginModifiedEntity{})
 	now = time.Now().UTC()
-	entity, err = fluxaorm.NewEntity[testPluginModifiedEntity](engine)
-	assert.NoError(t, err)
+	entity = fluxaorm.NewEntity[testPluginModifiedEntity](engine)
 	entity.Name = "b"
 	assert.NoError(t, engine.Flush())
 	assert.NotNil(t, entity.AddedAtTime)
@@ -72,8 +69,7 @@ func TestPlugin(t *testing.T) {
 	assert.Equal(t, entity.AddedAtTime.Format(time.DateTime), now.Format(time.DateTime))
 	assert.Equal(t, "0001-01-01 00:00:00", entity.ModifiedAtTime.Format(time.DateTime))
 
-	entity, err = fluxaorm.NewEntity[testPluginModifiedEntity](engine)
-	assert.NoError(t, err)
+	entity = fluxaorm.NewEntity[testPluginModifiedEntity](engine)
 	entity.Name = "b1"
 	entity.AddedAtTime = timeManual
 	assert.NoError(t, engine.Flush())
@@ -88,8 +84,7 @@ func TestPlugin(t *testing.T) {
 	registry.RegisterPlugin(p)
 	engine = fluxaorm.PrepareTables(t, registry, testPluginModifiedEntity{})
 	now = time.Now().UTC()
-	entity, err = fluxaorm.NewEntity[testPluginModifiedEntity](engine)
-	assert.NoError(t, err)
+	entity = fluxaorm.NewEntity[testPluginModifiedEntity](engine)
 	entity.Name = "d"
 	assert.NoError(t, engine.Flush())
 	assert.NotNil(t, entity.AddedAtTimeOptional)
@@ -100,8 +95,7 @@ func TestPlugin(t *testing.T) {
 	assert.Equal(t, entity.AddedAtTimeOptional.Format(time.DateTime), now.Format(time.DateTime))
 	assert.Nil(t, entity.ModifiedAtTimeOptional)
 
-	entity, err = fluxaorm.NewEntity[testPluginModifiedEntity](engine)
-	assert.NoError(t, err)
+	entity = fluxaorm.NewEntity[testPluginModifiedEntity](engine)
 	entity.Name = "d1"
 	entity.AddedAtTimeOptional = &timeManual
 	assert.NoError(t, engine.Flush())
@@ -116,8 +110,7 @@ func TestPlugin(t *testing.T) {
 	registry.RegisterPlugin(p)
 	engine = fluxaorm.PrepareTables(t, registry, testPluginModifiedEntity{})
 	now = time.Now().UTC()
-	entity, err = fluxaorm.NewEntity[testPluginModifiedEntity](engine)
-	assert.NoError(t, err)
+	entity = fluxaorm.NewEntity[testPluginModifiedEntity](engine)
 	entity.Name = "d"
 	assert.NoError(t, engine.Flush())
 	assert.NotNil(t, entity.AddedAtDateOptional)
@@ -134,12 +127,10 @@ func TestPlugin(t *testing.T) {
 	registry.RegisterPlugin(p)
 	engine = fluxaorm.PrepareTables(t, registry, testPluginModifiedEntity{})
 	now = time.Now().UTC()
-	entity, err = fluxaorm.NewEntity[testPluginModifiedEntity](engine)
-	assert.NoError(t, err)
+	entity = fluxaorm.NewEntity[testPluginModifiedEntity](engine)
 	entity.Name = "D"
 	assert.NoError(t, engine.Flush())
-	entity, err = fluxaorm.EditEntity(engine, entity)
-	assert.NoError(t, err)
+	entity = fluxaorm.EditEntity(engine, entity)
 	entity.Name = "D1"
 	time.Sleep(time.Second)
 	assert.NoError(t, engine.Flush())
@@ -166,8 +157,7 @@ func TestPlugin(t *testing.T) {
 	registry.RegisterPlugin(p)
 	engine = fluxaorm.PrepareTables(t, registry, testPluginModifiedEntity{})
 	now = time.Now().UTC()
-	entity, err = fluxaorm.NewEntity[testPluginModifiedEntity](engine)
-	assert.NoError(t, err)
+	entity = fluxaorm.NewEntity[testPluginModifiedEntity](engine)
 	entity.Name = "e"
 	assert.NoError(t, engine.Flush())
 	entity, _, err = fluxaorm.GetByID[testPluginModifiedEntity](engine, entity.ID)
@@ -180,8 +170,7 @@ func TestPlugin(t *testing.T) {
 	registry.RegisterPlugin(p)
 	engine = fluxaorm.PrepareTables(t, registry, testPluginModifiedEntity{})
 	now = time.Now().UTC()
-	entity, err = fluxaorm.NewEntity[testPluginModifiedEntity](engine)
-	assert.NoError(t, err)
+	entity = fluxaorm.NewEntity[testPluginModifiedEntity](engine)
 	entity.Name = "f"
 	assert.NoError(t, engine.Flush())
 	entity, _, err = fluxaorm.GetByID[testPluginModifiedEntity](engine, entity.ID)
@@ -194,16 +183,14 @@ func TestPlugin(t *testing.T) {
 	registry.RegisterPlugin(p)
 	engine = fluxaorm.PrepareTables(t, registry, testPluginModifiedEntity{})
 	now = time.Now().UTC()
-	entity, err = fluxaorm.NewEntity[testPluginModifiedEntity](engine)
-	assert.NoError(t, err)
+	entity = fluxaorm.NewEntity[testPluginModifiedEntity](engine)
 	entity.Name = "g"
 	assert.NoError(t, engine.Flush())
 	entity, _, err = fluxaorm.GetByID[testPluginModifiedEntity](engine, entity.ID)
 	assert.NoError(t, err)
 	assert.Equal(t, "g", entity.Name)
 
-	err = fluxaorm.DeleteEntity(engine, entity)
-	assert.NoError(t, err)
+	fluxaorm.DeleteEntity(engine, entity)
 	assert.NoError(t, engine.Flush())
 
 	_, err = New("", "")

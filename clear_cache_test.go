@@ -15,16 +15,14 @@ func TestClearEntity(t *testing.T) {
 	orm := PrepareTables(t, NewRegistry(), clearEntity{})
 	assert.NotNil(t, orm)
 
-	entity, err := NewEntity[clearEntity](orm)
-	assert.NoError(t, err)
+	entity := NewEntity[clearEntity](orm)
 	entity.Age = 1
-	entity, err = NewEntity[clearEntity](orm)
-	assert.NoError(t, err)
+	entity = NewEntity[clearEntity](orm)
 	entity.Age = 2
 	assert.NoError(t, orm.Flush())
 
-	schema, err := GetEntitySchema[clearEntity](orm)
-	assert.NoError(t, err)
+	schema := GetEntitySchema[clearEntity](orm)
+	assert.NotNil(t, schema)
 	cleared, err := schema.ClearCache(orm)
 	assert.NoError(t, err)
 	assert.Equal(t, 3, cleared)

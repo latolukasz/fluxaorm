@@ -57,41 +57,34 @@ func testFakeDelete(t *testing.T, local, redis bool) {
 	registry := NewRegistry()
 	orm := PrepareTables(t, registry, &testFakeDeleteEntity{}, &testFakeDeleteEntityReference{})
 
-	schema, err := GetEntitySchema[testFakeDeleteEntity](orm)
-	assert.NoError(t, err)
+	schema := GetEntitySchema[testFakeDeleteEntity](orm)
 	schema.DisableCache(!local, !redis)
-	schema, err = GetEntitySchema[testFakeDeleteEntityReference](orm)
-	assert.NoError(t, err)
+	schema = GetEntitySchema[testFakeDeleteEntityReference](orm)
 	schema.DisableCache(!local, !redis)
 
-	ref, err := NewEntity[testFakeDeleteEntityReference](orm)
-	assert.NoError(t, err)
-	entity, err := NewEntity[testFakeDeleteEntity](orm)
-	assert.NoError(t, err)
+	ref := NewEntity[testFakeDeleteEntityReference](orm)
+	entity := NewEntity[testFakeDeleteEntity](orm)
 	entity.Name = "a"
 	entity.Code = "a"
 	entity.AgeCached = 1
-	entity2, err := NewEntity[testFakeDeleteEntity](orm)
-	assert.NoError(t, err)
+	entity2 := NewEntity[testFakeDeleteEntity](orm)
 	entity2.Name = "b"
 	entity2.Code = "b"
 	entity2.CodeCached = "b"
 	entity2.AgeCached = 2
-	entity3, err := NewEntity[testFakeDeleteEntity](orm)
-	assert.NoError(t, err)
+	entity3 := NewEntity[testFakeDeleteEntity](orm)
 	entity3.Name = "c"
 	entity3.Code = "c"
 	entity3.AgeCached = 3
 	ref.Name = "ref"
 	entity3.Ref = Reference[testFakeDeleteEntityReference](ref.ID)
-	err = orm.Flush()
+	err := orm.Flush()
 	assert.NoError(t, err)
 
 	_, found, err := GetByID[testFakeDeleteEntity](orm, entity2.ID)
 	assert.NoError(t, err)
 	assert.True(t, found)
-	err = DeleteEntity(orm, entity2)
-	assert.NoError(t, err)
+	DeleteEntity(orm, entity2)
 	assert.NoError(t, orm.Flush())
 
 	deleted, found, err := GetByID[testFakeDeleteEntity](orm, entity2.ID)
@@ -124,8 +117,7 @@ func testFakeDelete(t *testing.T, local, redis bool) {
 
 	_, _, err = GetByUniqueIndex[testFakeDeleteEntity](orm, testFakeDeleteEntityIndexes.CodeCached, "b")
 
-	err = DeleteEntity(orm, entity3)
-	assert.NoError(t, err)
+	DeleteEntity(orm, entity3)
 	assert.NoError(t, orm.Flush())
 
 	rows, err = Search[testFakeDeleteEntity](orm, NewWhere("1"), nil)
@@ -180,8 +172,7 @@ func testFakeDelete(t *testing.T, local, redis bool) {
 
 	row, _, err = GetByID[testFakeDeleteEntity](orm, entity3.ID)
 	assert.NoError(t, err)
-	row, err = EditEntity(orm, row)
-	assert.NoError(t, err)
+	row = EditEntity(orm, row)
 	row.FakeDelete = false
 	assert.NoError(t, orm.Flush())
 	rowsFromRS, totalInRS, err = RedisSearch[testFakeDeleteEntity](orm, nil, nil)
@@ -200,8 +191,7 @@ func testFakeDelete(t *testing.T, local, redis bool) {
 	assert.Equal(t, entity.ID, all[0].ID)
 	assert.Equal(t, entity3.ID, all[1].ID)
 
-	row, err = EditEntity(orm, row)
-	assert.NoError(t, err)
+	row = EditEntity(orm, row)
 	row.FakeDelete = true
 	assert.NoError(t, orm.Flush())
 	rowsFromRS, totalInRS, err = RedisSearch[testFakeDeleteEntity](orm, nil, nil)

@@ -17,22 +17,22 @@ import (
 
 const redisSearchIndexPrefix = "orm:"
 
-func GetEntitySchema[E any](ctx Context) (EntitySchema, error) {
+func GetEntitySchema[E any](ctx Context) EntitySchema {
 	return getEntitySchema[E](ctx)
 }
 
-func getEntitySchema[E any](ctx Context) (*entitySchema, error) {
+func getEntitySchema[E any](ctx Context) *entitySchema {
 	var entity E
 	return getEntitySchemaFromSource(ctx, entity)
 }
 
-func getEntitySchemaFromSource(ctx Context, source any) (*entitySchema, error) {
+func getEntitySchemaFromSource(ctx Context, source any) *entitySchema {
 	ci := ctx.(*ormImplementation)
 	schema, has := ci.engine.registry.entitySchemasQuickMap[reflect.TypeOf(source)]
 	if !has {
-		return nil, fmt.Errorf("entity '%T' is not registered", source)
+		return nil
 	}
-	return schema, nil
+	return schema
 }
 
 type EntitySchemaSetter interface {
@@ -63,20 +63,20 @@ type EntitySchema interface {
 	UpdateSchemaAndTruncateTable(ctx Context) error
 	GetSchemaChanges(ctx Context) (alters []Alter, has bool, err error)
 	DisableCache(local, redis bool)
-	NewEntity(ctx Context) (any, error)
+	NewEntity(ctx Context) any
 	GetByID(ctx Context, id uint64) (entity any, found bool, err error)
 	GetByIDs(ctx Context, ids ...uint64) (EntityAnonymousIterator, error)
 	Search(ctx Context, where Where, pager *Pager) (EntityAnonymousIterator, error)
 	SearchWithCount(ctx Context, where Where, pager *Pager) (results EntityAnonymousIterator, totalRows int, err error)
 	SearchIDs(ctx Context, where Where, pager *Pager) ([]uint64, error)
 	SearchIDsWithCount(ctx Context, where Where, pager *Pager) (results []uint64, totalRows int, err error)
-	IsDirty(ctx Context, id uint64) (oldValues, newValues Bind, hasChanges bool, err error)
-	Copy(ctx Context, source any) (any, error)
+	IsDirty(ctx Context, id uint64) (oldValues, newValues Bind, hasChanges bool)
+	Copy(ctx Context, source any) any
 	EditEntityField(ctx Context, entity any, field string, value any) error
-	EditEntity(ctx Context, entity any) (any, error)
-	DeleteEntity(ctx Context, entity any) error
+	EditEntity(ctx Context, entity any) any
+	DeleteEntity(ctx Context, entity any)
 	getCacheKey() string
-	uuid(ctx Context) (uint64, error)
+	uuid(ctx Context) uint64
 	getForcedRedisCode() string
 	ReindexRedisIndex(ctx Context) error
 	ClearCache(ctx Context) (int, error)
@@ -711,7 +711,7 @@ func (e *entitySchema) initIndexes(entityType reflect.Type) error {
 			if fDef.Type.String() == "fluxaorm.UniqueIndexDefinition" {
 				uniqueDef := indexDefinitionSourceValue.Field(i).Interface().(UniqueIndexDefinition)
 				e.uniqueIndexesColumns[fDef.Name] = strings.Split(uniqueDef.Columns, ",")
-				definition, err := createIndexDefinition(e.uniqueIndexesColumns[fDef.Name], uniqueDef.Cached, e)
+				definition, err := createIndexDefinition(e.uniqueIndexesColumns[fDef.Name], uniqueDef.Cached)
 				if err != nil {
 					return fmt.Errorf("invalid unique index for entity '%s': %s", e.t.String(), err.Error())
 				}
@@ -722,7 +722,7 @@ func (e *entitySchema) initIndexes(entityType reflect.Type) error {
 				}
 			} else if fDef.Type.String() == "fluxaorm.IndexDefinition" {
 				def := indexDefinitionSourceValue.Field(i).Interface().(IndexDefinition)
-				definition, err := createIndexDefinition(strings.Split(def.Columns, ","), def.Cached, e)
+				definition, err := createIndexDefinition(strings.Split(def.Columns, ","), def.Cached)
 				if err != nil {
 					return fmt.Errorf("invalid index for entity '%s': %s", e.t.String(), err.Error())
 				}
@@ -739,7 +739,7 @@ func (e *entitySchema) initIndexes(entityType reflect.Type) error {
 	return nil
 }
 
-func createIndexDefinition(columns []string, cached bool, e *entitySchema) (*indexDefinition, error) {
+func createIndexDefinition(columns []string, cached bool) (*indexDefinition, error) {
 	where := ""
 	for i, columnName := range columns {
 		if i > 0 {
@@ -837,62 +837,61 @@ func (e *entitySchema) Option(key string) any {
 	return e.options[key]
 }
 
-func (e *entitySchema) uuid(ctx Context) (uint64, error) {
+func (e *entitySchema) uuid(ctx Context) uint64 {
 	if e.virtual {
-		return 0, nil
+		return 0
 	}
 	r := ctx.Engine().Redis(e.getForcedRedisCode())
 	id, err := r.Incr(ctx, e.uuidCacheKey)
 	if err != nil {
-		return 0, err
+		panic(err)
 	}
 	if id == 1 {
-		err = e.initUUID(ctx)
-		if err != nil {
-			return 0, err
-		}
+		e.initUUID(ctx)
 		return e.uuid(ctx)
 	}
-	return uint64(id), nil
+	return uint64(id)
 }
 
-func (e *entitySchema) initUUID(ctx Context) error {
+func (e *entitySchema) initUUID(ctx Context) {
 	r := ctx.Engine().Redis(e.getForcedRedisCode())
 	e.uuidMutex.Lock()
 	defer e.uuidMutex.Unlock()
 	now, has, err := r.Get(ctx, e.uuidCacheKey)
 	if err != nil {
-		return err
+		panic(err)
 	}
 	if has && now != "1" {
-		return nil
+		return
 	}
 	lockName := e.uuidCacheKey + ":lock"
 	lock, obtained, err := r.GetLocker().Obtain(ctx, lockName, time.Minute, time.Second*5)
 	if err != nil {
-		return err
+		panic(err)
 	}
 	if !obtained {
-		return errors.New("uuid lock timeout")
+		panic(errors.New("uuid lock timeout"))
 	}
 	defer lock.Release(ctx)
 	now, has, err = r.Get(ctx, e.uuidCacheKey)
 	if err != nil {
-		return err
+		panic(err)
 	}
 	if has && now != "1" {
-		return nil
+		return
 	}
 	maxID := int64(0)
 	_, err = e.GetDB().QueryRow(ctx, NewWhere("SELECT IFNULL(MAX(ID), 0) FROM `"+e.GetTableName()+"`"), &maxID)
 	if err != nil {
-		return err
+		panic(err)
 	}
 	if maxID == 0 {
 		maxID = 1
 	}
 	_, err = r.IncrBy(ctx, e.uuidCacheKey, maxID)
-	return err
+	if err != nil {
+		panic(err)
+	}
 }
 
 func (e *entitySchema) getForcedRedisCode() string {
@@ -916,26 +915,23 @@ func (e *entitySchema) DisableCache(local, redis bool) {
 	}
 }
 
-func (e *entitySchema) NewEntity(ctx Context) (any, error) {
-	schema, err := ctx.Engine().Registry().EntitySchema(e.t)
-	if err != nil {
-		return nil, err
-	}
+func (e *entitySchema) NewEntity(ctx Context) any {
+	schema := ctx.Engine().Registry().EntitySchema(e.t)
 	return newEntity(ctx, schema.(*entitySchema))
 }
 
 func (e *entitySchema) GetByID(ctx Context, id uint64) (entity any, found bool, err error) {
-	schema, err := ctx.Engine().Registry().EntitySchema(e.t)
-	if err != nil {
-		return nil, false, err
+	schema := ctx.Engine().Registry().EntitySchema(e.t)
+	if schema == nil {
+		return nil, false, nil
 	}
 	return getByID(ctx.(*ormImplementation), id, schema.(*entitySchema))
 }
 
 func (e *entitySchema) GetByIDs(ctx Context, ids ...uint64) (EntityAnonymousIterator, error) {
-	schemaI, err := ctx.Engine().Registry().EntitySchema(e.t)
-	if err != nil {
-		return nil, err
+	schemaI := ctx.Engine().Registry().EntitySchema(e.t)
+	if schemaI == nil {
+		return nil, nil
 	}
 	schema := schemaI.(*entitySchema)
 	if len(ids) == 0 {
@@ -971,7 +967,7 @@ func (e *entitySchema) GetByIDs(ctx Context, ids ...uint64) (EntityAnonymousIter
 				k++
 			}
 		}
-		_, err = redisPipeline.Exec(ctx)
+		_, err := redisPipeline.Exec(ctx)
 		if err != nil {
 			return nil, err
 		}
@@ -1114,62 +1110,59 @@ func (e *entitySchema) Search(ctx Context, where Where, pager *Pager) (EntityAno
 }
 
 func (e *entitySchema) SearchIDs(ctx Context, where Where, pager *Pager) ([]uint64, error) {
-	schema, err := ctx.Engine().Registry().EntitySchema(e.t)
-	if err != nil {
-		return nil, err
+	schema := ctx.Engine().Registry().EntitySchema(e.t)
+	if schema == nil {
+		return nil, nil
 	}
 	ids, _, err := searchIDs(ctx, schema, where, pager, false)
 	return ids, err
 }
 
 func (e *entitySchema) SearchIDsWithCount(ctx Context, where Where, pager *Pager) (results []uint64, totalRows int, err error) {
-	schema, err := ctx.Engine().Registry().EntitySchema(e.t)
-	if err != nil {
-		return nil, 0, err
+	schema := ctx.Engine().Registry().EntitySchema(e.t)
+	if schema == nil {
+		return nil, 0, nil
 	}
 	return searchIDs(ctx, schema, where, pager, true)
 }
 
-func (e *entitySchema) IsDirty(ctx Context, id uint64) (oldValues, newValues Bind, hasChanges bool, err error) {
-	schema, err := ctx.Engine().Registry().EntitySchema(e.t)
-	if err != nil {
-		return nil, nil, false, err
+func (e *entitySchema) IsDirty(ctx Context, id uint64) (oldValues, newValues Bind, hasChanges bool) {
+	schema := ctx.Engine().Registry().EntitySchema(e.t)
+	if schema == nil {
+		return nil, nil, false
 	}
 	return isDirty(ctx, schema.(*entitySchema), id)
 }
 
-func (e *entitySchema) Copy(ctx Context, source any) (any, error) {
-	schema, err := ctx.Engine().Registry().EntitySchema(e.t)
-	if err != nil {
-		return nil, err
+func (e *entitySchema) Copy(ctx Context, source any) any {
+	schema := ctx.Engine().Registry().EntitySchema(e.t)
+	if schema == nil {
+		return nil
 	}
-	insertable, err := newEntityInsertable(ctx, schema.(*entitySchema), 0)
-	if err != nil {
-		return nil, err
-	}
+	insertable := newEntityInsertable(ctx, schema.(*entitySchema), 0)
 	copyEntity(reflect.ValueOf(source).Elem(), insertable.value.Elem(), schema.(*entitySchema).fields, false)
-	return insertable.entity, nil
+	return insertable.entity
 }
 
 func (e *entitySchema) EditEntityField(ctx Context, entity any, field string, value any) error {
 	return editEntityField(ctx, entity, field, value, false)
 }
 
-func (e *entitySchema) EditEntity(ctx Context, source any) (any, error) {
-	writable, err := copyToEdit(ctx, source)
-	if err != nil {
-		return nil, err
+func (e *entitySchema) EditEntity(ctx Context, source any) any {
+	writable := copyToEdit(ctx, source)
+	if writable == nil {
+		return nil
 	}
 	writable.id = writable.value.Elem().Field(0).Uint()
 	writable.source = source
 	ctx.trackEntity(writable)
-	return writable.entity, nil
+	return writable.entity
 }
 
-func (e *entitySchema) DeleteEntity(ctx Context, source any) error {
-	schemaI, err := ctx.Engine().Registry().EntitySchema(e.t)
-	if err != nil {
-		return err
+func (e *entitySchema) DeleteEntity(ctx Context, source any) {
+	schemaI := ctx.Engine().Registry().EntitySchema(e.t)
+	if schemaI == nil {
+		return
 	}
 	schema := schemaI.(*entitySchema)
 	toRemove := &removableEntity{}
@@ -1179,7 +1172,6 @@ func (e *entitySchema) DeleteEntity(ctx Context, source any) error {
 	toRemove.id = toRemove.value.Field(0).Uint()
 	toRemove.schema = schema
 	ctx.trackEntity(toRemove)
-	return nil
 }
 
 func (e *entitySchema) ClearCache(ctx Context) (int, error) {
@@ -1214,8 +1206,8 @@ return deleted
 }
 
 func (e *entitySchema) search(ctx Context, where Where, pager *Pager, withCount bool) (results EntityAnonymousIterator, totalRows int, err error) {
-	schemaI, err := ctx.Engine().Registry().EntitySchema(e.t)
-	if err != nil {
+	schemaI := ctx.Engine().Registry().EntitySchema(e.t)
+	if schemaI == nil {
 		return nil, 0, err
 	}
 	schema := schemaI.(*entitySchema)

@@ -37,8 +37,7 @@ func testGetAll(t *testing.T, local, redis bool) {
 	var entity *getByAllCachedEntity
 	var entityNotCached *getByAllNotCachedEntity
 	orm := PrepareTables(t, NewRegistry(), entity, entityNotCached)
-	schema, err := GetEntitySchema[getByAllCachedEntity](orm)
-	assert.NoError(t, err)
+	schema := GetEntitySchema[getByAllCachedEntity](orm)
 	schema.DisableCache(!local, !redis)
 
 	loggerDB := &MockLogHandler{}
@@ -62,13 +61,11 @@ func testGetAll(t *testing.T, local, redis bool) {
 	var entities []*getByAllCachedEntity
 	var entitiesNoCache []*getByAllNotCachedEntity
 	for i := 0; i < 10; i++ {
-		entity, err = NewEntity[getByAllCachedEntity](orm)
-		assert.NoError(t, err)
+		entity = NewEntity[getByAllCachedEntity](orm)
 		entity.Name = fmt.Sprintf("Name %d", i)
 		entities = append(entities, entity)
 
-		entityNotCached, err = NewEntity[getByAllNotCachedEntity](orm)
-		assert.NoError(t, err)
+		entityNotCached = NewEntity[getByAllNotCachedEntity](orm)
 		entityNotCached.Name = fmt.Sprintf("Name %d", i)
 		entitiesNoCache = append(entitiesNoCache, entityNotCached)
 	}
@@ -109,10 +106,8 @@ func testGetAll(t *testing.T, local, redis bool) {
 		assert.Len(t, loggerDB.Logs, 0)
 	}
 
-	err = DeleteEntity(orm, entities[7])
-	assert.NoError(t, err)
-	err = DeleteEntity(orm, entitiesNoCache[7])
-	assert.NoError(t, err)
+	DeleteEntity(orm, entities[7])
+	DeleteEntity(orm, entitiesNoCache[7])
 	err = orm.Flush()
 	assert.NoError(t, err)
 	loggerDB.Clear()

@@ -10,9 +10,9 @@ func GetByIDs[E any](ctx Context, ids ...uint64) (EntityIterator[E], error) {
 }
 
 func getByIDs[E any](orm *ormImplementation, ids []uint64) (EntityIterator[E], error) {
-	schema, err := getEntitySchema[E](orm)
-	if err != nil {
-		return nil, err
+	schema := getEntitySchema[E](orm)
+	if schema == nil {
+		return nil, nil
 	}
 	if len(ids) == 0 {
 		return &emptyResultsIterator[E]{}, nil
@@ -48,7 +48,7 @@ func getByIDs[E any](orm *ormImplementation, ids []uint64) (EntityIterator[E], e
 			}
 		}
 
-		_, err = redisPipeline.Exec(orm)
+		_, err := redisPipeline.Exec(orm)
 		if err != nil {
 			return nil, err
 		}

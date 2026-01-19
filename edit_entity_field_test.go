@@ -99,14 +99,13 @@ func testUpdateFieldExecute(t *testing.T, async, local, redis bool) {
 	var reference *updateEntityReference
 	orm := PrepareTables(t, NewRegistry(), entity, reference)
 
-	schema, err := GetEntitySchema[updateEntity](orm)
-	assert.NoError(t, err)
+	schema := GetEntitySchema[updateEntity](orm)
+	assert.NotNil(t, schema)
 	schema.DisableCache(!local, !redis)
 
 	var ids []uint64
 	for i := 1; i <= 10; i++ {
-		entity, err := NewEntity[updateEntity](orm)
-		assert.NoError(t, err)
+		entity := NewEntity[updateEntity](orm)
 		entity.Uint = uint16(i)
 		entity.UintArray[0] = uint16(i)
 		entity.UintArray[1] = uint16(i + 1)
@@ -122,7 +121,7 @@ func testUpdateFieldExecute(t *testing.T, async, local, redis bool) {
 		entity.Level1.Set = []testEnum{testEnumDefinition.A}
 		ids = append(ids, uint64(entity.ID))
 	}
-	err = orm.Flush()
+	err := orm.Flush()
 	assert.NoError(t, err)
 
 	/* string */

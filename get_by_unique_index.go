@@ -8,9 +8,9 @@ import (
 
 func GetByUniqueIndex[E any](ctx Context, index UniqueIndexDefinition, attributes ...any) (entity *E, found bool, err error) {
 	var e E
-	schema, err := getEntitySchemaFromSource(ctx, e)
-	if err != nil {
-		return nil, false, err
+	schema := getEntitySchemaFromSource(ctx, e)
+	if schema == nil {
+		return nil, false, nil
 	}
 	indexName, hasName := schema.uniqueIndexesMapping[index]
 	if !hasName {
