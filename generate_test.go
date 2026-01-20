@@ -10,8 +10,13 @@ import (
 )
 
 type generateEntity struct {
-	ID   uint64
-	Name string
+	ID              uint64
+	Age             uint32
+	Balance         int8
+	AgeNullable     *uint8
+	BalanceNullable *int8
+	Name            string `orm:"required"`
+	Comment         string
 }
 
 func TestGenerate(t *testing.T) {
