@@ -9,6 +9,22 @@ import (
 	"github.com/stretchr/testify/assert"
 )
 
+type testGenerateEnum string
+
+func (s testGenerateEnum) EnumValues() any {
+	return testGenerateEnumDefinition
+}
+
+var testGenerateEnumDefinition = struct {
+	A testGenerateEnum
+	B testGenerateEnum
+	C testGenerateEnum
+}{
+	A: "a",
+	B: "b",
+	C: "c",
+}
+
 type generateEntity struct {
 	ID              uint64
 	Age             uint32
@@ -17,6 +33,8 @@ type generateEntity struct {
 	BalanceNullable *int8
 	Name            string `orm:"required"`
 	Comment         string
+	TestEnum        testGenerateEnum   `orm:"required"`
+	TestSet         []testGenerateEnum `orm:"required"`
 }
 
 func TestGenerate(t *testing.T) {

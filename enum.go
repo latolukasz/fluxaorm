@@ -14,6 +14,7 @@ type enumDefinition struct {
 	required     bool
 	defaultValue string
 	name         string
+	t            reflect.Type
 }
 
 func (d *enumDefinition) GetFields() []string {
@@ -44,6 +45,7 @@ func initEnumDefinition(name string, def any, required bool) *enumDefinition {
 		return enum
 	}
 	e := reflect.ValueOf(def)
+	enum.t = e.Type()
 	for i := 0; i < e.Type().NumField(); i++ {
 		eName := e.Field(i).String()
 		enum.fields = append(enum.fields, eName)

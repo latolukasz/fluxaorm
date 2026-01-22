@@ -8,46 +8,84 @@ import (
 	"strings"
 )
 
+type codeGenerator struct {
+	engine      Engine
+	dir         string
+	enums       map[string]bool
+	imports     map[string]bool
+	enumsImport string
+	body        string
+}
+
 func Generate(engine Engine, outputDirectory string) error {
 
 	if strings.TrimSpace(outputDirectory) == "" {
 		return fmt.Errorf("output directory is empty")
 	}
 
-	info, err := os.Stat(outputDirectory)
+	absOutputDirectory, err := filepath.Abs(outputDirectory)
+	if err != nil {
+		return fmt.Errorf("cannot get absolute path for output directory: %w", err)
+	}
+	absOutputDirectory = filepath.Clean(absOutputDirectory)
+
+	info, err := os.Stat(absOutputDirectory)
 	if err != nil {
 		if os.IsNotExist(err) {
-			return fmt.Errorf("output directory does not exist: %s", outputDirectory)
+			return fmt.Errorf("output directory does not exist: %s", absOutputDirectory)
 		}
 		return fmt.Errorf("cannot access output directory: %w", err)
 	}
 	if !info.IsDir() {
-		return fmt.Errorf("output path is not a directory: %s", outputDirectory)
+		return fmt.Errorf("output path is not a directory: %s", absOutputDirectory)
 	}
 
-	f, err := os.CreateTemp(outputDirectory, ".fluxaorm-writecheck-*")
+	f, err := os.CreateTemp(absOutputDirectory, ".fluxaorm-writecheck-*")
 	if err != nil {
-		return fmt.Errorf("directory is not writable: %s: %w", outputDirectory, err)
+		return fmt.Errorf("directory is not writable: %s: %w", absOutputDirectory, err)
 	}
 	tmp := f.Name()
 	_ = f.Close()
 	_ = os.Remove(tmp)
 
-	files, err := os.ReadDir(outputDirectory)
+	goModPath, err := findGoMod(absOutputDirectory)
+	if err != nil {
+		return fmt.Errorf("cannot find go.mod: %w", err)
+	}
+	moduleName, err := getModuleName(goModPath)
+	if err != nil {
+		return fmt.Errorf("cannot get module name from go.mod: %w", err)
+	}
+	goModDir := filepath.Dir(goModPath)
+	relPath, err := filepath.Rel(goModDir, absOutputDirectory)
+	if err != nil {
+		return fmt.Errorf("cannot get relative path: %w", err)
+	}
+	enumsImport := moduleName
+	if relPath != "." {
+		enumsImport += "/" + filepath.ToSlash(relPath)
+	}
+	enumsImport += "/enums"
+
+	files, err := os.ReadDir(absOutputDirectory)
 	if err != nil {
 		return fmt.Errorf("cannot read output directory: %w", err)
 	}
 	for _, file := range files {
 		if !file.IsDir() {
-			err = os.Remove(filepath.Join(outputDirectory, file.Name()))
+			err = os.Remove(filepath.Join(absOutputDirectory, file.Name()))
 			if err != nil {
 				return fmt.Errorf("cannot remove file %s: %w", file.Name(), err)
 			}
 		}
 	}
 
+	generator := codeGenerator{engine: engine, dir: absOutputDirectory, enums: nil, enumsImport: enumsImport}
+
 	for _, schema := range engine.Registry().Entities() {
-		err = generateCodeForEntity(engine, schema.(*entitySchema), outputDirectory)
+		generator.body = ""
+		generator.imports = make(map[string]bool)
+		err = generator.generateCodeForEntity(schema.(*entitySchema))
 		if err != nil {
 			return err
 		}
@@ -56,93 +94,238 @@ func Generate(engine Engine, outputDirectory string) error {
 	return nil
 }
 
-func generateCodeForEntity(engine Engine, schema *entitySchema, dir string) error {
+func findGoMod(dir string) (string, error) {
+	dir = filepath.Clean(dir)
+	for {
+		goModPath := filepath.Join(dir, "go.mod")
+		if _, err := os.Stat(goModPath); err == nil {
+			return goModPath, nil
+		}
+		parent := filepath.Dir(dir)
+		if parent == dir {
+			break
+		}
+		dir = parent
+	}
+	return "", fmt.Errorf("go.mod not found")
+}
 
-	packageName := filepath.Base(dir)
-	fileName := path.Join(dir, fmt.Sprintf("%s.go", schema.GetTableName()))
+func getModuleName(goModPath string) (string, error) {
+	content, err := os.ReadFile(goModPath)
+	if err != nil {
+		return "", err
+	}
+	lines := strings.Split(string(content), "\n")
+	for _, line := range lines {
+		line = strings.TrimSpace(line)
+		if strings.HasPrefix(line, "module ") {
+			return strings.TrimSpace(strings.TrimPrefix(line, "module ")), nil
+		}
+	}
+	return "", fmt.Errorf("module name not found in go.mod")
+}
+
+func (g *codeGenerator) generateCodeForEntity(schema *entitySchema) error {
+	packageName := filepath.Base(g.dir)
+	fileName := path.Join(g.dir, fmt.Sprintf("%s.go", schema.GetTableName()))
 	f, err := os.Create(fileName)
 	if err != nil {
-		return fmt.Errorf("cannot create file %s: %w", fileName, err)
+		return err
 	}
 	defer func() {
 		_ = f.Close()
 	}()
 
-	entityName := schema.GetTableName()
+	entityName := g.capitalizeFirst(schema.GetTableName())
 
-	addLine(f, fmt.Sprintf("package %s", packageName))
-	addLine(f, "")
-	addLine(f, fmt.Sprintf("type %s struct {", entityName))
-	addLine(f, "\tid uint64")
-	addLine(f, "}")
-	addLine(f, "")
-	addLine(f, fmt.Sprintf("func (e *%s) GetID() uint64 {", entityName))
-	addLine(f, "\treturn 0")
-	addLine(f, "}")
-	addLine(f, "")
-	addLine(f, fmt.Sprintf("func (e *%s) SetID(id uint64) {", entityName))
-	addLine(f, "}")
-	addLine(f, "")
-	generateGettersSetters(f, entityName, schema, schema.fields)
+	g.addLine(fmt.Sprintf("type %s struct {", entityName))
+	g.addLine("\tid uint64")
+	g.addLine("}")
+	g.addLine("")
+	g.addLine(fmt.Sprintf("func (e *%s) GetID() uint64 {", entityName))
+	g.addLine("\treturn 0")
+	g.addLine("}")
+	g.addLine("")
+	g.addLine(fmt.Sprintf("func (e *%s) SetID(id uint64) {", entityName))
+	g.addLine("}")
+	g.addLine("")
+	err = g.generateGettersSetters(entityName, schema, schema.fields)
+	if err != nil {
+		return err
+	}
+	g.writeToFile(f, fmt.Sprintf("package %s\n", packageName))
+	g.writeToFile(f, "\n")
+	if len(g.imports) > 0 {
+		for i := range g.imports {
+			g.writeToFile(f, fmt.Sprintf("import \"%s\"\n", i))
+		}
+		g.writeToFile(f, "\n")
+	}
+	g.writeToFile(f, g.body)
 	return nil
 }
 
-func generateGettersSetters(f *os.File, entityName string, schema *entitySchema, fields *tableFields) {
+func (g *codeGenerator) addImport(value string) {
+	g.imports[value] = true
+}
+
+func (g *codeGenerator) generateGettersSetters(entityName string, schema *entitySchema, fields *tableFields) error {
 	for _, i := range fields.uIntegers {
 		fieldName := fields.prefix + fields.fields[i].Name
 		if fieldName == "ID" {
 			continue
 		}
-		addLine(f, fmt.Sprintf("func (e *%s) Get%s() %s {", entityName, fieldName, fields.fields[i].Type.String()))
-		addLine(f, "\treturn 0")
-		addLine(f, "}")
-		addLine(f, "")
-		addLine(f, fmt.Sprintf("func (e *%s) Set%s(value %s) {", entityName, fieldName, fields.fields[i].Type.String()))
-		addLine(f, "}")
-		addLine(f, "")
+		g.addLine(fmt.Sprintf("func (e *%s) Get%s() %s {", entityName, fieldName, fields.fields[i].Type.String()))
+		g.addLine("\treturn 0")
+		g.addLine("}")
+		g.addLine("")
+		g.addLine(fmt.Sprintf("func (e *%s) Set%s(value %s) {", entityName, fieldName, fields.fields[i].Type.String()))
+		g.addLine("}")
+		g.addLine("")
 	}
 	for _, i := range fields.integers {
 		fieldName := fields.prefix + fields.fields[i].Name
-		addLine(f, fmt.Sprintf("func (e *%s) Get%s() %s {", entityName, fieldName, fields.fields[i].Type.String()))
-		addLine(f, "\treturn 0")
-		addLine(f, "}")
-		addLine(f, "")
-		addLine(f, fmt.Sprintf("func (e *%s) Set%s(value %s) {", entityName, fieldName, fields.fields[i].Type.String()))
-		addLine(f, "}")
-		addLine(f, "")
+		g.addLine(fmt.Sprintf("func (e *%s) Get%s() %s {", entityName, fieldName, fields.fields[i].Type.String()))
+		g.addLine("\treturn 0")
+		g.addLine("}")
+		g.addLine("")
+		g.addLine(fmt.Sprintf("func (e *%s) Set%s(value %s) {", entityName, fieldName, fields.fields[i].Type.String()))
+		g.addLine("}")
+		g.addLine("")
 	}
 	for _, i := range fields.uIntegersNullable {
 		fieldName := fields.prefix + fields.fields[i].Name
-		addLine(f, fmt.Sprintf("func (e *%s) Get%s() %s {", entityName, fieldName, fields.fields[i].Type.String()))
-		addLine(f, "\treturn nil")
-		addLine(f, "}")
-		addLine(f, "")
-		addLine(f, fmt.Sprintf("func (e *%s) Set%s(value %s) {", entityName, fieldName, fields.fields[i].Type.String()))
-		addLine(f, "}")
-		addLine(f, "")
+		g.addLine(fmt.Sprintf("func (e *%s) Get%s() %s {", entityName, fieldName, fields.fields[i].Type.String()))
+		g.addLine("\treturn nil")
+		g.addLine("}")
+		g.addLine("")
+		g.addLine(fmt.Sprintf("func (e *%s) Set%s(value %s) {", entityName, fieldName, fields.fields[i].Type.String()))
+		g.addLine("}")
+		g.addLine("")
 	}
 	for _, i := range fields.integersNullable {
 		fieldName := fields.prefix + fields.fields[i].Name
-		addLine(f, fmt.Sprintf("func (e *%s) Get%s() %s {", entityName, fieldName, fields.fields[i].Type.String()))
-		addLine(f, "\treturn nil")
-		addLine(f, "}")
-		addLine(f, "")
-		addLine(f, fmt.Sprintf("func (e *%s) Set%s(value %s) {", entityName, fieldName, fields.fields[i].Type.String()))
-		addLine(f, "}")
-		addLine(f, "")
+		g.addLine(fmt.Sprintf("func (e *%s) Get%s() %s {", entityName, fieldName, fields.fields[i].Type.String()))
+		g.addLine("\treturn nil")
+		g.addLine("}")
+		g.addLine("")
+		g.addLine(fmt.Sprintf("func (e *%s) Set%s(value %s) {", entityName, fieldName, fields.fields[i].Type.String()))
+		g.addLine("}")
+		g.addLine("")
 	}
 	for _, i := range fields.strings {
 		fieldName := fields.prefix + fields.fields[i].Name
-		addLine(f, fmt.Sprintf("func (e *%s) Get%s() %s {", entityName, fieldName, fields.fields[i].Type.String()))
-		addLine(f, "\treturn \"\"")
-		addLine(f, "}")
-		addLine(f, "")
-		addLine(f, fmt.Sprintf("func (e *%s) Set%s(value %s) {", entityName, fieldName, fields.fields[i].Type.String()))
-		addLine(f, "}")
-		addLine(f, "")
+		g.addLine(fmt.Sprintf("func (e *%s) Get%s() %s {", entityName, fieldName, fields.fields[i].Type.String()))
+		g.addLine("\treturn \"\"")
+		g.addLine("}")
+		g.addLine("")
+		g.addLine(fmt.Sprintf("func (e *%s) Set%s(value %s) {", entityName, fieldName, fields.fields[i].Type.String()))
+		g.addLine("}")
+		g.addLine("")
 	}
+	for k, i := range fields.stringsEnums {
+		if g.enums == nil {
+			g.addImport(g.enumsImport)
+			g.enums = make(map[string]bool)
+			err := os.MkdirAll(path.Join(g.dir, "enums"), 0755)
+			if err != nil {
+				return err
+			}
+		}
+		d := fields.enums[k]
+		enumName := g.capitalizeFirst(d.name[strings.LastIndex(d.name, ".")+1:])
+		_, enumCreated := g.enums[fields.fields[i].Name]
+		if !enumCreated {
+			err := g.createEnumDefinition(d, enumName)
+			if err != nil {
+				return err
+			}
+		}
+		enumFullName := "enums." + enumName
+		fieldName := fields.prefix + fields.fields[i].Name
+
+		g.addLine(fmt.Sprintf("func (e *%s) Get%s() %s {", entityName, fieldName, enumFullName))
+		g.addLine("\treturn \"\"")
+		g.addLine("}")
+		g.addLine("")
+		g.addLine(fmt.Sprintf("func (e *%s) Set%s(value %s) {", entityName, fieldName, enumFullName))
+		g.addLine("}")
+		g.addLine("")
+	}
+	for k, i := range fields.sliceStringsSets {
+		if g.enums == nil {
+			g.addImport(g.enumsImport)
+			g.enums = make(map[string]bool)
+			err := os.MkdirAll(path.Join(g.dir, "enums"), 0755)
+			if err != nil {
+				return err
+			}
+		}
+		d := fields.enums[k]
+		enumName := g.capitalizeFirst(d.name[strings.LastIndex(d.name, ".")+1:])
+		_, enumCreated := g.enums[fields.fields[i].Name]
+		if !enumCreated {
+			err := g.createEnumDefinition(d, enumName)
+			if err != nil {
+				return err
+			}
+		}
+		enumFullName := "enums." + enumName
+		fieldName := fields.prefix + fields.fields[i].Name
+
+		g.addLine(fmt.Sprintf("func (e *%s) Get%s() []%s {", entityName, fieldName, enumFullName))
+		g.addLine("\treturn nil")
+		g.addLine("}")
+		g.addLine("")
+		g.addLine(fmt.Sprintf("func (e *%s) Set%s(values ...%s) {", entityName, fieldName, enumFullName))
+		g.addLine("}")
+		g.addLine("")
+	}
+	return nil
 }
 
-func addLine(f *os.File, line string) {
-	_, _ = f.WriteString(line + "\n")
+func (g *codeGenerator) createEnumDefinition(d *enumDefinition, name string) error {
+	fileName := path.Join(g.dir, "enums", fmt.Sprintf("%s.go", name))
+	f, err := os.Create(fileName)
+	if err != nil {
+		return err
+	}
+	defer func() {
+		_ = f.Close()
+	}()
+	g.writeToFile(f, "package enums\n")
+	g.writeToFile(f, "\n")
+	g.writeToFile(f, fmt.Sprintf("type %s string\n", name))
+	g.writeToFile(f, "")
+	g.writeToFile(f, fmt.Sprintf("var %sList = struct {\n", name))
+	for i := range d.fields {
+		tName := d.t.Field(i).Name
+		g.writeToFile(f, fmt.Sprintf("\t%s %s\n", tName, name))
+	}
+	g.writeToFile(f, "}{\n")
+	for i, v := range d.fields {
+		tName := d.t.Field(i).Name
+		g.writeToFile(f, fmt.Sprintf("\t%s: \"%s\",\n", tName, v))
+	}
+	g.writeToFile(f, "}\n")
+	return nil
+}
+
+func (g *codeGenerator) addLine(line string) {
+	g.body += line + "\n"
+}
+
+func (g *codeGenerator) writeToFile(f *os.File, value string) {
+	_, _ = f.WriteString(value)
+}
+
+func (g *codeGenerator) capitalizeFirst(s string) string {
+	if s == "" {
+		return s
+	}
+	b := []byte(s)
+	if b[0] >= 'a' && b[0] <= 'z' {
+		b[0] = b[0] - ('a' - 'A')
+	}
+	return string(b)
 }
