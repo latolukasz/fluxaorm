@@ -281,6 +281,67 @@ func (g *codeGenerator) generateGettersSetters(entityName string, schema *entity
 		g.addLine("}")
 		g.addLine("")
 	}
+	for _, i := range fields.bytes {
+		fieldName := fields.prefix + fields.fields[i].Name
+		g.addLine(fmt.Sprintf("func (e *%s) Get%s() []uint8 {", entityName, fieldName))
+		g.addLine("\treturn nil")
+		g.addLine("}")
+		g.addLine("")
+		g.addLine(fmt.Sprintf("func (e *%s) Set%s(value []uint8) {", entityName, fieldName))
+		g.addLine("}")
+		g.addLine("")
+	}
+	for _, i := range fields.booleans {
+		fieldName := fields.prefix + fields.fields[i].Name
+		g.addLine(fmt.Sprintf("func (e *%s) Get%s() bool {", entityName, fieldName))
+		g.addLine("\treturn false")
+		g.addLine("}")
+		g.addLine("")
+		g.addLine(fmt.Sprintf("func (e *%s) Set%s(value bool) {", entityName, fieldName))
+		g.addLine("}")
+		g.addLine("")
+	}
+	for _, i := range fields.booleansNullable {
+		fieldName := fields.prefix + fields.fields[i].Name
+		g.addLine(fmt.Sprintf("func (e *%s) Get%s() *bool {", entityName, fieldName))
+		g.addLine("\treturn nil")
+		g.addLine("}")
+		g.addLine("")
+		g.addLine(fmt.Sprintf("func (e *%s) Set%s(value *bool) {", entityName, fieldName))
+		g.addLine("}")
+		g.addLine("")
+	}
+	for _, i := range fields.floats {
+		fieldName := fields.prefix + fields.fields[i].Name
+		g.addLine(fmt.Sprintf("func (e *%s) Get%s() float64 {", entityName, fieldName))
+		g.addLine("\treturn 0")
+		g.addLine("}")
+		g.addLine("")
+		g.addLine(fmt.Sprintf("func (e *%s) Set%s(value float64) {", entityName, fieldName))
+		g.addLine("}")
+		g.addLine("")
+	}
+	for _, i := range fields.floatsNullable {
+		fieldName := fields.prefix + fields.fields[i].Name
+		g.addLine(fmt.Sprintf("func (e *%s) Get%s() *float64 {", entityName, fieldName))
+		g.addLine("\treturn nil")
+		g.addLine("}")
+		g.addLine("")
+		g.addLine(fmt.Sprintf("func (e *%s) Set%s(value *float64) {", entityName, fieldName))
+		g.addLine("}")
+		g.addLine("")
+	}
+	for _, i := range fields.timesNullable {
+		g.addImport("time")
+		fieldName := fields.prefix + fields.fields[i].Name
+		g.addLine(fmt.Sprintf("func (e *%s) Get%s() *time.Time {", entityName, fieldName))
+		g.addLine("\treturn nil")
+		g.addLine("}")
+		g.addLine("")
+		g.addLine(fmt.Sprintf("func (e *%s) Set%s(value *time.Time) {", entityName, fieldName))
+		g.addLine("}")
+		g.addLine("")
+	}
 	return nil
 }
 

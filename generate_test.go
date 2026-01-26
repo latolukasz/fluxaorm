@@ -3,6 +3,7 @@ package fluxaorm
 import (
 	"os"
 	"testing"
+	"time"
 
 	"path/filepath"
 
@@ -35,6 +36,12 @@ type generateEntity struct {
 	Comment         string
 	TestEnum        testGenerateEnum   `orm:"required"`
 	TestSet         []testGenerateEnum `orm:"required"`
+	Byte            []uint8
+	Bool            bool
+	BoolNullable    bool
+	Float           float64
+	FloatNullable   float64
+	TimeNullable    *time.Time `orm:"time"`
 }
 
 func TestGenerate(t *testing.T) {
