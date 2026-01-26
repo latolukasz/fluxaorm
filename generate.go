@@ -155,10 +155,16 @@ func (g *codeGenerator) generateCodeForEntity(schema *entitySchema) error {
 	}
 	g.writeToFile(f, fmt.Sprintf("package %s\n", packageName))
 	g.writeToFile(f, "\n")
-	if len(g.imports) > 0 {
+	if len(g.imports) == 1 {
 		for i := range g.imports {
-			g.writeToFile(f, fmt.Sprintf("import \"%s\"\n", i))
+			g.writeToFile(f, fmt.Sprintf("import \"%s\"\n\n", i))
 		}
+	} else if len(g.imports) > 1 {
+		g.writeToFile(f, "import (\n")
+		for i := range g.imports {
+			g.writeToFile(f, fmt.Sprintf("\t\"%s\"\n", i))
+		}
+		g.writeToFile(f, ")\n")
 		g.writeToFile(f, "\n")
 	}
 	g.writeToFile(f, g.body)

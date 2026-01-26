@@ -2,10 +2,9 @@ package fluxaorm
 
 import (
 	"os"
+	"path/filepath"
 	"testing"
 	"time"
-
-	"path/filepath"
 
 	"github.com/stretchr/testify/assert"
 )
