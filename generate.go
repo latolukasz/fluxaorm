@@ -348,6 +348,39 @@ func (g *codeGenerator) generateGettersSetters(entityName string, schema *entity
 		g.addLine("}")
 		g.addLine("")
 	}
+	for _, i := range fields.datesNullable {
+		g.addImport("time")
+		fieldName := fields.prefix + fields.fields[i].Name
+		g.addLine(fmt.Sprintf("func (e *%s) Get%s() *time.Time {", entityName, fieldName))
+		g.addLine("\treturn nil")
+		g.addLine("}")
+		g.addLine("")
+		g.addLine(fmt.Sprintf("func (e *%s) Set%s(value *time.Time) {", entityName, fieldName))
+		g.addLine("}")
+		g.addLine("")
+	}
+	for _, i := range fields.times {
+		g.addImport("time")
+		fieldName := fields.prefix + fields.fields[i].Name
+		g.addLine(fmt.Sprintf("func (e *%s) Get%s() time.Time {", entityName, fieldName))
+		g.addLine("\treturn time.Now()")
+		g.addLine("}")
+		g.addLine("")
+		g.addLine(fmt.Sprintf("func (e *%s) Set%s(value time.Time) {", entityName, fieldName))
+		g.addLine("}")
+		g.addLine("")
+	}
+	for _, i := range fields.dates {
+		g.addImport("time")
+		fieldName := fields.prefix + fields.fields[i].Name
+		g.addLine(fmt.Sprintf("func (e *%s) Get%s() time.Time {", entityName, fieldName))
+		g.addLine("\treturn time.Now()")
+		g.addLine("}")
+		g.addLine("")
+		g.addLine(fmt.Sprintf("func (e *%s) Set%s(value time.Time) {", entityName, fieldName))
+		g.addLine("}")
+		g.addLine("")
+	}
 	return nil
 }
 

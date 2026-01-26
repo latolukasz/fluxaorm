@@ -41,6 +41,9 @@ type generateEntity struct {
 	Float           float64
 	FloatNullable   float64
 	TimeNullable    *time.Time `orm:"time"`
+	Time            time.Time  `orm:"time"`
+	DateNullable    *time.Time
+	Date            time.Time
 }
 
 func TestGenerate(t *testing.T) {
