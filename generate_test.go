@@ -44,10 +44,16 @@ type generateEntity struct {
 	Time            time.Time  `orm:"time"`
 	DateNullable    *time.Time
 	Date            time.Time
+	Reference       Reference[generateReferenceEntity]
+}
+
+type generateReferenceEntity struct {
+	ID   uint16
+	Name string
 }
 
 func TestGenerate(t *testing.T) {
-	orm := PrepareTables(t, NewRegistry(), generateEntity{})
+	orm := PrepareTables(t, NewRegistry(), generateEntity{}, generateReferenceEntity{})
 	_ = os.MkdirAll("test_output", 0755)
 
 	f, _ := os.Create(filepath.Join("test_output", "test_file.txt"))

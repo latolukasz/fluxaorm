@@ -381,6 +381,44 @@ func (g *codeGenerator) generateGettersSetters(entityName string, schema *entity
 		g.addLine("}")
 		g.addLine("")
 	}
+	for _, i := range fields.references {
+		fieldName := fields.prefix + fields.fields[i].Name
+		refTypeName := schema.references[fieldName].Type.String()
+		refName := g.capitalizeFirst(refTypeName[strings.LastIndex(refTypeName, ".")+1:])
+		g.addLine(fmt.Sprintf("func (e *%s) Get%s() *%s {", entityName, fieldName, refName))
+		g.addLine("\treturn nil")
+		g.addLine("}")
+		g.addLine("")
+		g.addLine(fmt.Sprintf("func (e *%s) Get%sID() uint64 {", entityName, fieldName))
+		g.addLine("\treturn 0")
+		g.addLine("}")
+		g.addLine("")
+		g.addLine(fmt.Sprintf("func (e *%s) Set%s(value *%s) {", entityName, fieldName, refName))
+		g.addLine("}")
+		g.addLine("")
+		g.addLine(fmt.Sprintf("func (e *%s) Set%sID(id uint64) {", entityName, fieldName))
+		g.addLine("}")
+		g.addLine("")
+	}
+	for _, i := range fields.references {
+		fieldName := fields.prefix + fields.fields[i].Name
+		refTypeName := schema.references[fieldName].Type.String()
+		refName := g.capitalizeFirst(refTypeName[strings.LastIndex(refTypeName, ".")+1:])
+		g.addLine(fmt.Sprintf("func (e *%s) Get%s() *%s {", entityName, fieldName, refName))
+		g.addLine("\treturn nil")
+		g.addLine("}")
+		g.addLine("")
+		g.addLine(fmt.Sprintf("func (e *%s) Get%sID() uint64 {", entityName, fieldName))
+		g.addLine("\treturn 0")
+		g.addLine("}")
+		g.addLine("")
+		g.addLine(fmt.Sprintf("func (e *%s) Set%s(value *%s) {", entityName, fieldName, refName))
+		g.addLine("}")
+		g.addLine("")
+		g.addLine(fmt.Sprintf("func (e *%s) Set%sID(id uint64) {", entityName, fieldName))
+		g.addLine("}")
+		g.addLine("")
+	}
 	return nil
 }
 
