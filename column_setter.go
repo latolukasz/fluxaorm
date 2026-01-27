@@ -727,6 +727,10 @@ func createFloatAttrToStringSetter(setter fieldBindSetter) func(any, bool) (stri
 func createBoolAttrToStringSetter(setter fieldBindSetter) func(any, bool) (string, error) {
 	return func(v any, fromBind bool) (string, error) {
 		if fromBind {
+			asUint, ok := v.(uint64)
+			if ok {
+				v = asUint > 0
+			}
 			if v.(bool) {
 				return "1", nil
 			}
