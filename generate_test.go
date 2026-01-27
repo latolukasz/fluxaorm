@@ -29,6 +29,16 @@ type generateSubStruct struct {
 	Size uint8
 }
 
+var generateEntityIndexes = struct {
+	Name IndexDefinition
+}{
+	Name: IndexDefinition{"Name", false},
+}
+
+func (e *generateEntity) Indexes() any {
+	return generateEntityIndexes
+}
+
 type generateEntity struct {
 	ID              uint64
 	Age             uint32

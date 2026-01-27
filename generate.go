@@ -137,6 +137,41 @@ func (g *codeGenerator) generateCodeForEntity(schema *entitySchema) error {
 	}()
 
 	entityName := g.capitalizeFirst(schema.GetTableName())
+	entityPrivate := g.lowerFirst(schema.GetTableName())
+	providerName := entityName + "Provider"
+	providerNamePrivate := entityPrivate + "Provider"
+	g.addLine(fmt.Sprintf("type %s struct{}", providerNamePrivate))
+	g.addLine("")
+	g.addLine(fmt.Sprintf("var %s %s", providerName, providerNamePrivate))
+	g.addLine("")
+	g.addImport("github.com/latolukasz/fluxaorm")
+	g.addLine(fmt.Sprintf("func (p %s) GetByID(ctx fluxaorm.Context, id uint64) (entity *%s, found bool, err error) {", providerNamePrivate, entityName))
+	g.addLine("\treturn nil, false, nil")
+	g.addLine("}")
+	g.addLine("")
+	g.addLine(fmt.Sprintf("func (p %s) GetByIDs(ctx fluxaorm.Context, id ...uint64) (fluxaorm.EntityIterator[%s], error) {", providerNamePrivate, entityName))
+	g.addLine("\treturn nil, nil")
+	g.addLine("}")
+	g.addLine("")
+	g.addLine(fmt.Sprintf("func (p %s) GetAll(ctx fluxaorm.Context) (fluxaorm.EntityIterator[%s], error) {", providerNamePrivate, entityName))
+	g.addLine("\treturn nil, nil")
+	g.addLine("}")
+	g.addLine("")
+	g.addLine(fmt.Sprintf("func (p %s) New(ctx fluxaorm.Context) *%s  {", providerNamePrivate, entityName))
+	g.addLine("\treturn nil")
+	g.addLine("}")
+	g.addLine("")
+	for indexName, index := range schema.indexes {
+		fmt.Println(index.Columns)
+		g.body += fmt.Sprintf("func (p %s) GetByIndex%s(ctx fluxaorm.Context", providerNamePrivate, indexName)
+		for _, columnName := range index.Columns {
+			g.body += fmt.Sprintf(", %s any", columnName)
+		}
+		g.addLine(fmt.Sprintf(") (fluxaorm.EntityIterator[%s], error) {", entityName))
+		g.addLine("\treturn nil, nil")
+		g.addLine("}")
+		g.addLine("")
+	}
 
 	g.addLine(fmt.Sprintf("type %s struct {", entityName))
 	g.addLine("\tid uint64")
@@ -147,6 +182,9 @@ func (g *codeGenerator) generateCodeForEntity(schema *entitySchema) error {
 	g.addLine("}")
 	g.addLine("")
 	g.addLine(fmt.Sprintf("func (e *%s) SetID(id uint64) {", entityName))
+	g.addLine("}")
+	g.addLine("")
+	g.addLine(fmt.Sprintf("func (e *%s) Delete() {", entityName))
 	g.addLine("}")
 	g.addLine("")
 	err = g.generateGettersSetters(entityName, schema, schema.fields)
@@ -456,6 +494,17 @@ func (g *codeGenerator) capitalizeFirst(s string) string {
 	b := []byte(s)
 	if b[0] >= 'a' && b[0] <= 'z' {
 		b[0] = b[0] - ('a' - 'A')
+	}
+	return string(b)
+}
+
+func (g *codeGenerator) lowerFirst(s string) string {
+	if s == "" {
+		return s
+	}
+	b := []byte(s)
+	if b[0] >= 'A' && b[0] <= 'Z' {
+		b[0] = b[0] + ('a' - 'A')
 	}
 	return string(b)
 }
