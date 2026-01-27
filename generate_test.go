@@ -25,6 +25,10 @@ var testGenerateEnumDefinition = struct {
 	C: "c",
 }
 
+type generateSubStruct struct {
+	Size uint8
+}
+
 type generateEntity struct {
 	ID              uint64
 	Age             uint32
@@ -45,6 +49,7 @@ type generateEntity struct {
 	DateNullable    *time.Time
 	Date            time.Time
 	Reference       Reference[generateReferenceEntity]
+	generateSubStruct
 }
 
 type generateReferenceEntity struct {
