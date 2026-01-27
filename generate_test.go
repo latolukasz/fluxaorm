@@ -50,6 +50,7 @@ type generateEntity struct {
 	Date            time.Time
 	Reference       Reference[generateReferenceEntity]
 	generateSubStruct
+	TestSub generateSubStruct
 }
 
 type generateReferenceEntity struct {
