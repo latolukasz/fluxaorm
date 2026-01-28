@@ -175,6 +175,10 @@ func (g *codeGenerator) generateCodeForEntity(schema *entitySchema) error {
 	g.addLine(fmt.Sprintf("func (p %s) NewWithID(ctx fluxaorm.Context, id uint64) *%s  {", providerNamePrivate, entityName))
 	g.addLine(fmt.Sprintf("\te := &%s{new: true, bind: fluxaorm.Bind{}, id: id}", entityName))
 	g.addLine("\te.bind[\"ID\"] = e.id")
+	if schema.hasRedisCache {
+		g.addImport("strconv")
+		g.addLine("\te.redisValues[0] = strconv.FormatUint(e.id, 10)")
+	}
 	for k, i := range schema.fields.stringsEnums {
 		def := schema.fields.enums[k]
 		if def.required {
