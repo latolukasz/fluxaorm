@@ -42,7 +42,7 @@ func (e *generateEntity) Indexes() any {
 }
 
 type generateEntity struct {
-	ID              uint64
+	ID              uint64 `orm:"redisCache"`
 	Age             uint32
 	Balance         int8
 	AgeNullable     *uint8

@@ -268,8 +268,11 @@ func (g *codeGenerator) generateCodeForEntity(schema *entitySchema) error {
 	g.addLine(fmt.Sprintf("type %s struct {", entityName))
 	g.addLine("\tid uint64")
 	g.addLine("\tnew bool")
-	g.addLine(fmt.Sprintf("\tvalues [%d]any", len(schema.columnNames)-1))
+	g.addLine(fmt.Sprintf("\tvalues [%d]any", len(schema.columnNames)))
 	g.addLine("\tbind fluxaorm.Bind")
+	if schema.hasRedisCache {
+		g.addLine(fmt.Sprintf("\tredisValues [%d]string", len(schema.columnNames)))
+	}
 	g.addLine("}")
 	g.addLine("")
 	g.addLine(fmt.Sprintf("func (e *%s) GetID() uint64 {", entityName))
@@ -313,7 +316,11 @@ func (g *codeGenerator) generateGettersSetters(entityName string, schema *entity
 			continue
 		}
 		g.addLine(fmt.Sprintf("func (e *%s) Get%s() %s {", entityName, fieldName, fields.fields[i].Type.String()))
-		g.addLine("\treturn 0")
+		if fields.fields[i].Type.String() == "uint64" {
+			g.addLine(fmt.Sprintf("\treturn e.values[%d].(uint64)", i))
+		} else {
+			g.addLine(fmt.Sprintf("\treturn %s(e.values[%d].(uint64))", fields.fields[i].Type.String(), i))
+		}
 		g.addLine("}")
 		g.addLine("")
 		g.addLine(fmt.Sprintf("func (e *%s) Set%s(value %s) {", entityName, fieldName, fields.fields[i].Type.String()))
