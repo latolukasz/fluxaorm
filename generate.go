@@ -169,7 +169,19 @@ func (g *codeGenerator) generateCodeForEntity(schema *entitySchema) error {
 	g.addLine("}")
 	g.addLine("")
 	g.addLine(fmt.Sprintf("func (p %s) New(ctx fluxaorm.Context) *%s  {", providerNamePrivate, entityName))
-	g.addLine(fmt.Sprintf("\te := &%s{new: true, bind: fluxaorm.Bind{}}", entityName))
+	g.addLine(fmt.Sprintf("\treturn p.NewWithID(ctx, p.uuid(ctx))"))
+	g.addLine("}")
+	g.addLine("")
+	g.addLine(fmt.Sprintf("func (p %s) NewWithID(ctx fluxaorm.Context, id uint64) *%s  {", providerNamePrivate, entityName))
+	g.addLine(fmt.Sprintf("\te := &%s{new: true, bind: fluxaorm.Bind{}, id: id}", entityName))
+	g.addLine("\te.bind[\"ID\"] = e.id")
+	for k, i := range schema.fields.stringsEnums {
+		def := schema.fields.enums[k]
+		if def.required {
+			fieldName := schema.fields.prefix + schema.fields.fields[i].Name
+			g.addLine(fmt.Sprintf("\te.bind[\"%s\"] = \"%s\"", fieldName, def.defaultValue))
+		}
+	}
 	g.addLine("\treturn e")
 	g.addLine("}")
 	g.addLine("")
@@ -214,41 +226,21 @@ func (g *codeGenerator) generateCodeForEntity(schema *entitySchema) error {
 	g.addLine("}")
 	g.addLine("")
 
-	g.addLine(fmt.Sprintf("type %s struct {", entityName))
-	g.addLine("\tnew bool")
-	g.addLine("\tbind fluxaorm.Bind")
-	g.addLine("}")
-	g.addLine("")
-	g.addLine(fmt.Sprintf("func (e *%s) GetID() uint64 {", entityName))
-	g.addLine("\treturn 0")
-	g.addLine("}")
-	g.addLine("")
-	g.addLine(fmt.Sprintf("func (e *%s) SetID(id uint64) {", entityName))
-	g.addLine("}")
-	g.addLine("")
-	g.addLine(fmt.Sprintf("func (e *%s) Delete() {", entityName))
-	g.addLine("}")
-	g.addLine("")
-	err = g.generateGettersSetters(entityName, schema, schema.fields)
-	if err != nil {
-		return err
-	}
-
 	// private methods
-	g.addLine(fmt.Sprintf("func (e *%s) uuid(ctx fluxaorm.Context) uint64 {", entityName))
-	g.addLine(fmt.Sprintf("\tr := ctx.Engine().Redis(%s.redisCode)", providerName))
+	g.addLine(fmt.Sprintf("func (p %s) uuid(ctx fluxaorm.Context) uint64 {", providerNamePrivate))
+	g.addLine(fmt.Sprintf("\tr := ctx.Engine().Redis(p.redisCode)"))
 	g.addLine(fmt.Sprintf("\tid, err := r.Incr(ctx, \"%s\")", schema.uuidCacheKey))
 	g.addLine(fmt.Sprintf("\tif err != nil {\n\t\tpanic(err)\n\t}"))
 	g.addLine(fmt.Sprintf("\tif id == 1 {"))
-	g.addLine(fmt.Sprintf("\t\te.initUUID(ctx)"))
-	g.addLine(fmt.Sprintf("\t\treturn e.uuid(ctx)"))
+	g.addLine(fmt.Sprintf("\t\tp.initUUID(ctx)"))
+	g.addLine(fmt.Sprintf("\t\treturn p.uuid(ctx)"))
 	g.addLine(fmt.Sprintf("\t}"))
 	g.addLine("\treturn uint64(id)")
 	g.addLine("}")
 	g.addLine("")
 
-	g.addLine(fmt.Sprintf("func (e *%s) initUUID(ctx fluxaorm.Context) {", entityName))
-	g.addLine(fmt.Sprintf("\tr := ctx.Engine().Redis(%s.redisCode)", providerName))
+	g.addLine(fmt.Sprintf("func (p %s) initUUID(ctx fluxaorm.Context) {", providerNamePrivate))
+	g.addLine(fmt.Sprintf("\tr := ctx.Engine().Redis(p.redisCode)"))
 	g.addLine(fmt.Sprintf("\t%s.uuidRedisKeyMutex.Lock()", providerName))
 	g.addLine(fmt.Sprintf("\tdefer %s.uuidRedisKeyMutex.Unlock()", providerName))
 	g.addLine(fmt.Sprintf("\tnow, has, err := r.Get(ctx, \"%s\")", schema.uuidCacheKey))
@@ -265,13 +257,32 @@ func (g *codeGenerator) generateCodeForEntity(schema *entitySchema) error {
 	g.addLine(fmt.Sprintf("\tif err != nil {\n\t\tpanic(err)\n\t}"))
 	g.addLine(fmt.Sprintf("\tif has && now != \"1\" {\n\t\treturn\n\t}"))
 	g.addLine(fmt.Sprintf("\tmaxID := int64(0)"))
-	g.addLine(fmt.Sprintf("\t_, err = ctx.Engine().DB(%s.dbCode).QueryRow(ctx, fluxaorm.NewWhere(\"SELECT IFNULL(MAX(ID), 0) FROM `%s`\"), &maxID)", providerName, schema.tableName))
+	g.addLine(fmt.Sprintf("\t_, err = ctx.Engine().DB(p.dbCode).QueryRow(ctx, fluxaorm.NewWhere(\"SELECT IFNULL(MAX(ID), 0) FROM `%s`\"), &maxID)", schema.tableName))
 	g.addLine(fmt.Sprintf("\tif err != nil {\n\t\tpanic(err)\n\t}"))
 	g.addLine(fmt.Sprintf("\tif maxID == 0 {\n\t\tmaxID = 1\n\t}"))
 	g.addLine(fmt.Sprintf("\t_, err = r.IncrBy(ctx, \"%s\", maxID)", schema.uuidCacheKey))
 	g.addLine(fmt.Sprintf("\tif err != nil {\n\t\tpanic(err)\n\t}"))
 	g.addLine("}")
 	g.addLine("")
+
+	g.addLine(fmt.Sprintf("type %s struct {", entityName))
+	g.addLine("\tid uint64")
+	g.addLine("\tnew bool")
+	g.addLine(fmt.Sprintf("\tvalues [%d]any", len(schema.columnNames)-1))
+	g.addLine("\tbind fluxaorm.Bind")
+	g.addLine("}")
+	g.addLine("")
+	g.addLine(fmt.Sprintf("func (e *%s) GetID() uint64 {", entityName))
+	g.addLine("\treturn e.id")
+	g.addLine("}")
+	g.addLine("")
+	g.addLine(fmt.Sprintf("func (e *%s) Delete() {", entityName))
+	g.addLine("}")
+	g.addLine("")
+	err = g.generateGettersSetters(entityName, schema, schema.fields)
+	if err != nil {
+		return err
+	}
 
 	g.writeToFile(f, fmt.Sprintf("package %s\n", packageName))
 	g.writeToFile(f, "\n")
