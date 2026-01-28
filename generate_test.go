@@ -30,9 +30,11 @@ type generateSubStruct struct {
 }
 
 var generateEntityIndexes = struct {
-	Name IndexDefinition
+	Name       IndexDefinition
+	AgeBalance UniqueIndexDefinition
 }{
-	Name: IndexDefinition{"Name", false},
+	Name:       IndexDefinition{"Name", false},
+	AgeBalance: UniqueIndexDefinition{"Age,Balance", false},
 }
 
 func (e *generateEntity) Indexes() any {

@@ -162,16 +162,45 @@ func (g *codeGenerator) generateCodeForEntity(schema *entitySchema) error {
 	g.addLine("}")
 	g.addLine("")
 	for indexName, index := range schema.indexes {
-		fmt.Println(index.Columns)
 		g.body += fmt.Sprintf("func (p %s) GetByIndex%s(ctx fluxaorm.Context", providerNamePrivate, indexName)
 		for _, columnName := range index.Columns {
-			g.body += fmt.Sprintf(", %s any", columnName)
+			g.body += fmt.Sprintf(", %s any", g.lowerFirst(columnName))
 		}
 		g.addLine(fmt.Sprintf(") (fluxaorm.EntityIterator[%s], error) {", entityName))
 		g.addLine("\treturn nil, nil")
 		g.addLine("}")
 		g.addLine("")
 	}
+	for indexName, index := range schema.uniqueIndexes {
+		g.body += fmt.Sprintf("func (p %s) GetByIndex%s(ctx fluxaorm.Context", providerNamePrivate, indexName)
+		for _, columnName := range index.Columns {
+			g.body += fmt.Sprintf(", %s any", g.lowerFirst(columnName))
+		}
+		g.addLine(fmt.Sprintf(") (entity *%s, found bool, err error) {", entityName))
+		g.addLine("\treturn nil, false, nil")
+		g.addLine("}")
+		g.addLine("")
+	}
+	g.addLine(fmt.Sprintf("func (p %s) SearchWithCount(ctx fluxaorm.Context, where fluxaorm.Where, pager *fluxaorm.Pager) (entities fluxaorm.EntityIterator[%s], totalRows int, err error) {", providerNamePrivate, entityName))
+	g.addLine("\treturn nil, 0, nil")
+	g.addLine("}")
+	g.addLine("")
+	g.addLine(fmt.Sprintf("func (p %s) Search(ctx fluxaorm.Context, where fluxaorm.Where, pager *fluxaorm.Pager) (entities fluxaorm.EntityIterator[%s], err error) {", providerNamePrivate, entityName))
+	g.addLine("\treturn nil, nil")
+	g.addLine("}")
+	g.addLine("")
+	g.addLine(fmt.Sprintf("func (p %s) SearchIDsWithCount(ctx fluxaorm.Context, where fluxaorm.Where, pager *fluxaorm.Pager) (results []uint64, totalRows int, err error) {", providerNamePrivate))
+	g.addLine("\treturn nil, 0, nil")
+	g.addLine("}")
+	g.addLine("")
+	g.addLine(fmt.Sprintf("func (p %s) SearchIDs(ctx fluxaorm.Context, where fluxaorm.Where, pager *fluxaorm.Pager) (results []uint64, err error) {", providerNamePrivate))
+	g.addLine("\treturn nil, nil")
+	g.addLine("}")
+	g.addLine("")
+	g.addLine(fmt.Sprintf("func (p %s) SearchOne(ctx fluxaorm.Context, where fluxaorm.Where) (entity *%s, found bool, err error) {", providerNamePrivate, entityName))
+	g.addLine("\treturn nil, false, nil")
+	g.addLine("}")
+	g.addLine("")
 
 	g.addLine(fmt.Sprintf("type %s struct {", entityName))
 	g.addLine("\tid uint64")
