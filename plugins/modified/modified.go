@@ -106,6 +106,9 @@ func (p *plugin) EntityFlush(schema fluxaorm.EntitySchema, entity reflect.Value,
 		if options.FieldAdded != "" {
 			setDate(now, after, entity, options.FieldAdded, options.TimeAdded, options.OptionalAdded)
 		}
+		if options.FieldModified != "" {
+			setDate(now, after, entity, options.FieldModified, options.TimeModified, options.OptionalModified)
+		}
 	} else {
 		if options.FieldModified != "" {
 			setDate(now, after, entity, options.FieldModified, options.TimeModified, options.OptionalModified)
