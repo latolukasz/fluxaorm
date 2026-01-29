@@ -179,13 +179,8 @@ func (g *codeGenerator) generateCodeForEntity(schema *entitySchema) error {
 		g.addImport("strconv")
 		g.addLine("\te.redisValues[0] = strconv.FormatUint(e.id, 10)")
 	}
-	for k, i := range schema.fields.stringsEnums {
-		def := schema.fields.enums[k]
-		if def.required {
-			fieldName := schema.fields.prefix + schema.fields.fields[i].Name
-			g.addLine(fmt.Sprintf("\te.bind[\"%s\"] = \"%s\"", fieldName, def.defaultValue))
-		}
-	}
+	g.fillNewEntity(schema, schema.fields)
+
 	g.addLine("\treturn e")
 	g.addLine("}")
 	g.addLine("")
@@ -307,6 +302,27 @@ func (g *codeGenerator) generateCodeForEntity(schema *entitySchema) error {
 	}
 	g.writeToFile(f, g.body)
 	return nil
+}
+
+func (g *codeGenerator) fillNewEntity(schema *entitySchema, fields *tableFields) {
+	for _, i := range fields.uIntegers {
+		fieldName := fields.prefix + fields.fields[i].Name
+		if fieldName == "ID" {
+			continue
+		}
+		g.addLine(fmt.Sprintf("\te.bind[\"%s\"] = uint64(0)", fieldName))
+		g.addLine(fmt.Sprintf("\te.values[%d] = uint64(0)", i))
+		if schema.hasRedisCache {
+			g.addLine(fmt.Sprintf("\te.redisValues[%d] = \"0\"", i))
+		}
+	}
+	for k, i := range fields.stringsEnums {
+		def := fields.enums[k]
+		if def.required {
+			fieldName := fields.prefix + fields.fields[i].Name
+			g.addLine(fmt.Sprintf("\te.bind[\"%s\"] = \"%s\"", fieldName, def.defaultValue))
+		}
+	}
 }
 
 func (g *codeGenerator) addImport(value string) {
