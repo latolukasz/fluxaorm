@@ -305,23 +305,22 @@ func (g *codeGenerator) generateCodeForEntity(schema *entitySchema) error {
 }
 
 func (g *codeGenerator) fillNewEntity(schema *entitySchema, fields *tableFields) {
-	for _, i := range fields.uIntegers {
-		fieldName := fields.prefix + fields.fields[i].Name
-		if fieldName == "ID" {
-			continue
-		}
-		g.addLine(fmt.Sprintf("\te.bind[\"%s\"] = uint64(0)", fieldName))
-		g.addLine(fmt.Sprintf("\te.values[%d] = uint64(0)", i))
-		if schema.hasRedisCache {
-			g.addLine(fmt.Sprintf("\te.redisValues[%d] = \"0\"", i))
-		}
-	}
 	for k, i := range fields.stringsEnums {
 		def := fields.enums[k]
 		if def.required {
 			fieldName := fields.prefix + fields.fields[i].Name
 			g.addLine(fmt.Sprintf("\te.bind[\"%s\"] = \"%s\"", fieldName, def.defaultValue))
 		}
+	}
+	for k, i := range fields.sliceStringsSets {
+		def := fields.sets[k]
+		if def.required {
+			fieldName := fields.prefix + fields.fields[i].Name
+			g.addLine(fmt.Sprintf("\te.bind[\"%s\"] = \"%s\"", fieldName, def.defaultValue))
+		}
+	}
+	for _, subFields := range fields.structsFields {
+		g.fillNewEntity(schema, subFields)
 	}
 }
 
@@ -335,15 +334,23 @@ func (g *codeGenerator) generateGettersSetters(entityName string, schema *entity
 		if fieldName == "ID" {
 			continue
 		}
-		g.addLine(fmt.Sprintf("func (e *%s) Get%s() %s {", entityName, fieldName, fields.fields[i].Type.String()))
-		if fields.fields[i].Type.String() == "uint64" {
-			g.addLine(fmt.Sprintf("\treturn e.values[%d].(uint64)", i))
-		} else {
-			g.addLine(fmt.Sprintf("\treturn %s(e.values[%d].(uint64))", fields.fields[i].Type.String(), i))
+		g.addLine(fmt.Sprintf("func (e *%s) Get%s() uint64 {", entityName, fieldName))
+
+		g.addLine(fmt.Sprintf("\tif value := e.values[%d]; value != nil {", i))
+		g.addLine(fmt.Sprintf("\t\treturn value.(uint64)"))
+		g.addLine("\t}")
+		if schema.hasRedisCache {
+			g.addLine(fmt.Sprintf("\tif value := e.redisValues[%d]; value != \"\" {", i))
+			g.addLine(fmt.Sprintf("\t\tv, _ := strconv.ParseUint(value, 10, 64)"))
+			g.addLine("\t\te.values[1] = v")
+			g.addLine("\t\treturn v")
+			g.addLine("\t}")
 		}
+		g.addLine("\treturn 0")
 		g.addLine("}")
 		g.addLine("")
-		g.addLine(fmt.Sprintf("func (e *%s) Set%s(value %s) {", entityName, fieldName, fields.fields[i].Type.String()))
+		g.addLine(fmt.Sprintf("func (e *%s) Set%s(value uint64) {", entityName, fieldName))
+		g.addLine(fmt.Sprintf("\te.values[%d] = value", i))
 		g.addLine("}")
 		g.addLine("")
 	}
