@@ -15,6 +15,7 @@ type codeGenerator struct {
 	imports     map[string]bool
 	enumsImport string
 	body        string
+	filedIndex  int
 }
 
 func Generate(engine Engine, outputDirectory string) error {
@@ -173,13 +174,10 @@ func (g *codeGenerator) generateCodeForEntity(schema *entitySchema) error {
 	g.addLine("}")
 	g.addLine("")
 	g.addLine(fmt.Sprintf("func (p %s) NewWithID(ctx fluxaorm.Context, id uint64) *%s  {", providerNamePrivate, entityName))
-	g.addLine(fmt.Sprintf("\te := &%s{new: true, bind: fluxaorm.Bind{}, id: id}", entityName))
-	g.addLine("\te.bind[\"ID\"] = e.id")
+	g.addLine(fmt.Sprintf("\te := &%s{new: true, id: id}", entityName))
 	if schema.hasRedisCache {
 		g.addImport("strconv")
-		g.addLine("\te.redisValues[0] = strconv.FormatUint(e.id, 10)")
 	}
-	g.fillNewEntity(schema, schema.fields)
 
 	g.addLine("\treturn e")
 	g.addLine("}")
@@ -267,10 +265,12 @@ func (g *codeGenerator) generateCodeForEntity(schema *entitySchema) error {
 	g.addLine(fmt.Sprintf("type %s struct {", entityName))
 	g.addLine("\tid uint64")
 	g.addLine("\tnew bool")
-	g.addLine(fmt.Sprintf("\tvalues [%d]any", len(schema.columnNames)))
-	g.addLine("\tbind fluxaorm.Bind")
+	g.addLine("\tconvertedValues []any")
+	g.addLine("\toriginDatabaseValues []any")
+	g.addLine("\tdatabaseBind fluxaorm.Bind")
 	if schema.hasRedisCache {
-		g.addLine(fmt.Sprintf("\tredisValues [%d]string", len(schema.columnNames)))
+		g.addLine("\tredisBind map[int]string")
+		g.addLine("\toriginRedisValues []string")
 	}
 	g.addLine("}")
 	g.addLine("")
@@ -304,26 +304,6 @@ func (g *codeGenerator) generateCodeForEntity(schema *entitySchema) error {
 	return nil
 }
 
-func (g *codeGenerator) fillNewEntity(schema *entitySchema, fields *tableFields) {
-	for k, i := range fields.stringsEnums {
-		def := fields.enums[k]
-		if def.required {
-			fieldName := fields.prefix + fields.fields[i].Name
-			g.addLine(fmt.Sprintf("\te.bind[\"%s\"] = \"%s\"", fieldName, def.defaultValue))
-		}
-	}
-	for k, i := range fields.sliceStringsSets {
-		def := fields.sets[k]
-		if def.required {
-			fieldName := fields.prefix + fields.fields[i].Name
-			g.addLine(fmt.Sprintf("\te.bind[\"%s\"] = \"%s\"", fieldName, def.defaultValue))
-		}
-	}
-	for _, subFields := range fields.structsFields {
-		g.fillNewEntity(schema, subFields)
-	}
-}
-
 func (g *codeGenerator) addImport(value string) {
 	g.imports[value] = true
 }
@@ -332,27 +312,73 @@ func (g *codeGenerator) generateGettersSetters(entityName string, schema *entity
 	for _, i := range fields.uIntegers {
 		fieldName := fields.prefix + fields.fields[i].Name
 		if fieldName == "ID" {
+			g.filedIndex++
 			continue
 		}
 		g.addLine(fmt.Sprintf("func (e *%s) Get%s() uint64 {", entityName, fieldName))
 
-		g.addLine(fmt.Sprintf("\tif value := e.values[%d]; value != nil {", i))
-		g.addLine(fmt.Sprintf("\t\treturn value.(uint64)"))
+		g.addLine("\tif e.convertedValues != nil {")
+		g.addLine(fmt.Sprintf("\t\tif value := e.convertedValues[%d]; value != nil {", g.filedIndex))
+		g.addLine(fmt.Sprintf("\t\t\treturn value.(uint64)"))
+		g.addLine("\t\t}")
 		g.addLine("\t}")
+		g.addLine("\tif !e.new {")
 		if schema.hasRedisCache {
-			g.addLine(fmt.Sprintf("\tif value := e.redisValues[%d]; value != \"\" {", i))
-			g.addLine(fmt.Sprintf("\t\tv, _ := strconv.ParseUint(value, 10, 64)"))
-			g.addLine("\t\te.values[1] = v")
-			g.addLine("\t\treturn v")
-			g.addLine("\t}")
+			g.addLine("\t\tif e.originDatabaseValues != nil {")
+			g.addLine(fmt.Sprintf("\t\t\tif value := e.originDatabaseValues[%d]; value != nil {", g.filedIndex))
+			g.addLine("\t\t\t\treturn value.(uint64)")
+			g.addLine("\t\t\t}")
+			g.addLine("\t\t}")
+			g.addLine("\t\tv := uint64(0)")
+			g.addLine(fmt.Sprintf("\t\tif value := e.originRedisValues[%d]; value != \"\" {", g.filedIndex))
+			g.addLine("\t\t\tv, _ = strconv.ParseUint(value, 10, 64)")
+			g.addLine("\t\t}")
+			g.addLine(fmt.Sprintf("\t\te.convertedValues[%d] = v", g.filedIndex))
+		} else {
+			g.addLine(fmt.Sprintf("\t\treturn e.originDatabaseValues[%d].(uint64)", g.filedIndex))
 		}
+		g.addLine("\t}")
 		g.addLine("\treturn 0")
 		g.addLine("}")
 		g.addLine("")
 		g.addLine(fmt.Sprintf("func (e *%s) Set%s(value uint64) {", entityName, fieldName))
-		g.addLine(fmt.Sprintf("\te.values[%d] = value", i))
+
+		g.addLine("\tif e.convertedValues == nil {")
+		g.addLine(fmt.Sprintf("\t\te.convertedValues = make([]any, %d)", len(schema.columnNames)))
+		g.addLine("\t}")
+		g.addLine(fmt.Sprintf("\te.convertedValues[%d] = value", g.filedIndex))
+		g.addLine("\tif !e.new {")
+
+		g.addLine("\t\tif e.originDatabaseValues != nil {")
+		g.addLine(fmt.Sprintf("\t\t\tif e.originDatabaseValues[%d] == value {", g.filedIndex))
+		g.addLine(fmt.Sprintf("\t\t\t\tdelete(e.databaseBind, \"%s\")", fieldName))
+		if schema.hasRedisCache {
+			g.addLine(fmt.Sprintf("\t\t\t\tdelete(e.redisBind, %d)", g.filedIndex))
+		}
+		g.addLine("\t\t\t\treturn")
+		g.addLine("\t\t\t}")
+		g.addLine("\t\t}")
+
+		if schema.hasRedisCache {
+			g.addLine("\t\tasString := strconv.FormatUint(value, 10)")
+			g.addLine(fmt.Sprintf("\t\tif e.originRedisValues[%d] == asString {", g.filedIndex))
+			g.addLine(fmt.Sprintf("\t\t\tdelete(e.databaseBind, \"%s\")", fieldName))
+			g.addLine(fmt.Sprintf("\t\t\tdelete(e.redisBind, %d)", g.filedIndex))
+			g.addLine("\t\t\treturn")
+			g.addLine("\t\t}")
+			g.addLine("\t\tif e.redisBind == nil {")
+			g.addLine("\t\t\te.redisBind = make(map[int]string)")
+			g.addLine("\t\t}")
+			g.addLine(fmt.Sprintf("\t\te.redisBind[%d] = asString", g.filedIndex))
+		}
+		g.addLine("\t\tif e.databaseBind == nil {")
+		g.addLine("\t\t\te.databaseBind = fluxaorm.Bind{}")
+		g.addLine("\t\t}")
+		g.addLine(fmt.Sprintf("\t\te.databaseBind[\"%s\"] = value", fieldName))
+		g.addLine("\t}")
 		g.addLine("}")
 		g.addLine("")
+		g.filedIndex++
 	}
 	for _, i := range fields.integers {
 		fieldName := fields.prefix + fields.fields[i].Name
