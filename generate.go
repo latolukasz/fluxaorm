@@ -417,13 +417,11 @@ func (g *codeGenerator) generateGettersSetters(entityName string, schema *entity
 	}
 	for _, i := range fields.strings {
 		fieldName := fields.prefix + fields.fields[i].Name
-		g.addLine(fmt.Sprintf("func (e *%s) Get%s() %s {", entityName, fieldName, fields.fields[i].Type.String()))
-		g.addLine("\treturn \"\"")
-		g.addLine("}")
-		g.addLine("")
-		g.addLine(fmt.Sprintf("func (e *%s) Set%s(value %s) {", entityName, fieldName, fields.fields[i].Type.String()))
-		g.addLine("}")
-		g.addLine("")
+		fromRedisCode := "v = value"
+		toRedisCode := "asString := value"
+		fromConverted := "\t\t\treturn value.(string)"
+		defaultValue := "\"\""
+		g.generateGetterSetter(entityName, fieldName, schema, "string", fromRedisCode, toRedisCode, fromConverted, defaultValue)
 	}
 	for k, i := range fields.stringsEnums {
 		if g.enums == nil {
