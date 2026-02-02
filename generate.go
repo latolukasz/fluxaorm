@@ -455,7 +455,7 @@ func (g *codeGenerator) generateGettersSetters(entityName string, schema *entity
 			settings.DatabaseBindConvertCode = "if value == \"\" {\n"
 			settings.DatabaseBindConvertCode += fmt.Sprintf("\t\t\te.convertedValues[%d] = nil\n", g.filedIndex)
 			settings.DatabaseBindConvertCode += "\t\t} else {\n"
-			settings.DatabaseBindConvertCode += fmt.Sprintf("\t\t\te.convertedValues[%d] = value\n", g.filedIndex)
+			settings.DatabaseBindConvertCode += fmt.Sprintf("\t\t\te.convertedValues[%d] = \"\"\n", g.filedIndex)
 			settings.DatabaseBindConvertCode += "\t\t}"
 		}
 		g.generateGetterSetter(entityName, fieldName, schema, settings)
@@ -480,14 +480,23 @@ func (g *codeGenerator) generateGettersSetters(entityName string, schema *entity
 		}
 		enumFullName := "enums." + enumName
 		fieldName := fields.prefix + fields.fields[i].Name
-
-		g.addLine(fmt.Sprintf("func (e *%s) Get%s() %s {", entityName, fieldName, enumFullName))
-		g.addLine("\treturn \"\"")
-		g.addLine("}")
-		g.addLine("")
-		g.addLine(fmt.Sprintf("func (e *%s) Set%s(value %s) {", entityName, fieldName, enumFullName))
-		g.addLine("}")
-		g.addLine("")
+		settings := getterSetterGenerateSettings{
+			ValueType:     enumFullName,
+			FromRedisCode: fmt.Sprintf("v = %s(value)", enumFullName),
+			ToRedisCode:   "asString := string(value)",
+			FromConverted: fmt.Sprintf("\t\t\treturn value.(%s)", enumFullName),
+			DefaultValue:  "\"\"",
+		}
+		if d.required {
+			settings.DefaultValue = fmt.Sprintf("\"%s\"", d.defaultValue)
+		} else {
+			settings.DatabaseBindConvertCode = "if value == \"\" {\n"
+			settings.DatabaseBindConvertCode += fmt.Sprintf("\t\t\te.convertedValues[%d] = nil\n", g.filedIndex)
+			settings.DatabaseBindConvertCode += "\t\t} else {\n"
+			settings.DatabaseBindConvertCode += fmt.Sprintf("\t\t\te.convertedValues[%d] = \"\"\n", g.filedIndex)
+			settings.DatabaseBindConvertCode += "\t\t}"
+		}
+		g.generateGetterSetter(entityName, fieldName, schema, settings)
 	}
 	for k, i := range fields.sliceStringsSets {
 		if g.enums == nil {
