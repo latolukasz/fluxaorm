@@ -308,34 +308,43 @@ func (g *codeGenerator) addImport(value string) {
 	g.imports[value] = true
 }
 
-func (g *codeGenerator) generateGetterSetter(entityName, fieldName string, schema *entitySchema, valueType, fromRedisCode, toRedisCode, fromConverted, defaultValue string) {
-	g.addLine(fmt.Sprintf("func (e *%s) Get%s() %s {", entityName, fieldName, valueType))
+type getterSetterGenerateSettings struct {
+	ValueType               string
+	FromRedisCode           string
+	ToRedisCode             string
+	FromConverted           string
+	DefaultValue            string
+	DatabaseBindConvertCode string
+}
+
+func (g *codeGenerator) generateGetterSetter(entityName, fieldName string, schema *entitySchema, settings getterSetterGenerateSettings) {
+	g.addLine(fmt.Sprintf("func (e *%s) Get%s() %s {", entityName, fieldName, settings.ValueType))
 	g.addLine("\tif e.convertedValues != nil {")
 	g.addLine(fmt.Sprintf("\t\tif value := e.convertedValues[%d]; value != nil {", g.filedIndex))
-	g.addLine(fromConverted)
+	g.addLine(settings.FromConverted)
 	g.addLine("\t\t}")
 	g.addLine("\t}")
 	g.addLine("\tif !e.new {")
 	if schema.hasRedisCache {
 		g.addLine("\t\tif e.originDatabaseValues != nil {")
 		g.addLine(fmt.Sprintf("\t\t\tif value := e.originDatabaseValues[%d]; value != nil {", g.filedIndex))
-		g.addLine(fmt.Sprintf("\t\t\t\treturn value.(%s)", valueType))
+		g.addLine(fmt.Sprintf("\t\t\t\treturn value.(%s)", settings.ValueType))
 		g.addLine("\t\t\t}")
 		g.addLine("\t\t}")
-		g.addLine(fmt.Sprintf("\t\tvar v %s", valueType))
+		g.addLine(fmt.Sprintf("\t\tvar v %s", settings.ValueType))
 		g.addLine(fmt.Sprintf("\t\tif value := e.originRedisValues[%d]; value != \"\" {", g.filedIndex))
-		g.addLine(fmt.Sprintf("\t\t\t%s", fromRedisCode))
+		g.addLine(fmt.Sprintf("\t\t\t%s", settings.FromRedisCode))
 		g.addLine("\t\t}")
 		g.addLine(fmt.Sprintf("\t\te.convertedValues[%d] = v", g.filedIndex))
 		g.addLine("\t\treturn v")
 	} else {
-		g.addLine(fmt.Sprintf("\t\treturn e.originDatabaseValues[%d].(%s)", g.filedIndex, valueType))
+		g.addLine(fmt.Sprintf("\t\treturn e.originDatabaseValues[%d].(%s)", g.filedIndex, settings.ValueType))
 	}
 	g.addLine("\t}")
-	g.addLine(fmt.Sprintf("\treturn %s", defaultValue))
+	g.addLine(fmt.Sprintf("\treturn %s", settings.DefaultValue))
 	g.addLine("}")
 	g.addLine("")
-	g.addLine(fmt.Sprintf("func (e *%s) Set%s(value %s) {", entityName, fieldName, valueType))
+	g.addLine(fmt.Sprintf("func (e *%s) Set%s(value %s) {", entityName, fieldName, settings.ValueType))
 	g.addLine("\tif e.convertedValues == nil {")
 	g.addLine(fmt.Sprintf("\t\te.convertedValues = make([]any, %d)", len(schema.columnNames)))
 	g.addLine("\t}")
@@ -351,7 +360,7 @@ func (g *codeGenerator) generateGetterSetter(entityName, fieldName string, schem
 	g.addLine("\t\t\t}")
 	g.addLine("\t\t}")
 	if schema.hasRedisCache {
-		g.addLine(fmt.Sprintf("\t\t%s", toRedisCode))
+		g.addLine(fmt.Sprintf("\t\t%s", settings.ToRedisCode))
 		g.addLine(fmt.Sprintf("\t\tif e.originRedisValues[%d] == asString {", g.filedIndex))
 		g.addLine(fmt.Sprintf("\t\t\tdelete(e.databaseBind, \"%s\")", fieldName))
 		g.addLine(fmt.Sprintf("\t\t\tdelete(e.redisBind, %d)", g.filedIndex))
@@ -365,7 +374,11 @@ func (g *codeGenerator) generateGetterSetter(entityName, fieldName string, schem
 	g.addLine("\t\tif e.databaseBind == nil {")
 	g.addLine("\t\t\te.databaseBind = fluxaorm.Bind{}")
 	g.addLine("\t\t}")
-	g.addLine(fmt.Sprintf("\t\te.databaseBind[\"%s\"] = value", fieldName))
+	if settings.DatabaseBindConvertCode != "" {
+		g.addLine(fmt.Sprintf("\t\t%s", settings.DatabaseBindConvertCode))
+	} else {
+		g.addLine(fmt.Sprintf("\t\te.databaseBind[\"%s\"] = value", fieldName))
+	}
 	g.addLine("\t}")
 	g.addLine("}")
 	g.addLine("")
@@ -379,49 +392,73 @@ func (g *codeGenerator) generateGettersSetters(entityName string, schema *entity
 			g.filedIndex++
 			continue
 		}
-		fromRedisCode := "v, _ = strconv.ParseUint(value, 10, 64)"
-		toRedisCode := "asString := strconv.FormatUint(value, 10)"
-		fromConverted := "\t\t\treturn value.(uint64)"
-		defaultValue := "0"
-		g.generateGetterSetter(entityName, fieldName, schema, "uint64", fromRedisCode, toRedisCode, fromConverted, defaultValue)
+		settings := getterSetterGenerateSettings{
+			ValueType:     "uint64",
+			FromRedisCode: "v, _ = strconv.ParseUint(value, 10, 64)",
+			ToRedisCode:   "asString := strconv.FormatUint(value, 10)",
+			FromConverted: "\t\t\treturn value.(uint64)",
+			DefaultValue:  "0",
+		}
+		g.generateGetterSetter(entityName, fieldName, schema, settings)
 	}
 	for _, i := range fields.integers {
 		fieldName := fields.prefix + fields.fields[i].Name
-		fromRedisCode := "v, _ = strconv.ParseInt(value, 10, 64)"
-		toRedisCode := "asString := strconv.FormatInt(value, 10)"
-		fromConverted := "\t\t\treturn value.(int64)"
-		defaultValue := "0"
-		g.generateGetterSetter(entityName, fieldName, schema, "int64", fromRedisCode, toRedisCode, fromConverted, defaultValue)
+		settings := getterSetterGenerateSettings{
+			ValueType:     "int64",
+			FromRedisCode: "v, _ = strconv.ParseInt(value, 10, 64)",
+			ToRedisCode:   "asString := strconv.FormatInt(value, 10)",
+			FromConverted: "\t\t\treturn value.(int64)",
+			DefaultValue:  "0",
+		}
+		g.generateGetterSetter(entityName, fieldName, schema, settings)
 	}
 	for _, i := range fields.uIntegersNullable {
 		fieldName := fields.prefix + fields.fields[i].Name
-		fromRedisCode := "vSource, _ := strconv.ParseUint(value, 10, 64)\n\t\t\tv = &vSource"
-		toRedisCode := "var asString string\n\t\t\tif value != nil {\n\t\t\tasString = strconv.FormatUint(*value, 10)\n\t\t}"
 		g.addImport("database/sql")
 		fromConverted := "\t\t\tv := value.(sql.NullInt64)"
 		fromConverted += "\n\t\t\tif v.Valid {\n\t\t\t\tasUint64 := uint64(v.Int64)\n\t\t\t\treturn &asUint64\n\t\t\t}"
 		fromConverted += "\n\t\t\treturn nil"
-		defaultValue := "nil"
-		g.generateGetterSetter(entityName, fieldName, schema, "*uint64", fromRedisCode, toRedisCode, fromConverted, defaultValue)
+		settings := getterSetterGenerateSettings{
+			ValueType:     "*uint64",
+			FromRedisCode: "vSource, _ := strconv.ParseUint(value, 10, 64)\n\t\t\tv = &vSource",
+			ToRedisCode:   "var asString string\n\t\t\tif value != nil {\n\t\t\tasString = strconv.FormatUint(*value, 10)\n\t\t}",
+			FromConverted: fromConverted,
+			DefaultValue:  "nil",
+		}
+		g.generateGetterSetter(entityName, fieldName, schema, settings)
 	}
 	for _, i := range fields.integersNullable {
 		fieldName := fields.prefix + fields.fields[i].Name
-		fromRedisCode := "vSource, _ := strconv.ParseInt(value, 10, 64)\n\t\t\tv = &vSource"
-		toRedisCode := "var asString string\n\t\t\tif value != nil {\n\t\t\tasString = strconv.FormatInt(*value, 10)\n\t\t}"
 		g.addImport("database/sql")
 		fromConverted := "\t\t\tv := value.(sql.NullInt64)"
 		fromConverted += "\n\t\t\tif v.Valid {\n\t\t\t\treturn &v.Int64\n\t\t\t}"
 		fromConverted += "\n\t\t\treturn nil"
-		defaultValue := "nil"
-		g.generateGetterSetter(entityName, fieldName, schema, "*int64", fromRedisCode, toRedisCode, fromConverted, defaultValue)
+		settings := getterSetterGenerateSettings{
+			ValueType:     "*int64",
+			FromRedisCode: "vSource, _ := strconv.ParseInt(value, 10, 64)\n\t\t\tv = &vSource",
+			ToRedisCode:   "var asString string\n\t\t\tif value != nil {\n\t\t\tasString = strconv.FormatInt(*value, 10)\n\t\t}",
+			FromConverted: fromConverted,
+			DefaultValue:  "nil",
+		}
+		g.generateGetterSetter(entityName, fieldName, schema, settings)
 	}
-	for _, i := range fields.strings {
+	for k, i := range fields.strings {
 		fieldName := fields.prefix + fields.fields[i].Name
-		fromRedisCode := "v = value"
-		toRedisCode := "asString := value"
-		fromConverted := "\t\t\treturn value.(string)"
-		defaultValue := "\"\""
-		g.generateGetterSetter(entityName, fieldName, schema, "string", fromRedisCode, toRedisCode, fromConverted, defaultValue)
+		settings := getterSetterGenerateSettings{
+			ValueType:     "string",
+			FromRedisCode: "v = value",
+			ToRedisCode:   "asString := value",
+			FromConverted: "\t\t\treturn value.(string)",
+			DefaultValue:  "\"\"",
+		}
+		if !fields.stringsRequired[k] {
+			settings.DatabaseBindConvertCode = "if value == \"\" {\n"
+			settings.DatabaseBindConvertCode += fmt.Sprintf("\t\t\te.convertedValues[%d] = nil\n", g.filedIndex)
+			settings.DatabaseBindConvertCode += "\t\t} else {\n"
+			settings.DatabaseBindConvertCode += fmt.Sprintf("\t\t\te.convertedValues[%d] = value\n", g.filedIndex)
+			settings.DatabaseBindConvertCode += "\t\t}"
+		}
+		g.generateGetterSetter(entityName, fieldName, schema, settings)
 	}
 	for k, i := range fields.stringsEnums {
 		if g.enums == nil {
