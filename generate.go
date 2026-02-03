@@ -656,24 +656,26 @@ func (g *codeGenerator) generateGettersSetters(entityName string, schema *entity
 	for _, i := range fields.times {
 		g.addImport("time")
 		fieldName := fields.prefix + fields.fields[i].Name
-		g.addLine(fmt.Sprintf("func (e *%s) Get%s() time.Time {", entityName, fieldName))
-		g.addLine("\treturn time.Now()")
-		g.addLine("}")
-		g.addLine("")
-		g.addLine(fmt.Sprintf("func (e *%s) Set%s(value time.Time) {", entityName, fieldName))
-		g.addLine("}")
-		g.addLine("")
+		settings := getterSetterGenerateSettings{
+			ValueType:     "time.Time",
+			FromRedisCode: "v, _ = time.ParseInLocation(time.DateTime, value, time.UTC)",
+			ToRedisCode:   "asString := value.Format(time.DateTime)",
+			FromConverted: "\t\t\treturn value.(time.Time)",
+			DefaultValue:  "time.Time{}",
+		}
+		g.generateGetterSetter(entityName, fieldName, schema, settings)
 	}
 	for _, i := range fields.dates {
 		g.addImport("time")
 		fieldName := fields.prefix + fields.fields[i].Name
-		g.addLine(fmt.Sprintf("func (e *%s) Get%s() time.Time {", entityName, fieldName))
-		g.addLine("\treturn time.Now()")
-		g.addLine("}")
-		g.addLine("")
-		g.addLine(fmt.Sprintf("func (e *%s) Set%s(value time.Time) {", entityName, fieldName))
-		g.addLine("}")
-		g.addLine("")
+		settings := getterSetterGenerateSettings{
+			ValueType:     "time.Time",
+			FromRedisCode: "v, _ = time.ParseInLocation(time.DateOnly, value, time.UTC)",
+			ToRedisCode:   "asString := value.Format(time.DateOnly)",
+			FromConverted: "\t\t\treturn value.(time.Time)",
+			DefaultValue:  "time.Time{}",
+		}
+		g.generateGetterSetter(entityName, fieldName, schema, settings)
 	}
 	for _, i := range fields.references {
 		fieldName := fields.prefix + fields.fields[i].Name
