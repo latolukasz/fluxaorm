@@ -606,26 +606,36 @@ func (g *codeGenerator) generateGettersSetters(entityName string, schema *entity
 		}
 		g.generateGetterSetter(entityName, fieldName, schema, settings)
 	}
-	for _, i := range fields.floatsNullable {
+	for k, i := range fields.floatsNullable {
 		fieldName := fields.prefix + fields.fields[i].Name
-		g.addLine(fmt.Sprintf("func (e *%s) Get%s() *float64 {", entityName, fieldName))
-		g.addLine("\treturn nil")
-		g.addLine("}")
-		g.addLine("")
-		g.addLine(fmt.Sprintf("func (e *%s) Set%s(value *float64) {", entityName, fieldName))
-		g.addLine("}")
-		g.addLine("")
+		g.addImport("database/sql")
+		fromConverted := "\t\t\tv := value.(sql.NullFloat64)"
+		fromConverted += "\n\t\t\tif v.Valid {\n\t\t\t\treturn &v.Float64\n\t\t\t}"
+		fromConverted += "\n\t\t\treturn nil"
+		settings := getterSetterGenerateSettings{
+			ValueType:     "*float64",
+			FromRedisCode: "vSource, _ := strconv.ParseFloat(value, 64)\n\t\t\tv = &vSource",
+			ToRedisCode:   fmt.Sprintf("var asString string\n\t\t\tif value != nil {\n\t\t\tasString = strconv.FormatFloat(*value, 'f', %d, %d)\n\t\t}", fields.floatsPrecision[k], fields.floatsSize[k]),
+			FromConverted: fromConverted,
+			DefaultValue:  "nil",
+		}
+		g.generateGetterSetter(entityName, fieldName, schema, settings)
 	}
 	for _, i := range fields.timesNullable {
 		g.addImport("time")
 		fieldName := fields.prefix + fields.fields[i].Name
-		g.addLine(fmt.Sprintf("func (e *%s) Get%s() *time.Time {", entityName, fieldName))
-		g.addLine("\treturn nil")
-		g.addLine("}")
-		g.addLine("")
-		g.addLine(fmt.Sprintf("func (e *%s) Set%s(value *time.Time) {", entityName, fieldName))
-		g.addLine("}")
-		g.addLine("")
+		g.addImport("database/sql")
+		fromConverted := "\t\t\tv := value.(sql.NullTime)"
+		fromConverted += "\n\t\t\tif v.Valid {\n\t\t\t\treturn &v.Time\n\t\t\t}"
+		fromConverted += "\n\t\t\treturn nil"
+		settings := getterSetterGenerateSettings{
+			ValueType:     "*time.Time",
+			FromRedisCode: "vSource, _ := time.ParseInLocation(time.DateTime, value, time.UTC)\n\t\t\tv = &vSource",
+			ToRedisCode:   "var asString string\n\t\t\tif value != nil {\n\t\t\tasString = value.Format(time.DateTime)\n\t\t}",
+			FromConverted: fromConverted,
+			DefaultValue:  "nil",
+		}
+		g.generateGetterSetter(entityName, fieldName, schema, settings)
 	}
 	for _, i := range fields.datesNullable {
 		g.addImport("time")
