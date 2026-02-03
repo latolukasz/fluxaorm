@@ -595,15 +595,16 @@ func (g *codeGenerator) generateGettersSetters(entityName string, schema *entity
 		}
 		g.generateGetterSetter(entityName, fieldName, schema, settings)
 	}
-	for _, i := range fields.floats {
+	for k, i := range fields.floats {
 		fieldName := fields.prefix + fields.fields[i].Name
-		g.addLine(fmt.Sprintf("func (e *%s) Get%s() float64 {", entityName, fieldName))
-		g.addLine("\treturn 0")
-		g.addLine("}")
-		g.addLine("")
-		g.addLine(fmt.Sprintf("func (e *%s) Set%s(value float64) {", entityName, fieldName))
-		g.addLine("}")
-		g.addLine("")
+		settings := getterSetterGenerateSettings{
+			ValueType:     "float64",
+			FromRedisCode: "v, _ = strconv.ParseFloat(value, 64)",
+			ToRedisCode:   fmt.Sprintf("asString := strconv.FormatFloat(value, 'f', %d, %d)", fields.floatsPrecision[k], fields.floatsSize[k]),
+			FromConverted: "\t\t\treturn value.(float64)",
+			DefaultValue:  "0",
+		}
+		g.generateGetterSetter(entityName, fieldName, schema, settings)
 	}
 	for _, i := range fields.floatsNullable {
 		fieldName := fields.prefix + fields.fields[i].Name
