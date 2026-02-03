@@ -582,13 +582,18 @@ func (g *codeGenerator) generateGettersSetters(entityName string, schema *entity
 	}
 	for _, i := range fields.booleansNullable {
 		fieldName := fields.prefix + fields.fields[i].Name
-		g.addLine(fmt.Sprintf("func (e *%s) Get%s() *bool {", entityName, fieldName))
-		g.addLine("\treturn nil")
-		g.addLine("}")
-		g.addLine("")
-		g.addLine(fmt.Sprintf("func (e *%s) Set%s(value *bool) {", entityName, fieldName))
-		g.addLine("}")
-		g.addLine("")
+		g.addImport("database/sql")
+		fromConverted := "\t\t\tv := value.(sql.NullBool)"
+		fromConverted += "\n\t\t\tif v.Valid {\n\t\t\t\treturn &v.Bool\n\t\t\t}"
+		fromConverted += "\n\t\t\treturn nil"
+		settings := getterSetterGenerateSettings{
+			ValueType:     "*bool",
+			FromRedisCode: "vSource := value == \"1\"\n\t\t\tv = &vSource",
+			ToRedisCode:   "var asString string\n\t\tif value != nil {\n\t\t\tif *value { asString = \"1\" } else { asString = \"0\" }\n\t\t}",
+			FromConverted: fromConverted,
+			DefaultValue:  "nil",
+		}
+		g.generateGetterSetter(entityName, fieldName, schema, settings)
 	}
 	for _, i := range fields.floats {
 		fieldName := fields.prefix + fields.fields[i].Name

@@ -55,9 +55,9 @@ type generateEntity struct {
 	TestSetOptional  []testGenerateEnum `orm:"required"`
 	Byte             []uint8
 	Bool             bool
-	BoolNullable     bool
+	BoolNullable     *bool
 	Float            float64
-	FloatNullable    float64
+	FloatNullable    *float64
 	TimeNullable     *time.Time `orm:"time"`
 	Time             time.Time  `orm:"time"`
 	DateNullable     *time.Time
