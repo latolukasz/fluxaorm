@@ -623,8 +623,8 @@ func (g *codeGenerator) generateGettersSetters(entityName string, schema *entity
 	}
 	for _, i := range fields.timesNullable {
 		g.addImport("time")
-		fieldName := fields.prefix + fields.fields[i].Name
 		g.addImport("database/sql")
+		fieldName := fields.prefix + fields.fields[i].Name
 		fromConverted := "\t\t\tv := value.(sql.NullTime)"
 		fromConverted += "\n\t\t\tif v.Valid {\n\t\t\t\treturn &v.Time\n\t\t\t}"
 		fromConverted += "\n\t\t\treturn nil"
@@ -639,14 +639,19 @@ func (g *codeGenerator) generateGettersSetters(entityName string, schema *entity
 	}
 	for _, i := range fields.datesNullable {
 		g.addImport("time")
+		g.addImport("database/sql")
 		fieldName := fields.prefix + fields.fields[i].Name
-		g.addLine(fmt.Sprintf("func (e *%s) Get%s() *time.Time {", entityName, fieldName))
-		g.addLine("\treturn nil")
-		g.addLine("}")
-		g.addLine("")
-		g.addLine(fmt.Sprintf("func (e *%s) Set%s(value *time.Time) {", entityName, fieldName))
-		g.addLine("}")
-		g.addLine("")
+		fromConverted := "\t\t\tv := value.(sql.NullTime)"
+		fromConverted += "\n\t\t\tif v.Valid {\n\t\t\t\treturn &v.Time\n\t\t\t}"
+		fromConverted += "\n\t\t\treturn nil"
+		settings := getterSetterGenerateSettings{
+			ValueType:     "*time.Time",
+			FromRedisCode: "vSource, _ := time.ParseInLocation(time.DateOnly, value, time.UTC)\n\t\t\tv = &vSource",
+			ToRedisCode:   "var asString string\n\t\t\tif value != nil {\n\t\t\tasString = value.Format(time.DateOnly)\n\t\t}",
+			FromConverted: fromConverted,
+			DefaultValue:  "nil",
+		}
+		g.generateGetterSetter(entityName, fieldName, schema, settings)
 	}
 	for _, i := range fields.times {
 		g.addImport("time")
