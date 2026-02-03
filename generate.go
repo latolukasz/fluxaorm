@@ -174,7 +174,7 @@ func (g *codeGenerator) generateCodeForEntity(schema *entitySchema) error {
 	g.addLine("}")
 	g.addLine("")
 	g.addLine(fmt.Sprintf("func (p %s) NewWithID(ctx fluxaorm.Context, id uint64) *%s  {", providerNamePrivate, entityName))
-	g.addLine(fmt.Sprintf("\te := &%s{new: true, id: id}", entityName))
+	g.addLine(fmt.Sprintf("\te := &%s{ctx: ctx, new: true, id: id}", entityName))
 	if schema.hasRedisCache {
 		g.addImport("strconv")
 	}
@@ -263,6 +263,7 @@ func (g *codeGenerator) generateCodeForEntity(schema *entitySchema) error {
 	g.addLine("")
 
 	g.addLine(fmt.Sprintf("type %s struct {", entityName))
+	g.addLine("\tctx fluxaorm.Context")
 	g.addLine("\tid uint64")
 	g.addLine("\tnew bool")
 	g.addLine("\tdeleted bool")
@@ -283,6 +284,27 @@ func (g *codeGenerator) generateCodeForEntity(schema *entitySchema) error {
 	g.addLine("\te.deleted = true")
 	g.addLine("}")
 	g.addLine("")
+
+	g.addLine(fmt.Sprintf("func (e *%s) Flush() error {", entityName))
+	g.addLine("\tif e.new {")
+	insertQueryLine := "\t\tsqlQuery := \"INSERT INTO `" + schema.tableName + "` (`ID`"
+	for _, columnName := range schema.columnNames[1:] {
+		insertQueryLine += ",`" + columnName + "`"
+	}
+	insertQueryLine += fmt.Sprintf(") VALUES (?%s)\"\n", strings.Repeat(",?", len(schema.columnNames)-1))
+	insertQueryLine += fmt.Sprintf("\t\tparams := make([]any, %d)\n", len(schema.columnNames))
+	insertQueryLine += "\t\tparams[0] = e.id\n"
+	g.filedIndex = 0
+	for _, i := range schema.fields.uIntegers {
+		fieldName := schema.fields.prefix + schema.fields.fields[i].Name
+		insertQueryLine += fmt.Sprintf("\t\tparams[%d] = e.Get%s()\n", g.filedIndex, fieldName)
+	}
+	g.addLine(insertQueryLine)
+	g.addLine("\t}")
+	g.addLine("\treturn nil")
+	g.addLine("}")
+	g.addLine("")
+
 	err = g.generateGettersSetters(entityName, schema, schema.fields)
 	if err != nil {
 		return err
@@ -788,4 +810,8 @@ func (g *codeGenerator) lowerFirst(s string) string {
 		b[0] = b[0] + ('a' - 'A')
 	}
 	return string(b)
+}
+
+type Flushable interface {
+	Flush() error
 }

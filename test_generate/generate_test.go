@@ -106,4 +106,7 @@ func TestGenerate(t *testing.T) {
 	assert.Equal(t, uint64(0), e.GetReferenceRequiredID())
 	assert.Nil(t, e.GetReferenceOptionalID())
 	assert.NotNil(t, e)
+
+	ctx.EnableQueryDebug()
+	assert.NoError(t, ctx.Flush())
 }

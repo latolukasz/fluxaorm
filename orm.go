@@ -51,26 +51,27 @@ type Context interface {
 }
 
 type ormImplementation struct {
-	context                context.Context
-	engine                 *engineImplementation
-	trackedEntities        *xsync.MapOf[uint64, *xsync.MapOf[uint64, EntityFlush]]
-	cachedEntities         *xsync.MapOf[uint64, *xsync.MapOf[uint64, any]]
-	queryLoggersDB         []LogHandler
-	queryLoggersRedis      []LogHandler
-	queryLoggersLocalCache []LogHandler
-	hasRedisLogger         bool
-	hasDBLogger            bool
-	hasLocalCacheLogger    bool
-	disabledContextCache   bool
-	meta                   Meta
-	stringBuilder          *strings.Builder
-	stringBuilder2         *strings.Builder
-	redisPipeLines         map[string]*RedisPipeLine
-	flushDBActions         map[string][]dbAction
-	flushPostActions       []func(ctx Context)
-	mutexFlush             sync.Mutex
-	mutexData              sync.Mutex
-	eventBroker            *eventBroker
+	context                  context.Context
+	engine                   *engineImplementation
+	trackedEntities          *xsync.MapOf[uint64, *xsync.MapOf[uint64, EntityFlush]]
+	trackedGeneratedEntities *xsync.MapOf[uint64, *xsync.MapOf[uint64, EntityFlush]]
+	cachedEntities           *xsync.MapOf[uint64, *xsync.MapOf[uint64, any]]
+	queryLoggersDB           []LogHandler
+	queryLoggersRedis        []LogHandler
+	queryLoggersLocalCache   []LogHandler
+	hasRedisLogger           bool
+	hasDBLogger              bool
+	hasLocalCacheLogger      bool
+	disabledContextCache     bool
+	meta                     Meta
+	stringBuilder            *strings.Builder
+	stringBuilder2           *strings.Builder
+	redisPipeLines           map[string]*RedisPipeLine
+	flushDBActions           map[string][]dbAction
+	flushPostActions         []func(ctx Context)
+	mutexFlush               sync.Mutex
+	mutexData                sync.Mutex
+	eventBroker              *eventBroker
 }
 
 func (orm *ormImplementation) Context() context.Context {
