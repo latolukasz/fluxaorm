@@ -315,6 +315,8 @@ type getterSetterGenerateSettings struct {
 	FromConverted           string
 	DefaultValue            string
 	DatabaseBindConvertCode string
+	AfterConvertedSet       string
+	OriginDatabaseCompare   string
 }
 
 func (g *codeGenerator) generateGetterSetter(entityName, fieldName string, schema *entitySchema, settings getterSetterGenerateSettings) {
@@ -349,9 +351,16 @@ func (g *codeGenerator) generateGetterSetter(entityName, fieldName string, schem
 	g.addLine(fmt.Sprintf("\t\te.convertedValues = make([]any, %d)", len(schema.columnNames)))
 	g.addLine("\t}")
 	g.addLine(fmt.Sprintf("\te.convertedValues[%d] = value", g.filedIndex))
+	if settings.AfterConvertedSet != "" {
+		g.addLine(settings.AfterConvertedSet)
+	}
 	g.addLine("\tif !e.new {")
 	g.addLine("\t\tif e.originDatabaseValues != nil {")
-	g.addLine(fmt.Sprintf("\t\t\tif e.originDatabaseValues[%d] == value {", g.filedIndex))
+	if settings.OriginDatabaseCompare != "" {
+		g.addLine(fmt.Sprintf("\t\t\t%s", settings.OriginDatabaseCompare))
+	} else {
+		g.addLine(fmt.Sprintf("\t\t\tif e.originDatabaseValues[%d] == value {", g.filedIndex))
+	}
 	g.addLine(fmt.Sprintf("\t\t\t\tdelete(e.databaseBind, \"%s\")", fieldName))
 	if schema.hasRedisCache {
 		g.addLine(fmt.Sprintf("\t\t\t\tdelete(e.redisBind, %d)", g.filedIndex))
@@ -360,7 +369,9 @@ func (g *codeGenerator) generateGetterSetter(entityName, fieldName string, schem
 	g.addLine("\t\t\t}")
 	g.addLine("\t\t}")
 	if schema.hasRedisCache {
-		g.addLine(fmt.Sprintf("\t\t%s", settings.ToRedisCode))
+		if settings.ToRedisCode != "" {
+			g.addLine(fmt.Sprintf("\t\t%s", settings.ToRedisCode))
+		}
 		g.addLine(fmt.Sprintf("\t\tif e.originRedisValues[%d] == asString {", g.filedIndex))
 		g.addLine(fmt.Sprintf("\t\t\tdelete(e.databaseBind, \"%s\")", fieldName))
 		g.addLine(fmt.Sprintf("\t\t\tdelete(e.redisBind, %d)", g.filedIndex))
@@ -491,9 +502,9 @@ func (g *codeGenerator) generateGettersSetters(entityName string, schema *entity
 			settings.DefaultValue = fmt.Sprintf("\"%s\"", d.defaultValue)
 		} else {
 			settings.DatabaseBindConvertCode = "if value == \"\" {\n"
-			settings.DatabaseBindConvertCode += fmt.Sprintf("\t\t\te.convertedValues[%d] = nil\n", g.filedIndex)
+			settings.DatabaseBindConvertCode += fmt.Sprintf("\t\t\te.databaseBind[\"%s\"] = nil\n", fieldName)
 			settings.DatabaseBindConvertCode += "\t\t} else {\n"
-			settings.DatabaseBindConvertCode += fmt.Sprintf("\t\t\te.convertedValues[%d] = \"\"\n", g.filedIndex)
+			settings.DatabaseBindConvertCode += fmt.Sprintf("\t\t\te.databaseBind[\"%s\"] = \"\"\n", fieldName)
 			settings.DatabaseBindConvertCode += "\t\t}"
 		}
 		g.generateGetterSetter(entityName, fieldName, schema, settings)
@@ -507,7 +518,7 @@ func (g *codeGenerator) generateGettersSetters(entityName string, schema *entity
 				return err
 			}
 		}
-		d := fields.enums[k]
+		d := fields.sets[k]
 		enumName := g.capitalizeFirst(d.name[strings.LastIndex(d.name, ".")+1:])
 		_, enumCreated := g.enums[fields.fields[i].Name]
 		if !enumCreated {
@@ -518,14 +529,27 @@ func (g *codeGenerator) generateGettersSetters(entityName string, schema *entity
 		}
 		enumFullName := "enums." + enumName
 		fieldName := fields.prefix + fields.fields[i].Name
-
-		g.addLine(fmt.Sprintf("func (e *%s) Get%s() []%s {", entityName, fieldName, enumFullName))
-		g.addLine("\treturn nil")
-		g.addLine("}")
-		g.addLine("")
-		g.addLine(fmt.Sprintf("func (e *%s) Set%s(values ...%s) {", entityName, fieldName, enumFullName))
-		g.addLine("}")
-		g.addLine("")
+		g.addImport("strings")
+		settings := getterSetterGenerateSettings{
+			ValueType:             "[]" + enumFullName,
+			FromRedisCode:         fmt.Sprintf("values := strings.Split(value, \",\")\n\t\t\tv = make([]%s, len(values))\n\t\t\tfor k, code := range values {\n\t\t\t\tv[k] = enums.TestGenerateEnum(code)\n\t\t\t}", enumFullName),
+			ToRedisCode:           "",
+			FromConverted:         fmt.Sprintf("\t\t\treturn value.([]%s)", enumFullName),
+			DefaultValue:          "nil",
+			AfterConvertedSet:     "\tasString := fmt.Sprintf(\"%v\", value)",
+			OriginDatabaseCompare: fmt.Sprintf("if e.originDatabaseValues[%d] == asString {", g.filedIndex),
+		}
+		if d.required {
+			settings.DefaultValue = fmt.Sprintf("[]%s{\"%s\"}", enumFullName, d.defaultValue)
+			settings.DatabaseBindConvertCode = fmt.Sprintf("e.databaseBind[\"%s\"] = asString", fieldName)
+		} else {
+			settings.DatabaseBindConvertCode = "if len(value) == 0 {\n"
+			settings.DatabaseBindConvertCode += fmt.Sprintf("\t\t\te.databaseBind[\"%s\"] = nil\n", fieldName)
+			settings.DatabaseBindConvertCode += "\t\t} else {\n"
+			settings.DatabaseBindConvertCode = fmt.Sprintf("\t\t\te.databaseBind[\"%s\"] = asString\n", fieldName)
+			settings.DatabaseBindConvertCode += "\t\t}"
+		}
+		g.generateGetterSetter(entityName, fieldName, schema, settings)
 	}
 	for _, i := range fields.bytes {
 		fieldName := fields.prefix + fields.fields[i].Name

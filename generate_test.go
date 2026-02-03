@@ -52,6 +52,7 @@ type generateEntity struct {
 	TestEnum         testGenerateEnum `orm:"required"`
 	TestEnumOptional testGenerateEnum
 	TestSet          []testGenerateEnum `orm:"required"`
+	TestSetOptional  []testGenerateEnum `orm:"required"`
 	Byte             []uint8
 	Bool             bool
 	BoolNullable     bool
