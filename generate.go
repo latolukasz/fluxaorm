@@ -530,6 +530,7 @@ func (g *codeGenerator) generateGettersSetters(entityName string, schema *entity
 		enumFullName := "enums." + enumName
 		fieldName := fields.prefix + fields.fields[i].Name
 		g.addImport("strings")
+		g.addImport("fmt")
 		settings := getterSetterGenerateSettings{
 			ValueType:             "[]" + enumFullName,
 			FromRedisCode:         fmt.Sprintf("values := strings.Split(value, \",\")\n\t\t\tv = make([]%s, len(values))\n\t\t\tfor k, code := range values {\n\t\t\t\tv[k] = enums.TestGenerateEnum(code)\n\t\t\t}", enumFullName),
@@ -553,13 +554,20 @@ func (g *codeGenerator) generateGettersSetters(entityName string, schema *entity
 	}
 	for _, i := range fields.bytes {
 		fieldName := fields.prefix + fields.fields[i].Name
-		g.addLine(fmt.Sprintf("func (e *%s) Get%s() []uint8 {", entityName, fieldName))
-		g.addLine("\treturn nil")
-		g.addLine("}")
-		g.addLine("")
-		g.addLine(fmt.Sprintf("func (e *%s) Set%s(value []uint8) {", entityName, fieldName))
-		g.addLine("}")
-		g.addLine("")
+		g.addImport("database/sql")
+		fromConverted := "\t\t\tv := value.(sql.NullString)"
+		fromConverted += "\n\t\t\tif v.Valid {\n\t\t\t\treturn []uint8(v.String)\n\t\t\t}"
+		fromConverted += "\n\t\t\treturn nil"
+		settings := getterSetterGenerateSettings{
+			ValueType:             "[]uint8",
+			FromRedisCode:         "v = []uint8(value)",
+			ToRedisCode:           "",
+			FromConverted:         fromConverted,
+			DefaultValue:          "nil",
+			AfterConvertedSet:     "\tasString := fmt.Sprintf(\"%v\", value)",
+			OriginDatabaseCompare: fmt.Sprintf("if e.originDatabaseValues[%d] == asString {", g.filedIndex),
+		}
+		g.generateGetterSetter(entityName, fieldName, schema, settings)
 	}
 	for _, i := range fields.booleans {
 		fieldName := fields.prefix + fields.fields[i].Name
