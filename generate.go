@@ -571,13 +571,14 @@ func (g *codeGenerator) generateGettersSetters(entityName string, schema *entity
 	}
 	for _, i := range fields.booleans {
 		fieldName := fields.prefix + fields.fields[i].Name
-		g.addLine(fmt.Sprintf("func (e *%s) Get%s() bool {", entityName, fieldName))
-		g.addLine("\treturn false")
-		g.addLine("}")
-		g.addLine("")
-		g.addLine(fmt.Sprintf("func (e *%s) Set%s(value bool) {", entityName, fieldName))
-		g.addLine("}")
-		g.addLine("")
+		settings := getterSetterGenerateSettings{
+			ValueType:     "bool",
+			FromRedisCode: "v = value == \"1\"",
+			ToRedisCode:   "asString := \"\"\n\t\t\tif value {\n\t\t\t\tasString = \"1\"\n\t\t\t}",
+			FromConverted: "\t\t\treturn value.(bool)",
+			DefaultValue:  "false",
+		}
+		g.generateGetterSetter(entityName, fieldName, schema, settings)
 	}
 	for _, i := range fields.booleansNullable {
 		fieldName := fields.prefix + fields.fields[i].Name
