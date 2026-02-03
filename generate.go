@@ -677,22 +677,43 @@ func (g *codeGenerator) generateGettersSetters(entityName string, schema *entity
 		}
 		g.generateGetterSetter(entityName, fieldName, schema, settings)
 	}
-	for _, i := range fields.references {
+	for k, i := range fields.references {
 		fieldName := fields.prefix + fields.fields[i].Name
 		refTypeName := schema.references[fieldName].Type.String()
 		refName := g.capitalizeFirst(refTypeName[strings.LastIndex(refTypeName, ".")+1:])
-		g.addLine(fmt.Sprintf("func (e *%s) Get%s() *%s {", entityName, fieldName, refName))
-		g.addLine("\treturn nil")
-		g.addLine("}")
-		g.addLine("")
-		g.addLine(fmt.Sprintf("func (e *%s) Get%sID() uint64 {", entityName, fieldName))
-		g.addLine("\treturn 0")
-		g.addLine("}")
-		g.addLine("")
-		g.addLine(fmt.Sprintf("func (e *%s) Set%s(value *%s) {", entityName, fieldName, refName))
-		g.addLine("}")
-		g.addLine("")
-		g.addLine(fmt.Sprintf("func (e *%s) Set%sID(id uint64) {", entityName, fieldName))
+		required := fields.referencesRequired[k]
+		if required {
+			settings := getterSetterGenerateSettings{
+				ValueType:     "uint64",
+				FromRedisCode: "v, _ = strconv.ParseUint(value, 10, 64)",
+				ToRedisCode:   "asString := strconv.FormatUint(value, 10)",
+				FromConverted: "\t\t\treturn value.(uint64)",
+				DefaultValue:  "0",
+			}
+			g.generateGetterSetter(entityName, fieldName+"ID", schema, settings)
+		} else {
+			g.addImport("database/sql")
+			fromConverted := "\t\t\tv := value.(sql.NullInt64)"
+			fromConverted += "\n\t\t\tif v.Valid {\n\t\t\t\tasUint64 := uint64(v.Int64)\n\t\t\t\treturn &asUint64\n\t\t\t}"
+			fromConverted += "\n\t\t\treturn nil"
+			settings := getterSetterGenerateSettings{
+				ValueType:     "*uint64",
+				FromRedisCode: "vSource, _ := strconv.ParseUint(value, 10, 64)\n\t\t\tv = &vSource",
+				ToRedisCode:   "var asString string\n\t\t\tif value != nil {\n\t\t\tasString = strconv.FormatUint(*value, 10)\n\t\t}",
+				FromConverted: fromConverted,
+				DefaultValue:  "nil",
+			}
+			g.generateGetterSetter(entityName, fieldName+"ID", schema, settings)
+		}
+		g.addLine(fmt.Sprintf("func (e *%s) Get%s(ctx fluxaorm.Context) (reference *%s, found bool, err error) {", entityName, fieldName, refName))
+		g.addLine(fmt.Sprintf("\tid := e.Get%sID()", fieldName))
+		if required {
+			g.addLine("\tif id == 0 {\n\t\treturn nil, false, nil\n\t}")
+			g.addLine(fmt.Sprintf("\treturn %sProvider.GetByID(ctx, id)", refName))
+		} else {
+			g.addLine("\tif id == nil || *id == 0 {\n\t\treturn nil, false, nil\n\t}")
+			g.addLine(fmt.Sprintf("\treturn %sProvider.GetByID(ctx, *id)", refName))
+		}
 		g.addLine("}")
 		g.addLine("")
 	}

@@ -42,27 +42,28 @@ func (e *generateEntity) Indexes() any {
 }
 
 type generateEntity struct {
-	ID               uint64 `orm:"redisCache"`
-	Age              uint32
-	Balance          int8
-	AgeNullable      *uint8
-	BalanceNullable  *int8
-	Name             string `orm:"required"`
-	Comment          string
-	TestEnum         testGenerateEnum `orm:"required"`
-	TestEnumOptional testGenerateEnum
-	TestSet          []testGenerateEnum `orm:"required"`
-	TestSetOptional  []testGenerateEnum `orm:"required"`
-	Byte             []uint8
-	Bool             bool
-	BoolNullable     *bool
-	Float            float64
-	FloatNullable    *float64
-	TimeNullable     *time.Time `orm:"time"`
-	Time             time.Time  `orm:"time"`
-	DateNullable     *time.Time
-	Date             time.Time
-	Reference        Reference[generateReferenceEntity]
+	ID                uint64 `orm:"redisCache"`
+	Age               uint32
+	Balance           int8
+	AgeNullable       *uint8
+	BalanceNullable   *int8
+	Name              string `orm:"required"`
+	Comment           string
+	TestEnum          testGenerateEnum `orm:"required"`
+	TestEnumOptional  testGenerateEnum
+	TestSet           []testGenerateEnum `orm:"required"`
+	TestSetOptional   []testGenerateEnum `orm:"required"`
+	Byte              []uint8
+	Bool              bool
+	BoolNullable      *bool
+	Float             float64
+	FloatNullable     *float64
+	TimeNullable      *time.Time `orm:"time"`
+	Time              time.Time  `orm:"time"`
+	DateNullable      *time.Time
+	Date              time.Time
+	ReferenceRequired Reference[generateReferenceEntity] `orm:"required"`
+	ReferenceOptional Reference[generateReferenceEntity]
 	generateSubStruct
 	TestSub generateSubStruct
 }
