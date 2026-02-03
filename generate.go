@@ -265,6 +265,7 @@ func (g *codeGenerator) generateCodeForEntity(schema *entitySchema) error {
 	g.addLine(fmt.Sprintf("type %s struct {", entityName))
 	g.addLine("\tid uint64")
 	g.addLine("\tnew bool")
+	g.addLine("\tdeleted bool")
 	g.addLine("\tconvertedValues []any")
 	g.addLine("\toriginDatabaseValues []any")
 	g.addLine("\tdatabaseBind fluxaorm.Bind")
@@ -279,6 +280,7 @@ func (g *codeGenerator) generateCodeForEntity(schema *entitySchema) error {
 	g.addLine("}")
 	g.addLine("")
 	g.addLine(fmt.Sprintf("func (e *%s) Delete() {", entityName))
+	g.addLine("\te.deleted = true")
 	g.addLine("}")
 	g.addLine("")
 	err = g.generateGettersSetters(entityName, schema, schema.fields)
@@ -547,7 +549,7 @@ func (g *codeGenerator) generateGettersSetters(entityName string, schema *entity
 			settings.DatabaseBindConvertCode = "if len(value) == 0 {\n"
 			settings.DatabaseBindConvertCode += fmt.Sprintf("\t\t\te.databaseBind[\"%s\"] = nil\n", fieldName)
 			settings.DatabaseBindConvertCode += "\t\t} else {\n"
-			settings.DatabaseBindConvertCode = fmt.Sprintf("\t\t\te.databaseBind[\"%s\"] = asString\n", fieldName)
+			settings.DatabaseBindConvertCode += fmt.Sprintf("\t\t\te.databaseBind[\"%s\"] = asString\n", fieldName)
 			settings.DatabaseBindConvertCode += "\t\t}"
 		}
 		g.generateGetterSetter(entityName, fieldName, schema, settings)
