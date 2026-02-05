@@ -288,17 +288,13 @@ func (g *codeGenerator) generateCodeForEntity(schema *entitySchema) error {
 	g.addLine(fmt.Sprintf("func (e *%s) Flush() error {", entityName))
 	g.addLine("\tif e.new {")
 	insertQueryLine := "\t\tsqlQuery := \"INSERT INTO `" + schema.tableName + "` (`ID`"
-	for _, columnName := range schema.columnNames[1:] {
+	for _, columnName := range schema.GetColumns()[1:] {
 		insertQueryLine += ",`" + columnName + "`"
 	}
 	insertQueryLine += fmt.Sprintf(") VALUES (?%s)\"\n", strings.Repeat(",?", len(schema.columnNames)-1))
 	insertQueryLine += fmt.Sprintf("\t\tparams := make([]any, %d)\n", len(schema.columnNames))
-	insertQueryLine += "\t\tparams[0] = e.id\n"
 	g.filedIndex = 0
-	for _, i := range schema.fields.uIntegers {
-		fieldName := schema.fields.prefix + schema.fields.fields[i].Name
-		insertQueryLine += fmt.Sprintf("\t\tparams[%d] = e.Get%s()\n", g.filedIndex, fieldName)
-	}
+	insertQueryLine += g.addBindSetLines(schema.fields)
 	g.addLine(insertQueryLine)
 	g.addLine("\t}")
 	g.addLine("\treturn nil")
@@ -436,6 +432,46 @@ func (g *codeGenerator) generateGettersSetters(entityName string, schema *entity
 		}
 		g.generateGetterSetter(entityName, fieldName, schema, settings)
 	}
+	for k, i := range fields.references {
+		fieldName := fields.prefix + fields.fields[i].Name
+		refTypeName := schema.references[fieldName].Type.String()
+		refName := g.capitalizeFirst(refTypeName[strings.LastIndex(refTypeName, ".")+1:])
+		required := fields.referencesRequired[k]
+		if required {
+			settings := getterSetterGenerateSettings{
+				ValueType:     "uint64",
+				FromRedisCode: "v, _ = strconv.ParseUint(value, 10, 64)",
+				ToRedisCode:   "asString := strconv.FormatUint(value, 10)",
+				FromConverted: "\t\t\treturn value.(uint64)",
+				DefaultValue:  "0",
+			}
+			g.generateGetterSetter(entityName, fieldName+"ID", schema, settings)
+		} else {
+			g.addImport("database/sql")
+			fromConverted := "\t\t\tv := value.(sql.NullInt64)"
+			fromConverted += "\n\t\t\tif v.Valid {\n\t\t\t\tasUint64 := uint64(v.Int64)\n\t\t\t\treturn &asUint64\n\t\t\t}"
+			fromConverted += "\n\t\t\treturn nil"
+			settings := getterSetterGenerateSettings{
+				ValueType:     "*uint64",
+				FromRedisCode: "vSource, _ := strconv.ParseUint(value, 10, 64)\n\t\t\tv = &vSource",
+				ToRedisCode:   "var asString string\n\t\t\tif value != nil {\n\t\t\tasString = strconv.FormatUint(*value, 10)\n\t\t}",
+				FromConverted: fromConverted,
+				DefaultValue:  "nil",
+			}
+			g.generateGetterSetter(entityName, fieldName+"ID", schema, settings)
+		}
+		g.addLine(fmt.Sprintf("func (e *%s) Get%s(ctx fluxaorm.Context) (reference *%s, found bool, err error) {", entityName, fieldName, refName))
+		g.addLine(fmt.Sprintf("\tid := e.Get%sID()", fieldName))
+		if required {
+			g.addLine("\tif id == 0 {\n\t\treturn nil, false, nil\n\t}")
+			g.addLine(fmt.Sprintf("\treturn %sProvider.GetByID(ctx, id)", refName))
+		} else {
+			g.addLine("\tif id == nil || *id == 0 {\n\t\treturn nil, false, nil\n\t}")
+			g.addLine(fmt.Sprintf("\treturn %sProvider.GetByID(ctx, *id)", refName))
+		}
+		g.addLine("}")
+		g.addLine("")
+	}
 	for _, i := range fields.integers {
 		fieldName := fields.prefix + fields.fields[i].Name
 		settings := getterSetterGenerateSettings{
@@ -444,6 +480,70 @@ func (g *codeGenerator) generateGettersSetters(entityName string, schema *entity
 			ToRedisCode:   "asString := strconv.FormatInt(value, 10)",
 			FromConverted: "\t\t\treturn value.(int64)",
 			DefaultValue:  "0",
+		}
+		g.generateGetterSetter(entityName, fieldName, schema, settings)
+	}
+	for _, i := range fields.booleans {
+		fieldName := fields.prefix + fields.fields[i].Name
+		settings := getterSetterGenerateSettings{
+			ValueType:     "bool",
+			FromRedisCode: "v = value == \"1\"",
+			ToRedisCode:   "asString := \"\"\n\t\t\tif value {\n\t\t\t\tasString = \"1\"\n\t\t\t}",
+			FromConverted: "\t\t\treturn value.(bool)",
+			DefaultValue:  "false",
+		}
+		g.generateGetterSetter(entityName, fieldName, schema, settings)
+	}
+	for k, i := range fields.floats {
+		fieldName := fields.prefix + fields.fields[i].Name
+		settings := getterSetterGenerateSettings{
+			ValueType:     "float64",
+			FromRedisCode: "v, _ = strconv.ParseFloat(value, 64)",
+			ToRedisCode:   fmt.Sprintf("asString := strconv.FormatFloat(value, 'f', %d, %d)", fields.floatsPrecision[k], fields.floatsSize[k]),
+			FromConverted: "\t\t\treturn value.(float64)",
+			DefaultValue:  "0",
+		}
+		g.generateGetterSetter(entityName, fieldName, schema, settings)
+	}
+	for _, i := range fields.times {
+		g.addImport("time")
+		fieldName := fields.prefix + fields.fields[i].Name
+		settings := getterSetterGenerateSettings{
+			ValueType:     "time.Time",
+			FromRedisCode: "v, _ = time.ParseInLocation(time.DateTime, value, time.UTC)",
+			ToRedisCode:   "asString := value.Format(time.DateTime)",
+			FromConverted: "\t\t\treturn value.(time.Time)",
+			DefaultValue:  "time.Time{}",
+		}
+		g.generateGetterSetter(entityName, fieldName, schema, settings)
+	}
+	for _, i := range fields.dates {
+		g.addImport("time")
+		fieldName := fields.prefix + fields.fields[i].Name
+		settings := getterSetterGenerateSettings{
+			ValueType:     "time.Time",
+			FromRedisCode: "v, _ = time.ParseInLocation(time.DateOnly, value, time.UTC)",
+			ToRedisCode:   "asString := value.Format(time.DateOnly)",
+			FromConverted: "\t\t\treturn value.(time.Time)",
+			DefaultValue:  "time.Time{}",
+		}
+		g.generateGetterSetter(entityName, fieldName, schema, settings)
+	}
+	for k, i := range fields.strings {
+		fieldName := fields.prefix + fields.fields[i].Name
+		settings := getterSetterGenerateSettings{
+			ValueType:     "string",
+			FromRedisCode: "v = value",
+			ToRedisCode:   "asString := value",
+			FromConverted: "\t\t\treturn value.(string)",
+			DefaultValue:  "\"\"",
+		}
+		if !fields.stringsRequired[k] {
+			settings.DatabaseBindConvertCode = "if value == \"\" {\n"
+			settings.DatabaseBindConvertCode += fmt.Sprintf("\t\t\te.convertedValues[%d] = nil\n", g.filedIndex)
+			settings.DatabaseBindConvertCode += "\t\t} else {\n"
+			settings.DatabaseBindConvertCode += fmt.Sprintf("\t\t\te.convertedValues[%d] = \"\"\n", g.filedIndex)
+			settings.DatabaseBindConvertCode += "\t\t}"
 		}
 		g.generateGetterSetter(entityName, fieldName, schema, settings)
 	}
@@ -474,24 +574,6 @@ func (g *codeGenerator) generateGettersSetters(entityName string, schema *entity
 			ToRedisCode:   "var asString string\n\t\t\tif value != nil {\n\t\t\tasString = strconv.FormatInt(*value, 10)\n\t\t}",
 			FromConverted: fromConverted,
 			DefaultValue:  "nil",
-		}
-		g.generateGetterSetter(entityName, fieldName, schema, settings)
-	}
-	for k, i := range fields.strings {
-		fieldName := fields.prefix + fields.fields[i].Name
-		settings := getterSetterGenerateSettings{
-			ValueType:     "string",
-			FromRedisCode: "v = value",
-			ToRedisCode:   "asString := value",
-			FromConverted: "\t\t\treturn value.(string)",
-			DefaultValue:  "\"\"",
-		}
-		if !fields.stringsRequired[k] {
-			settings.DatabaseBindConvertCode = "if value == \"\" {\n"
-			settings.DatabaseBindConvertCode += fmt.Sprintf("\t\t\te.convertedValues[%d] = nil\n", g.filedIndex)
-			settings.DatabaseBindConvertCode += "\t\t} else {\n"
-			settings.DatabaseBindConvertCode += fmt.Sprintf("\t\t\te.convertedValues[%d] = \"\"\n", g.filedIndex)
-			settings.DatabaseBindConvertCode += "\t\t}"
 		}
 		g.generateGetterSetter(entityName, fieldName, schema, settings)
 	}
@@ -530,6 +612,23 @@ func (g *codeGenerator) generateGettersSetters(entityName string, schema *entity
 			settings.DatabaseBindConvertCode += "\t\t} else {\n"
 			settings.DatabaseBindConvertCode += fmt.Sprintf("\t\t\te.databaseBind[\"%s\"] = \"\"\n", fieldName)
 			settings.DatabaseBindConvertCode += "\t\t}"
+		}
+		g.generateGetterSetter(entityName, fieldName, schema, settings)
+	}
+	for _, i := range fields.bytes {
+		fieldName := fields.prefix + fields.fields[i].Name
+		g.addImport("database/sql")
+		fromConverted := "\t\t\tv := value.(sql.NullString)"
+		fromConverted += "\n\t\t\tif v.Valid {\n\t\t\t\treturn []uint8(v.String)\n\t\t\t}"
+		fromConverted += "\n\t\t\treturn nil"
+		settings := getterSetterGenerateSettings{
+			ValueType:             "[]uint8",
+			FromRedisCode:         "v = []uint8(value)",
+			ToRedisCode:           "",
+			FromConverted:         fromConverted,
+			DefaultValue:          "nil",
+			AfterConvertedSet:     "\tasString := fmt.Sprintf(\"%v\", value)",
+			OriginDatabaseCompare: fmt.Sprintf("if e.originDatabaseValues[%d] == asString {", g.filedIndex),
 		}
 		g.generateGetterSetter(entityName, fieldName, schema, settings)
 	}
@@ -576,34 +675,6 @@ func (g *codeGenerator) generateGettersSetters(entityName string, schema *entity
 		}
 		g.generateGetterSetter(entityName, fieldName, schema, settings)
 	}
-	for _, i := range fields.bytes {
-		fieldName := fields.prefix + fields.fields[i].Name
-		g.addImport("database/sql")
-		fromConverted := "\t\t\tv := value.(sql.NullString)"
-		fromConverted += "\n\t\t\tif v.Valid {\n\t\t\t\treturn []uint8(v.String)\n\t\t\t}"
-		fromConverted += "\n\t\t\treturn nil"
-		settings := getterSetterGenerateSettings{
-			ValueType:             "[]uint8",
-			FromRedisCode:         "v = []uint8(value)",
-			ToRedisCode:           "",
-			FromConverted:         fromConverted,
-			DefaultValue:          "nil",
-			AfterConvertedSet:     "\tasString := fmt.Sprintf(\"%v\", value)",
-			OriginDatabaseCompare: fmt.Sprintf("if e.originDatabaseValues[%d] == asString {", g.filedIndex),
-		}
-		g.generateGetterSetter(entityName, fieldName, schema, settings)
-	}
-	for _, i := range fields.booleans {
-		fieldName := fields.prefix + fields.fields[i].Name
-		settings := getterSetterGenerateSettings{
-			ValueType:     "bool",
-			FromRedisCode: "v = value == \"1\"",
-			ToRedisCode:   "asString := \"\"\n\t\t\tif value {\n\t\t\t\tasString = \"1\"\n\t\t\t}",
-			FromConverted: "\t\t\treturn value.(bool)",
-			DefaultValue:  "false",
-		}
-		g.generateGetterSetter(entityName, fieldName, schema, settings)
-	}
 	for _, i := range fields.booleansNullable {
 		fieldName := fields.prefix + fields.fields[i].Name
 		g.addImport("database/sql")
@@ -616,17 +687,6 @@ func (g *codeGenerator) generateGettersSetters(entityName string, schema *entity
 			ToRedisCode:   "var asString string\n\t\tif value != nil {\n\t\t\tif *value { asString = \"1\" } else { asString = \"0\" }\n\t\t}",
 			FromConverted: fromConverted,
 			DefaultValue:  "nil",
-		}
-		g.generateGetterSetter(entityName, fieldName, schema, settings)
-	}
-	for k, i := range fields.floats {
-		fieldName := fields.prefix + fields.fields[i].Name
-		settings := getterSetterGenerateSettings{
-			ValueType:     "float64",
-			FromRedisCode: "v, _ = strconv.ParseFloat(value, 64)",
-			ToRedisCode:   fmt.Sprintf("asString := strconv.FormatFloat(value, 'f', %d, %d)", fields.floatsPrecision[k], fields.floatsSize[k]),
-			FromConverted: "\t\t\treturn value.(float64)",
-			DefaultValue:  "0",
 		}
 		g.generateGetterSetter(entityName, fieldName, schema, settings)
 	}
@@ -677,76 +737,7 @@ func (g *codeGenerator) generateGettersSetters(entityName string, schema *entity
 		}
 		g.generateGetterSetter(entityName, fieldName, schema, settings)
 	}
-	for _, i := range fields.times {
-		g.addImport("time")
-		fieldName := fields.prefix + fields.fields[i].Name
-		settings := getterSetterGenerateSettings{
-			ValueType:     "time.Time",
-			FromRedisCode: "v, _ = time.ParseInLocation(time.DateTime, value, time.UTC)",
-			ToRedisCode:   "asString := value.Format(time.DateTime)",
-			FromConverted: "\t\t\treturn value.(time.Time)",
-			DefaultValue:  "time.Time{}",
-		}
-		g.generateGetterSetter(entityName, fieldName, schema, settings)
-	}
-	for _, i := range fields.dates {
-		g.addImport("time")
-		fieldName := fields.prefix + fields.fields[i].Name
-		settings := getterSetterGenerateSettings{
-			ValueType:     "time.Time",
-			FromRedisCode: "v, _ = time.ParseInLocation(time.DateOnly, value, time.UTC)",
-			ToRedisCode:   "asString := value.Format(time.DateOnly)",
-			FromConverted: "\t\t\treturn value.(time.Time)",
-			DefaultValue:  "time.Time{}",
-		}
-		g.generateGetterSetter(entityName, fieldName, schema, settings)
-	}
-	for k, i := range fields.references {
-		fieldName := fields.prefix + fields.fields[i].Name
-		refTypeName := schema.references[fieldName].Type.String()
-		refName := g.capitalizeFirst(refTypeName[strings.LastIndex(refTypeName, ".")+1:])
-		required := fields.referencesRequired[k]
-		if required {
-			settings := getterSetterGenerateSettings{
-				ValueType:     "uint64",
-				FromRedisCode: "v, _ = strconv.ParseUint(value, 10, 64)",
-				ToRedisCode:   "asString := strconv.FormatUint(value, 10)",
-				FromConverted: "\t\t\treturn value.(uint64)",
-				DefaultValue:  "0",
-			}
-			g.generateGetterSetter(entityName, fieldName+"ID", schema, settings)
-		} else {
-			g.addImport("database/sql")
-			fromConverted := "\t\t\tv := value.(sql.NullInt64)"
-			fromConverted += "\n\t\t\tif v.Valid {\n\t\t\t\tasUint64 := uint64(v.Int64)\n\t\t\t\treturn &asUint64\n\t\t\t}"
-			fromConverted += "\n\t\t\treturn nil"
-			settings := getterSetterGenerateSettings{
-				ValueType:     "*uint64",
-				FromRedisCode: "vSource, _ := strconv.ParseUint(value, 10, 64)\n\t\t\tv = &vSource",
-				ToRedisCode:   "var asString string\n\t\t\tif value != nil {\n\t\t\tasString = strconv.FormatUint(*value, 10)\n\t\t}",
-				FromConverted: fromConverted,
-				DefaultValue:  "nil",
-			}
-			g.generateGetterSetter(entityName, fieldName+"ID", schema, settings)
-		}
-		g.addLine(fmt.Sprintf("func (e *%s) Get%s(ctx fluxaorm.Context) (reference *%s, found bool, err error) {", entityName, fieldName, refName))
-		g.addLine(fmt.Sprintf("\tid := e.Get%sID()", fieldName))
-		if required {
-			g.addLine("\tif id == 0 {\n\t\treturn nil, false, nil\n\t}")
-			g.addLine(fmt.Sprintf("\treturn %sProvider.GetByID(ctx, id)", refName))
-		} else {
-			g.addLine("\tif id == nil || *id == 0 {\n\t\treturn nil, false, nil\n\t}")
-			g.addLine(fmt.Sprintf("\treturn %sProvider.GetByID(ctx, *id)", refName))
-		}
-		g.addLine("}")
-		g.addLine("")
-	}
-	for i, subFields := range fields.structsFields {
-		field := fields.fields[fields.structs[i]]
-		prefixName := fields.prefix
-		if !field.Anonymous {
-			prefixName += field.Name
-		}
+	for _, subFields := range fields.structsFields {
 		err := g.generateGettersSetters(entityName, schema, subFields)
 		if err != nil {
 			return err
@@ -810,6 +801,99 @@ func (g *codeGenerator) lowerFirst(s string) string {
 		b[0] = b[0] + ('a' - 'A')
 	}
 	return string(b)
+}
+
+func (g *codeGenerator) addBindSetLines(fields *tableFields) string {
+	result := ""
+	for _, i := range fields.uIntegers {
+		fieldName := fields.prefix + fields.fields[i].Name
+		result += fmt.Sprintf("\t\tparams[%d] = e.Get%s()\n", g.filedIndex, fieldName)
+		g.filedIndex++
+	}
+	for _, i := range fields.references {
+		fieldName := fields.prefix + fields.fields[i].Name
+		result += fmt.Sprintf("\t\tparams[%d] = e.Get%sID()\n", g.filedIndex, fieldName)
+		g.filedIndex++
+	}
+	for _, i := range fields.integers {
+		fieldName := fields.prefix + fields.fields[i].Name
+		result += fmt.Sprintf("\t\tparams[%d] = e.Get%s()\n", g.filedIndex, fieldName)
+		g.filedIndex++
+	}
+	for _, i := range fields.booleans {
+		fieldName := fields.prefix + fields.fields[i].Name
+		result += fmt.Sprintf("\t\tparams[%d] = e.Get%s()\n", g.filedIndex, fieldName)
+		g.filedIndex++
+	}
+	for _, i := range fields.floats {
+		fieldName := fields.prefix + fields.fields[i].Name
+		result += fmt.Sprintf("\t\tparams[%d] = e.Get%s()\n", g.filedIndex, fieldName)
+		g.filedIndex++
+	}
+	for _, i := range fields.times {
+		fieldName := fields.prefix + fields.fields[i].Name
+		result += fmt.Sprintf("\t\tparams[%d] = e.Get%s()\n", g.filedIndex, fieldName)
+		g.filedIndex++
+	}
+	for _, i := range fields.dates {
+		fieldName := fields.prefix + fields.fields[i].Name
+		result += fmt.Sprintf("\t\tparams[%d] = e.Get%s()\n", g.filedIndex, fieldName)
+		g.filedIndex++
+	}
+	for _, i := range fields.strings {
+		fieldName := fields.prefix + fields.fields[i].Name
+		result += fmt.Sprintf("\t\tparams[%d] = e.Get%s()\n", g.filedIndex, fieldName)
+		g.filedIndex++
+	}
+	for _, i := range fields.uIntegersNullable {
+		fieldName := fields.prefix + fields.fields[i].Name
+		result += fmt.Sprintf("\t\tparams[%d] = e.Get%s()\n", g.filedIndex, fieldName)
+		g.filedIndex++
+	}
+	for _, i := range fields.integersNullable {
+		fieldName := fields.prefix + fields.fields[i].Name
+		result += fmt.Sprintf("\t\tparams[%d] = e.Get%s()\n", g.filedIndex, fieldName)
+		g.filedIndex++
+	}
+	for _, i := range fields.stringsEnums {
+		fieldName := fields.prefix + fields.fields[i].Name
+		result += fmt.Sprintf("\t\tparams[%d] = e.Get%s()\n", g.filedIndex, fieldName)
+		g.filedIndex++
+	}
+	for _, i := range fields.bytes {
+		fieldName := fields.prefix + fields.fields[i].Name
+		result += fmt.Sprintf("\t\tparams[%d] = e.Get%s()\n", g.filedIndex, fieldName)
+		g.filedIndex++
+	}
+	for _, i := range fields.sliceStringsSets {
+		fieldName := fields.prefix + fields.fields[i].Name
+		result += fmt.Sprintf("\t\tparams[%d] = e.Get%s()\n", g.filedIndex, fieldName)
+		g.filedIndex++
+	}
+	for _, i := range fields.booleansNullable {
+		fieldName := fields.prefix + fields.fields[i].Name
+		result += fmt.Sprintf("\t\tparams[%d] = e.Get%s()\n", g.filedIndex, fieldName)
+		g.filedIndex++
+	}
+	for _, i := range fields.floatsNullable {
+		fieldName := fields.prefix + fields.fields[i].Name
+		result += fmt.Sprintf("\t\tparams[%d] = e.Get%s()\n", g.filedIndex, fieldName)
+		g.filedIndex++
+	}
+	for _, i := range fields.timesNullable {
+		fieldName := fields.prefix + fields.fields[i].Name
+		result += fmt.Sprintf("\t\tparams[%d] = e.Get%s()\n", g.filedIndex, fieldName)
+		g.filedIndex++
+	}
+	for _, i := range fields.datesNullable {
+		fieldName := fields.prefix + fields.fields[i].Name
+		result += fmt.Sprintf("\t\tparams[%d] = e.Get%s()\n", g.filedIndex, fieldName)
+		g.filedIndex++
+	}
+	for _, subFields := range fields.structsFields {
+		result += g.addBindSetLines(subFields)
+	}
+	return result
 }
 
 type Flushable interface {

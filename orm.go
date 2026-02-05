@@ -35,6 +35,7 @@ type Context interface {
 	FlushAsync() error
 	ClearFlush()
 	RedisPipeLine(pool string) *RedisPipeLine
+	DatabasePipeLine(pool string) *DatabasePipeline
 	RegisterQueryLogger(handler LogHandler, mysql, redis, local bool)
 	EnableQueryDebug()
 	EnableQueryDebugCustom(mysql, redis, local bool)
@@ -67,6 +68,7 @@ type ormImplementation struct {
 	stringBuilder            *strings.Builder
 	stringBuilder2           *strings.Builder
 	redisPipeLines           map[string]*RedisPipeLine
+	dbPipeLines              map[string]*DatabasePipeline
 	flushDBActions           map[string][]dbAction
 	flushPostActions         []func(ctx Context)
 	mutexFlush               sync.Mutex
@@ -112,6 +114,24 @@ func (orm *ormImplementation) RedisPipeLine(pool string) *RedisPipeLine {
 	r := orm.engine.Redis(pool).(*redisCache)
 	pipeline := &RedisPipeLine{ctx: orm, pool: pool, r: r, pipeLine: r.client.Pipeline()}
 	orm.redisPipeLines[pool] = pipeline
+	return pipeline
+}
+
+func (orm *ormImplementation) DatabasePipeLine(pool string) *DatabasePipeline {
+	if orm.dbPipeLines != nil {
+		pipeline, has := orm.dbPipeLines[pool]
+		if has {
+			return pipeline
+		}
+	}
+	orm.mutexData.Lock()
+	defer orm.mutexData.Unlock()
+	if orm.dbPipeLines == nil {
+		orm.dbPipeLines = make(map[string]*DatabasePipeline)
+	}
+	db := orm.engine.DB(pool)
+	pipeline := &DatabasePipeline{ctx: orm, pool: pool, db: db}
+	orm.dbPipeLines[pool] = pipeline
 	return pipeline
 }
 
