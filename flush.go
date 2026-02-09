@@ -48,7 +48,7 @@ func (orm *ormImplementation) flushGenerated(async bool) (err error) {
 	}
 	orm.trackedGeneratedEntities.Range(func(_ uint64, value *xsync.MapOf[uint64, Flushable]) bool {
 		value.Range(func(_ uint64, f Flushable) bool {
-			err = f.Flush()
+			err = f.PrivateFlush()
 			if err != nil {
 				return false
 			}
@@ -65,6 +65,13 @@ func (orm *ormImplementation) flushGenerated(async bool) (err error) {
 			return err
 		}
 	}
+	orm.trackedGeneratedEntities.Range(func(_ uint64, value *xsync.MapOf[uint64, Flushable]) bool {
+		value.Range(func(_ uint64, f Flushable) bool {
+			f.PrivateFlushed()
+			return true
+		})
+		return true
+	})
 	orm.trackedGeneratedEntities.Clear()
 	return nil
 }

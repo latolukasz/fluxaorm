@@ -289,20 +289,27 @@ func (g *codeGenerator) generateCodeForEntity(schema *entitySchema) error {
 	g.addLine("}")
 	g.addLine("")
 
-	g.addLine(fmt.Sprintf("func (e *%s) Flush() error {", entityName))
+	g.addLine(fmt.Sprintf("func (e *%s) PrivateFlush() error {", entityName))
 	g.addLine("\tif e.new {")
 	insertQueryLine := "\t\tsqlQuery := \"INSERT INTO `" + schema.tableName + "` (`ID`"
 	for _, columnName := range schema.GetColumns()[1:] {
 		insertQueryLine += ",`" + columnName + "`"
 	}
 	insertQueryLine += fmt.Sprintf(") VALUES (?%s)\"\n", strings.Repeat(",?", len(schema.columnNames)-1))
-	insertQueryLine += fmt.Sprintf("\t\tparams := make([]any, %d)\n", len(schema.columnNames))
+	insertQueryLine += fmt.Sprintf("\t\te.originDatabaseValues = make([]any, %d)\n", len(schema.columnNames))
 	g.filedIndex = 0
 	insertQueryLine += g.addBindSetLines(schema.fields)
-	insertQueryLine += fmt.Sprintf("\t\te.ctx.DatabasePipeLine(%s.dbCode).AddQuery(sqlQuery, params...)", providerName)
+	insertQueryLine += fmt.Sprintf("\t\te.ctx.DatabasePipeLine(%s.dbCode).AddQuery(sqlQuery, e.originDatabaseValues...)", providerName)
 	g.addLine(insertQueryLine)
 	g.addLine("\t}")
 	g.addLine("\treturn nil")
+	g.addLine("}")
+	g.addLine("")
+
+	g.addLine(fmt.Sprintf("func (e *%s) PrivateFlushed() {", entityName))
+	g.addLine("\tif e.new {")
+	g.addLine("\t\te.new = false")
+	g.addLine("\t}")
 	g.addLine("}")
 	g.addLine("")
 
@@ -814,75 +821,75 @@ func (g *codeGenerator) addBindSetLines(fields *tableFields) string {
 	result := ""
 	for _, i := range fields.uIntegers {
 		fieldName := fields.prefix + fields.fields[i].Name
-		result += fmt.Sprintf("\t\tparams[%d] = e.Get%s()\n", g.filedIndex, fieldName)
+		result += fmt.Sprintf("\t\te.originDatabaseValues[%d] = e.Get%s()\n", g.filedIndex, fieldName)
 		g.filedIndex++
 	}
 	for _, i := range fields.references {
 		fieldName := fields.prefix + fields.fields[i].Name
-		result += fmt.Sprintf("\t\tparams[%d] = e.Get%sID()\n", g.filedIndex, fieldName)
+		result += fmt.Sprintf("\t\te.originDatabaseValues[%d] = e.Get%sID()\n", g.filedIndex, fieldName)
 		g.filedIndex++
 	}
 	for _, i := range fields.integers {
 		fieldName := fields.prefix + fields.fields[i].Name
-		result += fmt.Sprintf("\t\tparams[%d] = e.Get%s()\n", g.filedIndex, fieldName)
+		result += fmt.Sprintf("\t\te.originDatabaseValues[%d] = e.Get%s()\n", g.filedIndex, fieldName)
 		g.filedIndex++
 	}
 	for _, i := range fields.booleans {
 		fieldName := fields.prefix + fields.fields[i].Name
-		result += fmt.Sprintf("\t\tparams[%d] = e.Get%s()\n", g.filedIndex, fieldName)
+		result += fmt.Sprintf("\t\te.originDatabaseValues[%d] = e.Get%s()\n", g.filedIndex, fieldName)
 		g.filedIndex++
 	}
 	for _, i := range fields.floats {
 		fieldName := fields.prefix + fields.fields[i].Name
-		result += fmt.Sprintf("\t\tparams[%d] = e.Get%s()\n", g.filedIndex, fieldName)
+		result += fmt.Sprintf("\t\te.originDatabaseValues[%d] = e.Get%s()\n", g.filedIndex, fieldName)
 		g.filedIndex++
 	}
 	for _, i := range fields.times {
 		fieldName := fields.prefix + fields.fields[i].Name
-		result += fmt.Sprintf("\t\tparams[%d] = e.Get%s()\n", g.filedIndex, fieldName)
+		result += fmt.Sprintf("\t\te.originDatabaseValues[%d] = e.Get%s()\n", g.filedIndex, fieldName)
 		g.filedIndex++
 	}
 	for _, i := range fields.dates {
 		fieldName := fields.prefix + fields.fields[i].Name
-		result += fmt.Sprintf("\t\tparams[%d] = e.Get%s()\n", g.filedIndex, fieldName)
+		result += fmt.Sprintf("\t\te.originDatabaseValues[%d] = e.Get%s()\n", g.filedIndex, fieldName)
 		g.filedIndex++
 	}
 	for k, i := range fields.strings {
 		fieldName := fields.prefix + fields.fields[i].Name
 		if fields.stringsRequired[k] {
-			result += fmt.Sprintf("\t\tparams[%d] = e.Get%s()\n", g.filedIndex, fieldName)
+			result += fmt.Sprintf("\t\te.originDatabaseValues[%d] = e.Get%s()\n", g.filedIndex, fieldName)
 		} else {
 			result += fmt.Sprintf("\t\ts := e.Get%s()\n", fieldName)
 			result += "\t\tif s != \"\" {\n"
-			result += fmt.Sprintf("\t\t\tparams[%d] = s\n", g.filedIndex)
+			result += fmt.Sprintf("\t\t\te.originDatabaseValues[%d] = s\n", g.filedIndex)
 			result += "\t\t}\n"
 		}
 		g.filedIndex++
 	}
 	for _, i := range fields.uIntegersNullable {
 		fieldName := fields.prefix + fields.fields[i].Name
-		result += fmt.Sprintf("\t\tparams[%d] = e.Get%s()\n", g.filedIndex, fieldName)
+		result += fmt.Sprintf("\t\te.originDatabaseValues[%d] = e.Get%s()\n", g.filedIndex, fieldName)
 		g.filedIndex++
 	}
 	for _, i := range fields.integersNullable {
 		fieldName := fields.prefix + fields.fields[i].Name
-		result += fmt.Sprintf("\t\tparams[%d] = e.Get%s()\n", g.filedIndex, fieldName)
+		result += fmt.Sprintf("\t\te.originDatabaseValues[%d] = e.Get%s()\n", g.filedIndex, fieldName)
 		g.filedIndex++
 	}
 	for k, i := range fields.stringsEnums {
 		d := fields.enums[k]
 		fieldName := fields.prefix + fields.fields[i].Name
-		result += fmt.Sprintf("\t\tparams[%d] = string(e.Get%s())\n", g.filedIndex, fieldName)
+		result += fmt.Sprintf("\t\te.originDatabaseValues[%d] = string(e.Get%s())\n", g.filedIndex, fieldName)
 		if !d.required {
-			result += fmt.Sprintf("\t\tif params[%d] == \"\" {\n", g.filedIndex)
-			result += fmt.Sprintf("\t\t\tparams[%d] = nil\n", g.filedIndex)
+			result += fmt.Sprintf("\t\tif e.originDatabaseValues[%d] == \"\" {\n", g.filedIndex)
+			result += fmt.Sprintf("\t\t\te.originDatabaseValues[%d] = nil\n", g.filedIndex)
 			result += "\t\t}\n"
 		}
 		g.filedIndex++
 	}
 	for _, i := range fields.bytes {
 		fieldName := fields.prefix + fields.fields[i].Name
-		result += fmt.Sprintf("\t\tparams[%d] = e.Get%s()\n", g.filedIndex, fieldName)
+		result += fmt.Sprintf("\t\te.originDatabaseValues[%d] = e.Get%s()\n", g.filedIndex, fieldName)
 		g.filedIndex++
 	}
 	for k, i := range fields.sliceStringsSets {
@@ -895,7 +902,7 @@ func (g *codeGenerator) addBindSetLines(fields *tableFields) string {
 			result += fmt.Sprintf("\t\tfor i, v := range value%s {\n", fieldName)
 			result += fmt.Sprintf("\t\t\tvalue%sStrings[i] = string(v)\n", fieldName)
 			result += "\t\t}\n"
-			result += fmt.Sprintf("\t\tparams[%d] =  strings.Join(value%sStrings, \",\")\n", g.filedIndex, fieldName)
+			result += fmt.Sprintf("\t\te.originDatabaseValues[%d] =  strings.Join(value%sStrings, \",\")\n", g.filedIndex, fieldName)
 		} else {
 			result += fmt.Sprintf("\t\tif e.Get%s() != nil {\n", fieldName)
 			result += fmt.Sprintf("\t\t\tvalue%s := e.Get%s()\n", fieldName, fieldName)
@@ -903,29 +910,29 @@ func (g *codeGenerator) addBindSetLines(fields *tableFields) string {
 			result += fmt.Sprintf("\t\t\tfor i, v := range value%s {\n", fieldName)
 			result += fmt.Sprintf("\t\t\t\tvalue%sStrings[i] = string(v)\n", fieldName)
 			result += "\t\t\t}\n"
-			result += fmt.Sprintf("\t\t\tparams[%d] = strings.Join(value%sStrings, \",\")\n", g.filedIndex, fieldName)
+			result += fmt.Sprintf("\t\t\te.originDatabaseValues[%d] = strings.Join(value%sStrings, \",\")\n", g.filedIndex, fieldName)
 			result += "\t\t}\n"
 		}
 		g.filedIndex++
 	}
 	for _, i := range fields.booleansNullable {
 		fieldName := fields.prefix + fields.fields[i].Name
-		result += fmt.Sprintf("\t\tparams[%d] = e.Get%s()\n", g.filedIndex, fieldName)
+		result += fmt.Sprintf("\t\te.originDatabaseValues[%d] = e.Get%s()\n", g.filedIndex, fieldName)
 		g.filedIndex++
 	}
 	for _, i := range fields.floatsNullable {
 		fieldName := fields.prefix + fields.fields[i].Name
-		result += fmt.Sprintf("\t\tparams[%d] = e.Get%s()\n", g.filedIndex, fieldName)
+		result += fmt.Sprintf("\t\te.originDatabaseValues[%d] = e.Get%s()\n", g.filedIndex, fieldName)
 		g.filedIndex++
 	}
 	for _, i := range fields.timesNullable {
 		fieldName := fields.prefix + fields.fields[i].Name
-		result += fmt.Sprintf("\t\tparams[%d] = e.Get%s()\n", g.filedIndex, fieldName)
+		result += fmt.Sprintf("\t\te.originDatabaseValues[%d] = e.Get%s()\n", g.filedIndex, fieldName)
 		g.filedIndex++
 	}
 	for _, i := range fields.datesNullable {
 		fieldName := fields.prefix + fields.fields[i].Name
-		result += fmt.Sprintf("\t\tparams[%d] = e.Get%s()\n", g.filedIndex, fieldName)
+		result += fmt.Sprintf("\t\te.originDatabaseValues[%d] = e.Get%s()\n", g.filedIndex, fieldName)
 		g.filedIndex++
 	}
 	for _, subFields := range fields.structsFields {
@@ -935,6 +942,7 @@ func (g *codeGenerator) addBindSetLines(fields *tableFields) string {
 }
 
 type Flushable interface {
-	Flush() error
+	PrivateFlush() error
+	PrivateFlushed()
 	GetID() uint64
 }
