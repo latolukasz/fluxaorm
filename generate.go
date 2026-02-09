@@ -869,9 +869,15 @@ func (g *codeGenerator) addBindSetLines(fields *tableFields) string {
 		result += fmt.Sprintf("\t\tparams[%d] = e.Get%s()\n", g.filedIndex, fieldName)
 		g.filedIndex++
 	}
-	for _, i := range fields.stringsEnums {
+	for k, i := range fields.stringsEnums {
+		d := fields.enums[k]
 		fieldName := fields.prefix + fields.fields[i].Name
-		result += fmt.Sprintf("\t\tparams[%d] = e.Get%s()\n", g.filedIndex, fieldName)
+		result += fmt.Sprintf("\t\tparams[%d] = string(e.Get%s())\n", g.filedIndex, fieldName)
+		if !d.required {
+			result += fmt.Sprintf("\t\tif params[%d] == \"\" {\n", g.filedIndex)
+			result += fmt.Sprintf("\t\t\tparams[%d] = nil\n", g.filedIndex)
+			result += "\t\t}\n"
+		}
 		g.filedIndex++
 	}
 	for _, i := range fields.bytes {
@@ -879,9 +885,15 @@ func (g *codeGenerator) addBindSetLines(fields *tableFields) string {
 		result += fmt.Sprintf("\t\tparams[%d] = e.Get%s()\n", g.filedIndex, fieldName)
 		g.filedIndex++
 	}
-	for _, i := range fields.sliceStringsSets {
+	for k, i := range fields.sliceStringsSets {
+		d := fields.sets[k]
 		fieldName := fields.prefix + fields.fields[i].Name
 		result += fmt.Sprintf("\t\tparams[%d] = e.Get%s()\n", g.filedIndex, fieldName)
+		if !d.required {
+			result += fmt.Sprintf("\t\tif params[%d] == \"\" {\n", g.filedIndex)
+			result += fmt.Sprintf("\t\t\tparams[%d] = nil {\n", g.filedIndex)
+			result += "\t\t}\n"
+		}
 		g.filedIndex++
 	}
 	for _, i := range fields.booleansNullable {
