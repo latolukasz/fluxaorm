@@ -942,7 +942,12 @@ func (g *codeGenerator) addBindSetLines(fields *tableFields) string {
 	}
 	for _, i := range fields.bytes {
 		fieldName := fields.prefix + fields.fields[i].Name
-		result += fmt.Sprintf("\t\te.originDatabaseValues[%d] = e.Get%s()\n", g.filedIndex, fieldName)
+		result += fmt.Sprintf("\t\tvalue%s := e.Get%s()\n", fieldName, fieldName)
+		result += fmt.Sprintf("\t\tif value%s == nil { \n", fieldName)
+		result += fmt.Sprintf("\t\t\te.originDatabaseValues[%d] = sql.NullString{}\n", g.filedIndex)
+		result += "\t\t} else {\n"
+		result += fmt.Sprintf("\t\t\te.originDatabaseValues[%d] = sql.NullString{Valid: true, String: string(value%s)}\n", g.filedIndex, fieldName)
+		result += "\t\t}\n"
 		g.filedIndex++
 	}
 	for k, i := range fields.sliceStringsSets {
