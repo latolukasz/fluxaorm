@@ -169,7 +169,7 @@ func (g *codeGenerator) generateCodeForEntity(schema *entitySchema) error {
 	}
 	g.addLine(fmt.Sprintf(" FROM `%s` WHERE `ID` = ? LIMIT 1\"", schema.tableName))
 	g.addLine(fmt.Sprintf("\tparams := make([]any, %d)", len(schema.columnNames)))
-	g.addLine("\tparams[0] = uint64(0)")
+	g.addLine(g.addQueryParamsLines(schema.fields))
 	g.appendToLine(fmt.Sprintf("\tfound, err = ctx.Engine().DB(%s.dbCode).QueryRow(ctx, fluxaorm.NewWhere(query, id), &params[0]", providerName))
 	for i := 1; i < len(schema.columnNames); i++ {
 		g.appendToLine(fmt.Sprintf(", &params[%d]", i))
@@ -641,6 +641,7 @@ func (g *codeGenerator) generateGettersSetters(entityName string, schema *entity
 			}
 			g.generateGetterSetter(entityName, fieldName, schema, settings)
 		} else {
+			g.addImport("database/sql")
 			settings := getterSetterGenerateSettings{
 				ValueType:     "*" + enumFullName,
 				FromRedisCode: fmt.Sprintf("v2 := %s(value)\n\t\t\tv = &v2", enumFullName),
@@ -705,6 +706,7 @@ func (g *codeGenerator) generateGettersSetters(entityName string, schema *entity
 			settings.DefaultValue = fmt.Sprintf("[]%s{\"%s\"}", enumFullName, d.defaultValue)
 			settings.DatabaseBindConvertCode = fmt.Sprintf("e.databaseBind[\"%s\"] = asString", fieldName)
 		} else {
+			g.addImport("database/sql")
 			settings.DatabaseBindConvertCode = "if len(value) == 0 {\n"
 			settings.DatabaseBindConvertCode += fmt.Sprintf("\t\t\te.databaseBind[\"%s\"] = nil\n", fieldName)
 			settings.DatabaseBindConvertCode += "\t\t} else {\n"
@@ -843,6 +845,17 @@ func (g *codeGenerator) lowerFirst(s string) string {
 		b[0] = b[0] + ('a' - 'A')
 	}
 	return string(b)
+}
+
+func (g *codeGenerator) addQueryParamsLines(fields *tableFields) string {
+	result := ""
+	g.filedIndex = 0
+	for range fields.uIntegers {
+		result += fmt.Sprintf("\tparams[%d] = uint64(0)\n", g.filedIndex)
+		g.filedIndex++
+	}
+	//TODO
+	return result
 }
 
 func (g *codeGenerator) addBindSetLines(fields *tableFields) string {
