@@ -560,21 +560,26 @@ func (g *codeGenerator) generateGettersSetters(entityName string, schema *entity
 	}
 	for k, i := range fields.strings {
 		fieldName := fields.prefix + fields.fields[i].Name
-		settings := getterSetterGenerateSettings{
-			ValueType:     "string",
-			FromRedisCode: "v = value",
-			ToRedisCode:   "asString := value",
-			FromConverted: "\t\t\treturn value.(string)",
-			DefaultValue:  "\"\"",
+		if fields.stringsRequired[k] {
+			settings := getterSetterGenerateSettings{
+				ValueType:     "string",
+				FromRedisCode: "v = value",
+				ToRedisCode:   "asString := value",
+				FromConverted: "\t\t\treturn value.(string)",
+				DefaultValue:  "\"\"",
+			}
+			g.generateGetterSetter(entityName, fieldName, schema, settings)
+		} else {
+			g.addImport("database/sql")
+			settings := getterSetterGenerateSettings{
+				ValueType:     "*string",
+				FromRedisCode: "v = &value",
+				FromConverted: "\t\t\treturn value.(*string)",
+				DefaultValue:  "nil",
+				ToRedisCode:   "asString := *value",
+			}
+			g.generateGetterSetter(entityName, fieldName, schema, settings)
 		}
-		if !fields.stringsRequired[k] {
-			settings.DatabaseBindConvertCode = "if value == \"\" {\n"
-			settings.DatabaseBindConvertCode += fmt.Sprintf("\t\t\te.convertedValues[%d] = nil\n", g.filedIndex)
-			settings.DatabaseBindConvertCode += "\t\t} else {\n"
-			settings.DatabaseBindConvertCode += fmt.Sprintf("\t\t\te.convertedValues[%d] = \"\"\n", g.filedIndex)
-			settings.DatabaseBindConvertCode += "\t\t}"
-		}
-		g.generateGetterSetter(entityName, fieldName, schema, settings)
 	}
 	for _, i := range fields.uIntegersNullable {
 		fieldName := fields.prefix + fields.fields[i].Name
@@ -889,9 +894,11 @@ func (g *codeGenerator) addBindSetLines(fields *tableFields) string {
 		if fields.stringsRequired[k] {
 			result += fmt.Sprintf("\t\te.originDatabaseValues[%d] = e.Get%s()\n", g.filedIndex, fieldName)
 		} else {
-			result += fmt.Sprintf("\t\ts := e.Get%s()\n", fieldName)
-			result += "\t\tif s != \"\" {\n"
-			result += fmt.Sprintf("\t\t\te.originDatabaseValues[%d] = s\n", g.filedIndex)
+			result += fmt.Sprintf("\t\tvalue%s := e.Get%s()\n", fieldName, fieldName)
+			result += fmt.Sprintf("\t\tif value%s == nil { \n", fieldName)
+			result += fmt.Sprintf("\t\t\te.originDatabaseValues[%d] = sql.NullString{}\n", g.filedIndex)
+			result += "\t\t} else {\n"
+			result += fmt.Sprintf("\t\t\te.originDatabaseValues[%d] = sql.NullString{Valid: true, String: *value%s}\n", g.filedIndex, fieldName)
 			result += "\t\t}\n"
 		}
 		g.filedIndex++
