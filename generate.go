@@ -962,35 +962,57 @@ func (g *codeGenerator) addBindSetLines(fields *tableFields) string {
 			result += "\t\t}\n"
 			result += fmt.Sprintf("\t\te.originDatabaseValues[%d] =  strings.Join(value%sStrings, \",\")\n", g.filedIndex, fieldName)
 		} else {
-			result += fmt.Sprintf("\t\tif e.Get%s() != nil {\n", fieldName)
-			result += fmt.Sprintf("\t\t\tvalue%s := e.Get%s()\n", fieldName, fieldName)
+			result += fmt.Sprintf("\t\tvalue%s := e.Get%s()\n", fieldName, fieldName)
+			result += fmt.Sprintf("\t\tif value%s == nil {\n", fieldName)
+			result += fmt.Sprintf("\t\t\te.originDatabaseValues[%d] = sql.NullString{}\n", g.filedIndex)
+			result += "\t\t} else {\n"
 			result += fmt.Sprintf("\t\t\tvalue%sStrings := make([]string, len(value%s))\n", fieldName, fieldName)
 			result += fmt.Sprintf("\t\t\tfor i, v := range value%s {\n", fieldName)
 			result += fmt.Sprintf("\t\t\t\tvalue%sStrings[i] = string(v)\n", fieldName)
 			result += "\t\t\t}\n"
-			result += fmt.Sprintf("\t\t\te.originDatabaseValues[%d] = strings.Join(value%sStrings, \",\")\n", g.filedIndex, fieldName)
+			result += fmt.Sprintf("\t\t\te.originDatabaseValues[%d] = sql.NullString{Valid: true, String: strings.Join(value%sStrings, \",\")}\n", g.filedIndex, fieldName)
 			result += "\t\t}\n"
 		}
 		g.filedIndex++
 	}
 	for _, i := range fields.booleansNullable {
 		fieldName := fields.prefix + fields.fields[i].Name
-		result += fmt.Sprintf("\t\te.originDatabaseValues[%d] = e.Get%s()\n", g.filedIndex, fieldName)
+		result += fmt.Sprintf("\t\tvalue%s := e.Get%s()\n", fieldName, fieldName)
+		result += fmt.Sprintf("\t\tif value%s == nil { \n", fieldName)
+		result += fmt.Sprintf("\t\t\te.originDatabaseValues[%d] = sql.NullBool{}\n", g.filedIndex)
+		result += "\t\t} else {\n"
+		result += fmt.Sprintf("\t\t\te.originDatabaseValues[%d] = sql.NullBool{Valid: true, Bool: *value%s}\n", g.filedIndex, fieldName)
+		result += "\t\t}\n"
 		g.filedIndex++
 	}
 	for _, i := range fields.floatsNullable {
 		fieldName := fields.prefix + fields.fields[i].Name
-		result += fmt.Sprintf("\t\te.originDatabaseValues[%d] = e.Get%s()\n", g.filedIndex, fieldName)
+		result += fmt.Sprintf("\t\tvalue%s := e.Get%s()\n", fieldName, fieldName)
+		result += fmt.Sprintf("\t\tif value%s == nil { \n", fieldName)
+		result += fmt.Sprintf("\t\t\te.originDatabaseValues[%d] = sql.NullFloat64{}\n", g.filedIndex)
+		result += "\t\t} else {\n"
+		result += fmt.Sprintf("\t\t\te.originDatabaseValues[%d] = sql.NullFloat64{Valid: true, Float64: *value%s}\n", g.filedIndex, fieldName)
+		result += "\t\t}\n"
 		g.filedIndex++
 	}
 	for _, i := range fields.timesNullable {
 		fieldName := fields.prefix + fields.fields[i].Name
-		result += fmt.Sprintf("\t\te.originDatabaseValues[%d] = e.Get%s()\n", g.filedIndex, fieldName)
+		result += fmt.Sprintf("\t\tvalue%s := e.Get%s()\n", fieldName, fieldName)
+		result += fmt.Sprintf("\t\tif value%s == nil { \n", fieldName)
+		result += fmt.Sprintf("\t\t\te.originDatabaseValues[%d] = sql.NullTime{}\n", g.filedIndex)
+		result += "\t\t} else {\n"
+		result += fmt.Sprintf("\t\t\te.originDatabaseValues[%d] = sql.NullTime{Valid: true, Time: *value%s}\n", g.filedIndex, fieldName)
+		result += "\t\t}\n"
 		g.filedIndex++
 	}
 	for _, i := range fields.datesNullable {
 		fieldName := fields.prefix + fields.fields[i].Name
-		result += fmt.Sprintf("\t\te.originDatabaseValues[%d] = e.Get%s()\n", g.filedIndex, fieldName)
+		result += fmt.Sprintf("\t\tvalue%s := e.Get%s()\n", fieldName, fieldName)
+		result += fmt.Sprintf("\t\tif value%s == nil { \n", fieldName)
+		result += fmt.Sprintf("\t\t\te.originDatabaseValues[%d] = sql.NullTime{}\n", g.filedIndex)
+		result += "\t\t} else {\n"
+		result += fmt.Sprintf("\t\t\te.originDatabaseValues[%d] = sql.NullTime{Valid: true, Time: *value%s}\n", g.filedIndex, fieldName)
+		result += "\t\t}\n"
 		g.filedIndex++
 	}
 	for _, subFields := range fields.structsFields {
