@@ -16,6 +16,7 @@ type codeGenerator struct {
 	enumsImport string
 	body        string
 	filedIndex  int
+	cacheIndex  int
 }
 
 func Generate(engine Engine, outputDirectory string) error {
@@ -147,6 +148,7 @@ func (g *codeGenerator) generateCodeForEntity(schema *entitySchema) error {
 	g.addLine("\ttableName string")
 	g.addLine("\tdbCode string")
 	g.addLine("\tredisCode string")
+	g.addLine("\tcacheIndex uint64")
 	g.addLine("\tuuidRedisKeyMutex *sync.Mutex")
 	g.addLine("}")
 	g.addLine("")
@@ -154,6 +156,8 @@ func (g *codeGenerator) generateCodeForEntity(schema *entitySchema) error {
 	g.addLine(fmt.Sprintf("\ttableName: \"%s\",", schema.tableName))
 	g.addLine(fmt.Sprintf("\tdbCode: \"%s\",", schema.mysqlPoolCode))
 	g.addLine(fmt.Sprintf("\tredisCode: \"%s\",", schema.getForcedRedisCode()))
+	g.addLine(fmt.Sprintf("\tcacheIndex: %d,", g.cacheIndex))
+	g.cacheIndex++
 	g.addLine(fmt.Sprintf("\tuuidRedisKeyMutex: &sync.Mutex{},"))
 	g.addLine("}")
 	g.addLine("")
@@ -175,10 +179,10 @@ func (g *codeGenerator) generateCodeForEntity(schema *entitySchema) error {
 	g.addLine("")
 	g.addLine(fmt.Sprintf("func (p %s) NewWithID(ctx fluxaorm.Context, id uint64) *%s  {", providerNamePrivate, entityName))
 	g.addLine(fmt.Sprintf("\te := &%s{ctx: ctx, new: true, id: id}", entityName))
+	g.addLine(fmt.Sprintf("\te.ctx.Track(e, %s.cacheIndex)", providerName))
 	if schema.hasRedisCache {
 		g.addImport("strconv")
 	}
-
 	g.addLine("\treturn e")
 	g.addLine("}")
 	g.addLine("")
@@ -653,7 +657,9 @@ func (g *codeGenerator) generateGettersSetters(entityName string, schema *entity
 		}
 		enumFullName := "enums." + enumName
 		fieldName := fields.prefix + fields.fields[i].Name
-		g.addImport("strings")
+		if schema.hasRedisCache {
+			g.addImport("strings")
+		}
 		g.addImport("fmt")
 		settings := getterSetterGenerateSettings{
 			ValueType:             "[]" + enumFullName,
@@ -906,4 +912,5 @@ func (g *codeGenerator) addBindSetLines(fields *tableFields) string {
 
 type Flushable interface {
 	Flush() error
+	GetID() uint64
 }

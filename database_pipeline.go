@@ -18,7 +18,7 @@ func (dp *DatabasePipeline) Exec(ctx Context) error {
 		return nil
 	}
 	if len(dp.queries) == 1 {
-		_, err := dp.db.Exec(ctx, dp.queries[0], dp.parameters[0])
+		_, err := dp.db.Exec(ctx, dp.queries[0], dp.parameters[0]...)
 		return err
 	}
 	tr, err := dp.db.Begin(ctx)

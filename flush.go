@@ -29,11 +29,44 @@ func (e *DuplicateKeyError) Error() string {
 }
 
 func (orm *ormImplementation) Flush() error {
-	return orm.flush(false)
+	err := orm.flush(false)
+	if err != nil {
+		return err
+	}
+	return orm.flushGenerated(false)
 }
 
 func (orm *ormImplementation) FlushAsync() error {
 	return orm.flush(true)
+}
+
+func (orm *ormImplementation) flushGenerated(async bool) (err error) {
+	orm.mutexFlush.Lock()
+	defer orm.mutexFlush.Unlock()
+	if orm.trackedGeneratedEntities == nil || orm.trackedGeneratedEntities.Size() == 0 {
+		return nil
+	}
+	orm.trackedGeneratedEntities.Range(func(_ uint64, value *xsync.MapOf[uint64, Flushable]) bool {
+		value.Range(func(_ uint64, f Flushable) bool {
+			err = f.Flush()
+			if err != nil {
+				return false
+			}
+			return true
+		})
+		return true
+	})
+	if err != nil {
+		return err
+	}
+	for _, dbPipeline := range orm.dbPipeLines {
+		err = dbPipeline.Exec(orm)
+		if err != nil {
+			return err
+		}
+	}
+	orm.trackedGeneratedEntities.Clear()
+	return nil
 }
 
 func (orm *ormImplementation) flush(async bool) (err error) {
