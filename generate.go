@@ -162,6 +162,13 @@ func (g *codeGenerator) generateCodeForEntity(schema *entitySchema) error {
 	g.addLine("}")
 	g.addLine("")
 	g.addLine(fmt.Sprintf("func (p %s) GetByID(ctx fluxaorm.Context, id uint64) (entity *%s, found bool, err error) {", providerNamePrivate, entityName))
+
+	g.appendToLine("\tquery := \"SELECT `ID`")
+	for _, columnName := range schema.GetColumns()[1:] {
+		g.appendToLine(",`" + columnName + "`")
+	}
+	g.addLine(fmt.Sprintf(" FROM `%s` WHERE `ID` = ? LIMIT 1\"", schema.tableName))
+
 	g.addLine("\treturn nil, false, nil")
 	g.addLine("}")
 	g.addLine("")
@@ -789,6 +796,10 @@ func (g *codeGenerator) createEnumDefinition(d *enumDefinition, name string) err
 
 func (g *codeGenerator) addLine(line string) {
 	g.body += line + "\n"
+}
+
+func (g *codeGenerator) appendToLine(value string) {
+	g.body += value
 }
 
 func (g *codeGenerator) writeToFile(f *os.File, value string) {

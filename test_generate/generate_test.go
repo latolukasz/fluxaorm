@@ -109,7 +109,7 @@ func TestGenerate(t *testing.T) {
 	err := fluxaorm.Generate(ctx.Engine(), "entities")
 	assert.NoError(t, err)
 
-	e := entities.GenerateEntityProvider.New(ctx)
+	e := entities.GenerateEntityNoRedisProvider.New(ctx)
 	assert.NotEmpty(t, e.GetID())
 	assert.Equal(t, uint64(0), e.GetAge())
 	assert.Equal(t, int64(0), e.GetBalance())
@@ -136,4 +136,8 @@ func TestGenerate(t *testing.T) {
 
 	ctx.EnableQueryDebug()
 	assert.NoError(t, ctx.Flush())
+
+	e, found, err := entities.GenerateEntityNoRedisProvider.GetByID(ctx, e.GetID())
+	assert.NoError(t, err)
+	assert.True(t, found)
 }
