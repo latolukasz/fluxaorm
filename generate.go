@@ -518,7 +518,7 @@ func (g *codeGenerator) generateGettersSetters(entityName string, schema *entity
 			FromRedisCode: "v, _ = time.ParseInLocation(time.DateTime, value, time.UTC)",
 			ToRedisCode:   "asString := value.Format(time.DateTime)",
 			FromConverted: "\t\t\treturn value.(time.Time)",
-			DefaultValue:  "time.Time{}",
+			DefaultValue:  "time.Date(1970, 1, 1, 0, 0, 0, 0, time.UTC)",
 		}
 		g.generateGetterSetter(entityName, fieldName, schema, settings)
 	}
@@ -530,7 +530,7 @@ func (g *codeGenerator) generateGettersSetters(entityName string, schema *entity
 			FromRedisCode: "v, _ = time.ParseInLocation(time.DateOnly, value, time.UTC)",
 			ToRedisCode:   "asString := value.Format(time.DateOnly)",
 			FromConverted: "\t\t\treturn value.(time.Time)",
-			DefaultValue:  "time.Time{}",
+			DefaultValue:  "time.Date(1970, 1, 1, 0, 0, 0, 0, time.UTC)",
 		}
 		g.generateGetterSetter(entityName, fieldName, schema, settings)
 	}
@@ -888,10 +888,22 @@ func (g *codeGenerator) addBindSetLines(fields *tableFields) string {
 	for k, i := range fields.sliceStringsSets {
 		d := fields.sets[k]
 		fieldName := fields.prefix + fields.fields[i].Name
-		result += fmt.Sprintf("\t\tparams[%d] = e.Get%s()\n", g.filedIndex, fieldName)
-		if !d.required {
-			result += fmt.Sprintf("\t\tif params[%d] == \"\" {\n", g.filedIndex)
-			result += fmt.Sprintf("\t\t\tparams[%d] = nil {\n", g.filedIndex)
+		g.addImport("strings")
+		if d.required {
+			result += fmt.Sprintf("\t\tvalue%s := e.Get%s()\n", fieldName, fieldName)
+			result += fmt.Sprintf("\t\tvalue%sStrings := make([]string, len(value%s))\n", fieldName, fieldName)
+			result += fmt.Sprintf("\t\tfor i, v := range value%s {\n", fieldName)
+			result += fmt.Sprintf("\t\t\tvalue%sStrings[i] = string(v)\n", fieldName)
+			result += "\t\t}\n"
+			result += fmt.Sprintf("\t\tparams[%d] =  strings.Join(value%sStrings, \",\")\n", g.filedIndex, fieldName)
+		} else {
+			result += fmt.Sprintf("\t\tif e.Get%s() != nil {\n", fieldName)
+			result += fmt.Sprintf("\t\t\tvalue%s := e.Get%s()\n", fieldName, fieldName)
+			result += fmt.Sprintf("\t\t\tvalue%sStrings := make([]string, len(value%s))\n", fieldName, fieldName)
+			result += fmt.Sprintf("\t\t\tfor i, v := range value%s {\n", fieldName)
+			result += fmt.Sprintf("\t\t\t\tvalue%sStrings[i] = string(v)\n", fieldName)
+			result += "\t\t\t}\n"
+			result += fmt.Sprintf("\t\t\tparams[%d] = strings.Join(value%sStrings, \",\")\n", g.filedIndex, fieldName)
 			result += "\t\t}\n"
 		}
 		g.filedIndex++
