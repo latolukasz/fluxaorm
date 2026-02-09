@@ -168,10 +168,20 @@ func (g *codeGenerator) generateCodeForEntity(schema *entitySchema) error {
 		g.appendToLine(",`" + columnName + "`")
 	}
 	g.addLine(fmt.Sprintf(" FROM `%s` WHERE `ID` = ? LIMIT 1\"", schema.tableName))
-
-	g.addLine("\treturn nil, false, nil")
+	g.addLine(fmt.Sprintf("\tparams := make([]any, %d)", len(schema.columnNames)))
+	g.addLine("\tparams[0] = uint64(0)")
+	g.appendToLine(fmt.Sprintf("\tfound, err = ctx.Engine().DB(%s.dbCode).QueryRow(ctx, fluxaorm.NewWhere(query, id), &params[0]", providerName))
+	for i := 1; i < len(schema.columnNames); i++ {
+		g.appendToLine(fmt.Sprintf(", &params[%d]", i))
+	}
+	g.addLine(")")
+	g.addLine("\tif err != nil || !found {")
+	g.addLine("\t\treturn nil, false, err")
+	g.addLine("\t}")
+	g.addLine(fmt.Sprintf("\treturn &%s{ctx: ctx, id: id, originDatabaseValues: params}, true, nil", entityName))
 	g.addLine("}")
 	g.addLine("")
+
 	g.addLine(fmt.Sprintf("func (p %s) GetByIDs(ctx fluxaorm.Context, id ...uint64) (fluxaorm.EntityIterator[%s], error) {", providerNamePrivate, entityName))
 	g.addLine("\treturn nil, nil")
 	g.addLine("}")
@@ -835,9 +845,18 @@ func (g *codeGenerator) addBindSetLines(fields *tableFields) string {
 		result += fmt.Sprintf("\t\te.originDatabaseValues[%d] = e.Get%s()\n", g.filedIndex, fieldName)
 		g.filedIndex++
 	}
-	for _, i := range fields.references {
+	for k, i := range fields.references {
 		fieldName := fields.prefix + fields.fields[i].Name
-		result += fmt.Sprintf("\t\te.originDatabaseValues[%d] = e.Get%sID()\n", g.filedIndex, fieldName)
+		if fields.referencesRequired[k] {
+			result += fmt.Sprintf("\t\te.originDatabaseValues[%d] = e.Get%sID()\n", g.filedIndex, fieldName)
+		} else {
+			result += fmt.Sprintf("\t\tvalue%s := e.Get%sID()\n", fieldName, fieldName)
+			result += fmt.Sprintf("\t\tif value%s == nil { \n", fieldName)
+			result += fmt.Sprintf("\t\t\te.originDatabaseValues[%d] = sql.NullInt64{}\n", g.filedIndex)
+			result += "\t\t} else {\n"
+			result += fmt.Sprintf("\t\t\te.originDatabaseValues[%d] = sql.NullInt64{Valid: true, Int64: int64(*value%s)}\n", g.filedIndex, fieldName)
+			result += "\t\t}\n"
+		}
 		g.filedIndex++
 	}
 	for _, i := range fields.integers {
