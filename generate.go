@@ -332,6 +332,7 @@ func (g *codeGenerator) generateCodeForEntity(schema *entitySchema) error {
 	g.addLine("}")
 	g.addLine("")
 
+	g.filedIndex = 0
 	err = g.generateGettersSetters(entityName, schema, schema.fields)
 	if err != nil {
 		return err

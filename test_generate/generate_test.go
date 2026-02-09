@@ -137,7 +137,11 @@ func TestGenerate(t *testing.T) {
 	ctx.EnableQueryDebug()
 	assert.NoError(t, ctx.Flush())
 
-	e, found, err := entities.GenerateEntityNoRedisProvider.GetByID(ctx, e.GetID())
+	id := e.GetID()
+	e, found, err := entities.GenerateEntityNoRedisProvider.GetByID(ctx, id)
 	assert.NoError(t, err)
 	assert.True(t, found)
+	assert.NotNil(t, e)
+	assert.Equal(t, id, e.GetID())
+	assert.Equal(t, uint64(0), e.GetAge())
 }
