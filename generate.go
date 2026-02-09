@@ -169,7 +169,9 @@ func (g *codeGenerator) generateCodeForEntity(schema *entitySchema) error {
 	}
 	g.addLine(fmt.Sprintf(" FROM `%s` WHERE `ID` = ? LIMIT 1\"", schema.tableName))
 	g.addLine(fmt.Sprintf("\tparams := make([]any, %d)", len(schema.columnNames)))
+	g.filedIndex = 0
 	g.addLine(g.addQueryParamsLines(schema.fields))
+	g.filedIndex = 0
 	g.appendToLine(fmt.Sprintf("\tfound, err = ctx.Engine().DB(%s.dbCode).QueryRow(ctx, fluxaorm.NewWhere(query, id), &params[0]", providerName))
 	for i := 1; i < len(schema.columnNames); i++ {
 		g.appendToLine(fmt.Sprintf(", &params[%d]", i))
@@ -849,12 +851,95 @@ func (g *codeGenerator) lowerFirst(s string) string {
 
 func (g *codeGenerator) addQueryParamsLines(fields *tableFields) string {
 	result := ""
-	g.filedIndex = 0
 	for range fields.uIntegers {
 		result += fmt.Sprintf("\tparams[%d] = uint64(0)\n", g.filedIndex)
 		g.filedIndex++
 	}
-	//TODO
+	for k := range fields.references {
+		if fields.referencesRequired[k] {
+			result += fmt.Sprintf("\tparams[%d] = uint64(0)\n", g.filedIndex)
+		} else {
+			result += fmt.Sprintf("\tparams[%d] = sql.NullInt64{}\n", g.filedIndex)
+		}
+		g.filedIndex++
+	}
+	for range fields.integers {
+		result += fmt.Sprintf("\tparams[%d] = int64(0)\n", g.filedIndex)
+		g.filedIndex++
+	}
+	for range fields.booleans {
+		result += fmt.Sprintf("\tparams[%d] = false\n", g.filedIndex)
+		g.filedIndex++
+	}
+	for range fields.floats {
+		result += fmt.Sprintf("\tparams[%d] = float64(0)\n", g.filedIndex)
+		g.filedIndex++
+	}
+	for range fields.times {
+		result += fmt.Sprintf("\tparams[%d] = time.Time{}\n", g.filedIndex)
+		g.filedIndex++
+	}
+	for range fields.dates {
+		result += fmt.Sprintf("\tparams[%d] = time.Time{}\n", g.filedIndex)
+		g.filedIndex++
+	}
+	for k := range fields.strings {
+		if fields.stringsRequired[k] {
+			result += fmt.Sprintf("\tparams[%d] = \"\"\n", g.filedIndex)
+		} else {
+			result += fmt.Sprintf("\tparams[%d] = sql.NullString{}\n", g.filedIndex)
+		}
+		g.filedIndex++
+	}
+	for range fields.uIntegersNullable {
+		result += fmt.Sprintf("\tparams[%d] = sql.NullInt64{}\n", g.filedIndex)
+		g.filedIndex++
+	}
+	for range fields.integersNullable {
+		result += fmt.Sprintf("\tparams[%d] = sql.NullInt64{}\n", g.filedIndex)
+		g.filedIndex++
+	}
+	for k := range fields.stringsEnums {
+		d := fields.enums[k]
+		if d.required {
+			result += fmt.Sprintf("\tparams[%d] = \"\"\n", g.filedIndex)
+		} else {
+			result += fmt.Sprintf("\tparams[%d] = sql.NullString{}\n", g.filedIndex)
+		}
+		g.filedIndex++
+	}
+	for range fields.bytes {
+		result += fmt.Sprintf("\tparams[%d] = sql.NullString{}\n", g.filedIndex)
+		g.filedIndex++
+	}
+	for k := range fields.sliceStringsSets {
+		d := fields.sets[k]
+		if d.required {
+			result += fmt.Sprintf("\tparams[%d] = \"\"\n", g.filedIndex)
+		} else {
+			result += fmt.Sprintf("\tparams[%d] = sql.NullString{}\n", g.filedIndex)
+		}
+		g.filedIndex++
+	}
+	for range fields.booleansNullable {
+		result += fmt.Sprintf("\tparams[%d] = sql.NullBool{}\n", g.filedIndex)
+		g.filedIndex++
+	}
+	for range fields.floatsNullable {
+		result += fmt.Sprintf("\tparams[%d] = sql.NullFloat64{}\n", g.filedIndex)
+		g.filedIndex++
+	}
+	for range fields.timesNullable {
+		result += fmt.Sprintf("\tparams[%d] = sql.NullTime{}\n", g.filedIndex)
+		g.filedIndex++
+	}
+	for range fields.datesNullable {
+		result += fmt.Sprintf("\tparams[%d] = sql.NullTime{}\n", g.filedIndex)
+		g.filedIndex++
+	}
+	for _, subFields := range fields.structsFields {
+		result += g.addQueryParamsLines(subFields)
+	}
 	return result
 }
 
