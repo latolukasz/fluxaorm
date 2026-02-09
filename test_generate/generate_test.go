@@ -70,13 +70,40 @@ type generateEntity struct {
 	TestSub generateSubStruct
 }
 
+type generateEntityNoRedis struct {
+	ID                uint64
+	Age               uint32
+	Balance           int8
+	AgeNullable       *uint8
+	BalanceNullable   *int8
+	Name              string `orm:"required"`
+	Comment           string
+	TestEnum          testGenerateEnum `orm:"required"`
+	TestEnumOptional  testGenerateEnum
+	TestSet           []testGenerateEnum `orm:"required"`
+	TestSetOptional   []testGenerateEnum
+	Byte              []uint8
+	Bool              bool
+	BoolNullable      *bool
+	Float             float64
+	FloatNullable     *float64
+	TimeNullable      *time.Time `orm:"time"`
+	Time              time.Time  `orm:"time"`
+	DateNullable      *time.Time
+	Date              time.Time
+	ReferenceRequired fluxaorm.Reference[generateReferenceEntity] `orm:"required"`
+	ReferenceOptional fluxaorm.Reference[generateReferenceEntity]
+	generateSubStruct
+	TestSub generateSubStruct
+}
+
 type generateReferenceEntity struct {
 	ID   uint16
 	Name string
 }
 
 func TestGenerate(t *testing.T) {
-	ctx := fluxaorm.PrepareTables(t, fluxaorm.NewRegistry(), generateEntity{}, generateReferenceEntity{})
+	ctx := fluxaorm.PrepareTables(t, fluxaorm.NewRegistry(), generateEntity{}, generateEntityNoRedis{}, generateReferenceEntity{})
 	_ = os.MkdirAll("entities", 0755)
 
 	err := fluxaorm.Generate(ctx.Engine(), "entities")

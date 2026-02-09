@@ -8,7 +8,7 @@ type DatabasePipeline struct {
 	parameters [][]any
 }
 
-func (dp *DatabasePipeline) AddQuery(query string, parameters []any) {
+func (dp *DatabasePipeline) AddQuery(query string, parameters ...any) {
 	dp.queries = append(dp.queries, query)
 	dp.parameters = append(dp.parameters, parameters)
 }

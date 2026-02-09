@@ -295,6 +295,7 @@ func (g *codeGenerator) generateCodeForEntity(schema *entitySchema) error {
 	insertQueryLine += fmt.Sprintf("\t\tparams := make([]any, %d)\n", len(schema.columnNames))
 	g.filedIndex = 0
 	insertQueryLine += g.addBindSetLines(schema.fields)
+	insertQueryLine += fmt.Sprintf("\t\te.ctx.DatabasePipeLine(%s.dbCode).AddQuery(sqlQuery, params...)", providerName)
 	g.addLine(insertQueryLine)
 	g.addLine("\t}")
 	g.addLine("\treturn nil")
@@ -578,8 +579,8 @@ func (g *codeGenerator) generateGettersSetters(entityName string, schema *entity
 		g.generateGetterSetter(entityName, fieldName, schema, settings)
 	}
 	for k, i := range fields.stringsEnums {
+		g.addImport(g.enumsImport)
 		if g.enums == nil {
-			g.addImport(g.enumsImport)
 			g.enums = make(map[string]bool)
 			err := os.MkdirAll(path.Join(g.dir, "enums"), 0755)
 			if err != nil {
@@ -633,8 +634,8 @@ func (g *codeGenerator) generateGettersSetters(entityName string, schema *entity
 		g.generateGetterSetter(entityName, fieldName, schema, settings)
 	}
 	for k, i := range fields.sliceStringsSets {
+		g.addImport(g.enumsImport)
 		if g.enums == nil {
-			g.addImport(g.enumsImport)
 			g.enums = make(map[string]bool)
 			err := os.MkdirAll(path.Join(g.dir, "enums"), 0755)
 			if err != nil {
@@ -840,9 +841,16 @@ func (g *codeGenerator) addBindSetLines(fields *tableFields) string {
 		result += fmt.Sprintf("\t\tparams[%d] = e.Get%s()\n", g.filedIndex, fieldName)
 		g.filedIndex++
 	}
-	for _, i := range fields.strings {
+	for k, i := range fields.strings {
 		fieldName := fields.prefix + fields.fields[i].Name
-		result += fmt.Sprintf("\t\tparams[%d] = e.Get%s()\n", g.filedIndex, fieldName)
+		if fields.stringsRequired[k] {
+			result += fmt.Sprintf("\t\tparams[%d] = e.Get%s()\n", g.filedIndex, fieldName)
+		} else {
+			result += fmt.Sprintf("\t\ts := e.Get%s()\n", fieldName)
+			result += "\t\tif s != \"\" {\n"
+			result += fmt.Sprintf("\t\t\tparams[%d] = s\n", g.filedIndex)
+			result += "\t\t}\n"
+		}
 		g.filedIndex++
 	}
 	for _, i := range fields.uIntegersNullable {
