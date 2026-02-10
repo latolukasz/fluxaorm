@@ -465,8 +465,7 @@ func (g *codeGenerator) generateGettersSetters(entityName string, schema *entity
 		g.addLine("\t\t}")
 		if schema.hasRedisCache {
 			g.addLine("\t\tif e.originRedisValues != nil {")
-			g.addLine(fmt.Sprintf("\t\t\tredisValue := e.originRedisValues[%d]", g.filedIndex))
-			g.addLine("\t\t\tfromRedis, _ := strconv.ParseUint(redisValue, 10, 64)")
+			g.addLine(fmt.Sprintf("\t\t\tfromRedis, _ := strconv.ParseUint(e.originRedisValues[%d], 10, 64)", g.filedIndex))
 			g.addLine("\t\t\treturn fromRedis")
 			g.addLine("\t\t}")
 		}
@@ -481,6 +480,28 @@ func (g *codeGenerator) generateGettersSetters(entityName string, schema *entity
 		g.addLine("")
 
 		g.addLine(fmt.Sprintf("func (e *%s) Set%s(value uint64) {", entityName, fieldName))
+		g.addLine("\tif e.new {")
+		g.addLine(fmt.Sprintf("\t\te.originDatabaseValues[%d] = value", g.filedIndex))
+		g.addLine("\t}")
+		if schema.hasRedisCache {
+			g.addLine("\tsame:= false")
+			g.addLine("\tif e.originRedisValues != nil {")
+			g.addLine(fmt.Sprintf("\t\tfromRedis, _ := strconv.ParseUint(e.originRedisValues[%d], 10, 64)", g.filedIndex))
+			g.addLine("\t\tsame = fromRedis == value")
+			g.addLine("\t} else {")
+			g.addLine(fmt.Sprintf("\t\tsame = e.originDatabaseValues[%d] == value", g.filedIndex))
+			g.addLine("\t}")
+			g.addLine("\tif same {")
+			g.addLine(fmt.Sprintf("\t\tdelete(e.databaseBind, \"%s\")", fieldName))
+			g.addLine("\t\treturn")
+			g.addLine("\t}")
+		} else {
+			g.addLine(fmt.Sprintf("\tif e.originDatabaseValues[%d] == value {", g.filedIndex))
+			g.addLine(fmt.Sprintf("\t\tdelete(e.databaseBind, \"%s\")", fieldName))
+			g.addLine("\t\treturn")
+			g.addLine("\t}")
+		}
+		g.addLine(fmt.Sprintf("\te.databaseBind[\"%s\"] = value", fieldName))
 		g.addLine("}")
 		g.addLine("")
 		g.filedIndex++

@@ -108,8 +108,7 @@ type generateReferenceEntity struct {
 //		m map[string]int
 //	}{m: nil}
 //	for i := 0; i < b.N; i++ {
-//		if v.m == nil {
-//		}
+//		delete(v.m, "a")
 //	}
 //}
 
