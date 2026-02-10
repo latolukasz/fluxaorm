@@ -647,15 +647,67 @@ func (g *codeGenerator) createGetterSetterFloat(schema *entitySchema, fieldName,
 		g.addLine("\tif same {")
 		g.addLine(fmt.Sprintf("\t\tdelete(e.databaseBind, \"%s\")", fieldName))
 		g.addLine("\t\treturn")
+		g.addLine("\t}")
+	} else {
+		g.addLine(fmt.Sprintf("\tif math.Round(e.originDatabaseValues[%d].(float64)*math.Pow10(%d)) == math.Round(value*math.Pow10(%d)) {", g.filedIndex, precision, precision))
+		g.addLine(fmt.Sprintf("\t\tdelete(e.databaseBind, \"%s\")", fieldName))
+		g.addLine("\t\treturn")
+		g.addLine("\t}")
+	}
+	g.addLine(fmt.Sprintf("\te.databaseBind[\"%s\"] = value", fieldName))
+	g.addLine("}")
+	g.addLine("")
+	g.filedIndex++
+}
+
+func (g *codeGenerator) createGetterSetterTime(schema *entitySchema, fieldName, entityName string, dateOnly bool) {
+	g.addLine(fmt.Sprintf("func (e *%s) Get%s() time.Time {", entityName, fieldName))
+	g.addLine("\tif !e.new {")
+	g.addLine("\t\tif e.databaseBind != nil {")
+	g.addLine(fmt.Sprintf("\t\t\tv, hasInDB := e.databaseBind[\"%s\"]", fieldName))
+	g.addLine("\t\t\tif hasInDB {")
+	g.addLine("\t\t\t\treturn v.(time.Time)")
+	g.addLine("\t\t\t}")
+	g.addLine("\t\t}")
+	if schema.hasRedisCache {
+		g.addLine("\t\tif e.originRedisValues != nil {")
+		g.addLine(fmt.Sprintf("\t\t\tfromRedis, _ := strconv.ParseInt(e.originRedisValues[%d], 10, 64)", g.filedIndex))
+		g.addLine("\t\t\treturn time.Unix(fromRedis, 0)")
+		g.addLine("\t\t}")
+	}
+	g.addLine("\t}")
+	g.addLine("\tif e.originDatabaseValues != nil {")
+	g.addLine(fmt.Sprintf("\t\tif value := e.originDatabaseValues[%d]; value != nil {", g.filedIndex))
+	g.addLine("\t\t\treturn value.(time.Time)")
+	g.addLine("\t\t}")
+	g.addLine("\t}")
+	g.addLine("\treturn time.Date(1970, 1, 1, 0, 0, 0, 0, time.UTC)")
+	g.addLine("}")
+	g.addLine("")
+
+	g.addLine(fmt.Sprintf("func (e *%s) Set%s(value time.Time) {", entityName, fieldName))
+	if dateOnly {
+		g.addLine("\tvalue = value.Truncate(time.Hour * 24)")
+	} else {
+		g.addLine("\tvalue = value.Truncate(time.Second)")
+	}
+	g.addLine("\tif e.new {")
+	g.addLine(fmt.Sprintf("\t\te.originDatabaseValues[%d] = value", g.filedIndex))
+	g.addLine("\t}")
+	if schema.hasRedisCache {
+		g.addLine("\tsame:= false")
+		g.addLine("\tif e.originRedisValues != nil {")
+		g.addLine(fmt.Sprintf("\t\tfromRedis, _ := strconv.ParseInt(e.originRedisValues[%d], 10, 64)", g.filedIndex))
+		g.addLine("\t\tsame = fromRedis == value.Unix()")
 		g.addLine("\t} else {")
-		g.addLine(fmt.Sprintf("\t\tsame = math.Round(e.originDatabaseValues[%d].(float64)*math.Pow10(%d)) == math.Round(value*math.Pow10(%d))", g.filedIndex, precision, precision))
+		g.addLine(fmt.Sprintf("\t\tsame = e.originDatabaseValues[%d].(time.Time).Unix() == value.Unix()", g.filedIndex))
 		g.addLine("\t}")
 		g.addLine("\tif same {")
 		g.addLine(fmt.Sprintf("\t\tdelete(e.databaseBind, \"%s\")", fieldName))
 		g.addLine("\t\treturn")
 		g.addLine("\t}")
 	} else {
-		g.addLine(fmt.Sprintf("\tif math.Round(e.originDatabaseValues[%d].(float64)*math.Pow10(%d)) == math.Round(value*math.Pow10(%d)) {", g.filedIndex, precision, precision))
+		g.addLine(fmt.Sprintf("\tif e.originDatabaseValues[%d].(time.Time).Unix() == value.Unix() {", g.filedIndex))
 		g.addLine(fmt.Sprintf("\t\tdelete(e.databaseBind, \"%s\")", fieldName))
 		g.addLine("\t\treturn")
 		g.addLine("\t}")
@@ -787,26 +839,12 @@ func (g *codeGenerator) generateGettersSetters(entityName string, schema *entity
 	for _, i := range fields.times {
 		g.addImport("time")
 		fieldName := fields.prefix + fields.fields[i].Name
-		settings := getterSetterGenerateSettings{
-			ValueType:     "time.Time",
-			FromRedisCode: "v, _ = time.ParseInLocation(time.DateTime, value, time.UTC)",
-			ToRedisCode:   "asString := value.Format(time.DateTime)",
-			FromConverted: "\t\t\treturn value.(time.Time)",
-			DefaultValue:  "time.Date(1970, 1, 1, 0, 0, 0, 0, time.UTC)",
-		}
-		g.generateGetterSetter(entityName, fieldName, schema, settings)
+		g.createGetterSetterTime(schema, fieldName, entityName, false)
 	}
 	for _, i := range fields.dates {
 		g.addImport("time")
 		fieldName := fields.prefix + fields.fields[i].Name
-		settings := getterSetterGenerateSettings{
-			ValueType:     "time.Time",
-			FromRedisCode: "v, _ = time.ParseInLocation(time.DateOnly, value, time.UTC)",
-			ToRedisCode:   "asString := value.Format(time.DateOnly)",
-			FromConverted: "\t\t\treturn value.(time.Time)",
-			DefaultValue:  "time.Date(1970, 1, 1, 0, 0, 0, 0, time.UTC)",
-		}
-		g.generateGetterSetter(entityName, fieldName, schema, settings)
+		g.createGetterSetterTime(schema, fieldName, entityName, true)
 	}
 	for k, i := range fields.strings {
 		fieldName := fields.prefix + fields.fields[i].Name
