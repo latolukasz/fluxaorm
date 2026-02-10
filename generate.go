@@ -718,6 +718,57 @@ func (g *codeGenerator) createGetterSetterTime(schema *entitySchema, fieldName, 
 	g.filedIndex++
 }
 
+func (g *codeGenerator) createGetterSetterString(schema *entitySchema, fieldName, entityName string) {
+	g.addLine(fmt.Sprintf("func (e *%s) Get%s() string {", entityName, fieldName))
+	g.addLine("\tif !e.new {")
+	g.addLine("\t\tif e.databaseBind != nil {")
+	g.addLine(fmt.Sprintf("\t\t\tv, hasInDB := e.databaseBind[\"%s\"]", fieldName))
+	g.addLine("\t\t\tif hasInDB {")
+	g.addLine("\t\t\t\treturn v.(string)")
+	g.addLine("\t\t\t}")
+	g.addLine("\t\t}")
+	if schema.hasRedisCache {
+		g.addLine("\t\tif e.originRedisValues != nil {")
+		g.addLine(fmt.Sprintf("\t\t\treturn e.originRedisValues[%d]", g.filedIndex))
+		g.addLine("\t\t}")
+	}
+	g.addLine("\t}")
+	g.addLine("\tif e.originDatabaseValues != nil {")
+	g.addLine(fmt.Sprintf("\t\tif value := e.originDatabaseValues[%d]; value != nil {", g.filedIndex))
+	g.addLine("\t\t\treturn value.(string)")
+	g.addLine("\t\t}")
+	g.addLine("\t}")
+	g.addLine("\treturn \"\"")
+	g.addLine("}")
+	g.addLine("")
+
+	g.addLine(fmt.Sprintf("func (e *%s) Set%s(value string) {", entityName, fieldName))
+	g.addLine("\tif e.new {")
+	g.addLine(fmt.Sprintf("\t\te.originDatabaseValues[%d] = value", g.filedIndex))
+	g.addLine("\t}")
+	if schema.hasRedisCache {
+		g.addLine("\tsame:= false")
+		g.addLine("\tif e.originRedisValues != nil {")
+		g.addLine(fmt.Sprintf("\t\tsame = e.originRedisValues[%d] == value", g.filedIndex))
+		g.addLine("\t} else {")
+		g.addLine(fmt.Sprintf("\t\tsame = e.originDatabaseValues[%d].(string) == value", g.filedIndex))
+		g.addLine("\t}")
+		g.addLine("\tif same {")
+		g.addLine(fmt.Sprintf("\t\tdelete(e.databaseBind, \"%s\")", fieldName))
+		g.addLine("\t\treturn")
+		g.addLine("\t}")
+	} else {
+		g.addLine(fmt.Sprintf("\tif e.originDatabaseValues[%d].(string) == value {", g.filedIndex))
+		g.addLine(fmt.Sprintf("\t\tdelete(e.databaseBind, \"%s\")", fieldName))
+		g.addLine("\t\treturn")
+		g.addLine("\t}")
+	}
+	g.addLine(fmt.Sprintf("\te.databaseBind[\"%s\"] = value", fieldName))
+	g.addLine("}")
+	g.addLine("")
+	g.filedIndex++
+}
+
 func (g *codeGenerator) createGetterSetterUint64Nullable(schema *entitySchema, fieldName, entityName, getterSuffix string) {
 	g.addLine(fmt.Sprintf("func (e *%s) Get%s%s() *uint64 {", entityName, fieldName, getterSuffix))
 	g.addLine("\tif !e.new {")
@@ -849,14 +900,7 @@ func (g *codeGenerator) generateGettersSetters(entityName string, schema *entity
 	for k, i := range fields.strings {
 		fieldName := fields.prefix + fields.fields[i].Name
 		if fields.stringsRequired[k] {
-			settings := getterSetterGenerateSettings{
-				ValueType:     "string",
-				FromRedisCode: "v = value",
-				ToRedisCode:   "asString := value",
-				FromConverted: "\t\t\treturn value.(string)",
-				DefaultValue:  "\"\"",
-			}
-			g.generateGetterSetter(entityName, fieldName, schema, settings)
+			g.createGetterSetterString(schema, fieldName, entityName)
 		} else {
 			g.addImport("database/sql")
 			settings := getterSetterGenerateSettings{
