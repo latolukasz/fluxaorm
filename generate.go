@@ -455,14 +455,35 @@ func (g *codeGenerator) generateGettersSetters(entityName string, schema *entity
 			g.filedIndex++
 			continue
 		}
-		settings := getterSetterGenerateSettings{
-			ValueType:     "uint64",
-			FromRedisCode: "v, _ = strconv.ParseUint(value, 10, 64)",
-			ToRedisCode:   "asString := strconv.FormatUint(value, 10)",
-			FromConverted: "\t\t\treturn value.(uint64)",
-			DefaultValue:  "0",
+		g.addLine(fmt.Sprintf("func (e *%s) Get%s() uint64 {", entityName, fieldName))
+		g.addLine("\tif !e.new {")
+		g.addLine("\t\tif e.databaseBind != nil {")
+		g.addLine(fmt.Sprintf("\t\t\tv, hasInDB := e.databaseBind[\"%s\"]", fieldName))
+		g.addLine("\t\t\tif hasInDB {")
+		g.addLine("\t\t\t\treturn v.(uint64)")
+		g.addLine("\t\t\t}")
+		g.addLine("\t\t}")
+		if schema.hasRedisCache {
+			g.addLine("\t\tif e.originRedisValues != nil {")
+			g.addLine(fmt.Sprintf("\t\t\tredisValue := e.originRedisValues[%d]", g.filedIndex))
+			g.addLine("\t\t\tfromRedis, _ := strconv.ParseUint(redisValue, 10, 64)")
+			g.addLine("\t\t\treturn fromRedis")
+			g.addLine("\t\t}")
 		}
-		g.generateGetterSetter(entityName, fieldName, schema, settings)
+		g.addLine("\t}")
+		g.addLine("\tif e.originDatabaseValues != nil {")
+		g.addLine(fmt.Sprintf("\t\tif value := e.originDatabaseValues[%d]; value != nil {", g.filedIndex))
+		g.addLine("\t\t\treturn value.(uint64)")
+		g.addLine("\t\t}")
+		g.addLine("\t}")
+		g.addLine("\treturn 0")
+		g.addLine("}")
+		g.addLine("")
+
+		g.addLine(fmt.Sprintf("func (e *%s) Set%s(value uint64) {", entityName, fieldName))
+		g.addLine("}")
+		g.addLine("")
+		g.filedIndex++
 	}
 	for k, i := range fields.references {
 		fieldName := fields.prefix + fields.fields[i].Name

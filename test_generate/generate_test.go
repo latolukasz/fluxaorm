@@ -102,6 +102,17 @@ type generateReferenceEntity struct {
 	Name string
 }
 
+//func BenchmarkGenerate(b *testing.B) {
+//	b.ReportAllocs()
+//	v := struct {
+//		m map[string]int
+//	}{m: nil}
+//	for i := 0; i < b.N; i++ {
+//		if v.m == nil {
+//		}
+//	}
+//}
+
 func TestGenerate(t *testing.T) {
 	ctx := fluxaorm.PrepareTables(t, fluxaorm.NewRegistry(), generateEntity{}, generateEntityNoRedis{}, generateReferenceEntity{})
 	_ = os.MkdirAll("entities", 0755)
