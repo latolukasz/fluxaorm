@@ -47,10 +47,11 @@ func (r *Struct[E]) Get() *E {
 func (r *Struct[E]) setSerialized(v string) {
 	r.serialized = v
 	r.isSerialized = true
+	r.unserialized = nil
 }
 
 func (r Struct[E]) getSerialized() (string, error) {
-	if !r.isSerialized {
+	if r.unserialized != nil || !r.isSerialized {
 		asJson, err := jsoniter.ConfigFastest.MarshalToString(r.unserialized)
 		if err != nil {
 			return "", err

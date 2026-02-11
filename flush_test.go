@@ -270,6 +270,90 @@ func TestStruct(t *testing.T) {
 	assert.Equal(t, "Hi", entity.TestJsons.Get().A)
 }
 
+func TestStructUpdateAfterGetMutation(t *testing.T) {
+	r := NewRegistry()
+	orm := PrepareTables(t, r, flushEntity{}, flushEntityReference{})
+
+	schema := GetEntitySchema[flushEntity](orm)
+	schema.DisableCache(true, false)
+
+	reference := NewEntity[flushEntityReference](orm)
+	reference.Name = "test reference"
+	err := testFlush(orm, false)
+	assert.NoError(t, err)
+
+	newEntity := NewEntity[flushEntity](orm)
+	newEntity.ReferenceRequired = Reference[flushEntityReference](reference.ID)
+	newEntity.Name = "Name"
+	newEntity.TestJsons.Set(&flushStructJSON{A: "Hi", B: 12})
+	assert.NoError(t, testFlush(orm, false))
+
+	entity, _, err := GetByID[flushEntity](orm, uint64(newEntity.ID))
+	assert.NoError(t, err)
+	assert.NotNil(t, entity)
+	assert.NotNil(t, entity.TestJsons.Get())
+	assert.Equal(t, "Hi", entity.TestJsons.Get().A)
+	assert.Equal(t, uint64(12), entity.TestJsons.Get().B)
+
+	editedEntity := EditEntity(orm, entity)
+	v := editedEntity.TestJsons.Get()
+	v.A = "Updated"
+	v.B = 99
+
+	err = testFlush(orm, false)
+	assert.NoError(t, err)
+
+	_ = orm.Engine().Redis(DefaultPoolCode).FlushDB(orm)
+	entity, _, err = GetByID[flushEntity](orm, uint64(newEntity.ID))
+	assert.NoError(t, err)
+	assert.NotNil(t, entity)
+	assert.NotNil(t, entity.TestJsons.Get())
+	assert.Equal(t, "Updated", entity.TestJsons.Get().A)
+	assert.Equal(t, uint64(99), entity.TestJsons.Get().B)
+}
+
+func TestStructUpdateAfterGetMutationWhenSourceAlreadyDecoded(t *testing.T) {
+	r := NewRegistry()
+	orm := PrepareTables(t, r, flushEntity{}, flushEntityReference{})
+
+	schema := GetEntitySchema[flushEntity](orm)
+	schema.DisableCache(true, false)
+
+	reference := NewEntity[flushEntityReference](orm)
+	reference.Name = "test reference"
+	err := testFlush(orm, false)
+	assert.NoError(t, err)
+
+	newEntity := NewEntity[flushEntity](orm)
+	newEntity.ReferenceRequired = Reference[flushEntityReference](reference.ID)
+	newEntity.Name = "Name"
+	newEntity.TestJsons.Set(&flushStructJSON{A: "Hi", B: 12})
+	assert.NoError(t, testFlush(orm, false))
+
+	entity, _, err := GetByID[flushEntity](orm, uint64(newEntity.ID))
+	assert.NoError(t, err)
+	assert.NotNil(t, entity)
+	assert.NotNil(t, entity.TestJsons.Get())
+
+	// Decode the source first, then edit a copy.
+	_ = entity.TestJsons.Get()
+	editedEntity := EditEntity(orm, entity)
+	v := editedEntity.TestJsons.Get()
+	v.A = "Updated 2"
+	v.B = 123
+
+	err = testFlush(orm, false)
+	assert.NoError(t, err)
+
+	_ = orm.Engine().Redis(DefaultPoolCode).FlushDB(orm)
+	entity, _, err = GetByID[flushEntity](orm, uint64(newEntity.ID))
+	assert.NoError(t, err)
+	assert.NotNil(t, entity)
+	assert.NotNil(t, entity.TestJsons.Get())
+	assert.Equal(t, "Updated 2", entity.TestJsons.Get().A)
+	assert.Equal(t, uint64(123), entity.TestJsons.Get().B)
+}
+
 func testFlushInsert(t *testing.T, async, local, redis bool) {
 	r := NewRegistry()
 	orm := PrepareTables(t, r, flushEntity{}, flushEntityReference{})
