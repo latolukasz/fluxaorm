@@ -1041,6 +1041,79 @@ func (g *codeGenerator) createGetterSetterStringNullable(schema *entitySchema, f
 	g.filedIndex++
 }
 
+func (g *codeGenerator) createGetterSetterBytesNullable(schema *entitySchema, fieldName, entityName string) {
+	g.addLine(fmt.Sprintf("func (e *%s) Get%s() []uint8 {", entityName, fieldName))
+	g.addLine("\tif !e.new {")
+	g.addLine("\t\tif e.databaseBind != nil {")
+	g.addLine(fmt.Sprintf("\t\t\tv, hasInDB := e.databaseBind[\"%s\"]", fieldName))
+	g.addLine("\t\t\tif hasInDB {")
+	g.addLine("\t\t\t\tvNullable := v.(sql.NullString)")
+	g.addLine("\t\t\t\tif vNullable.Valid {")
+	g.addLine("\t\t\t\t\treturn []uint8(vNullable.String)")
+	g.addLine("\t\t\t\t}")
+	g.addLine("\t\t\t\treturn nil")
+
+	g.addLine("\t\t\t}")
+	g.addLine("\t\t}")
+	if schema.hasRedisCache {
+		g.addLine("\t\tif e.originRedisValues != nil {")
+		g.addLine(fmt.Sprintf("\t\t\tif e.originRedisValues[%d] == \"\" {", g.filedIndex))
+		g.addLine("\t\t\t\treturn nil")
+		g.addLine("\t\t\t}")
+		g.addLine(fmt.Sprintf("\t\t\tfromRedis := e.originRedisValues[%d]", g.filedIndex))
+		g.addLine("\t\t\treturn []uint8(fromRedis)")
+		g.addLine("\t\t}")
+	}
+	g.addLine("\t}")
+	g.addLine("\tif e.originDatabaseValues != nil {")
+	g.addLine(fmt.Sprintf("\t\tif value := e.originDatabaseValues[%d]; value != nil {", g.filedIndex))
+	g.addLine("\t\t\tvNullable := value.(sql.NullString)")
+	g.addLine("\t\t\tif vNullable.Valid {")
+	g.addLine("\t\t\t\treturn []uint8(vNullable.String)")
+	g.addLine("\t\t\t}")
+	g.addLine("\t\t\treturn nil")
+	g.addLine("\t\t}")
+	g.addLine("\t}")
+	g.addLine("\treturn nil")
+	g.addLine("}")
+	g.addLine("")
+
+	g.addLine(fmt.Sprintf("func (e *%s) Set%s(value []uint8) {", entityName, fieldName))
+	g.addLine("\tbindValue := sql.NullString{}")
+	g.addLine("\tif value != nil {")
+	g.addLine("\t\tbindValue.Valid = true")
+	g.addLine("\t\tbindValue.String = string(value)")
+	g.addLine("\t}")
+	g.addLine("\tif e.new {")
+	g.addLine(fmt.Sprintf("\t\te.originDatabaseValues[%d] = bindValue", g.filedIndex))
+	g.addLine("\t}")
+	if schema.hasRedisCache {
+		g.addLine("\tsame:= false")
+		g.addLine("\tif e.originRedisValues != nil {")
+		g.addLine("\t\tasString := \"\"")
+		g.addLine("\t\tif value != nil {")
+		g.addLine("\t\t\tasString = string(value)")
+		g.addLine("\t\t}")
+		g.addLine(fmt.Sprintf("\t\tsame = e.originRedisValues[%d] == asString", g.filedIndex))
+		g.addLine("\t} else {")
+		g.addLine(fmt.Sprintf("\t\tsame = e.originDatabaseValues[%d].(sql.NullString) == bindValue", g.filedIndex))
+		g.addLine("\t}")
+		g.addLine("\tif same {")
+		g.addLine(fmt.Sprintf("\t\tdelete(e.databaseBind, \"%s\")", fieldName))
+		g.addLine("\t\treturn")
+		g.addLine("\t}")
+	} else {
+		g.addLine(fmt.Sprintf("\tif e.originDatabaseValues[%d].(sql.NullString) == bindValue {", g.filedIndex))
+		g.addLine(fmt.Sprintf("\t\tdelete(e.databaseBind, \"%s\")", fieldName))
+		g.addLine("\t\treturn")
+		g.addLine("\t}")
+	}
+	g.addLine(fmt.Sprintf("\te.databaseBind[\"%s\"] = bindValue", fieldName))
+	g.addLine("}")
+	g.addLine("")
+	g.filedIndex++
+}
+
 func (g *codeGenerator) createGetterSetterEnumNullable(schema *entitySchema, fieldName, entityName, enumName string) {
 	g.addLine(fmt.Sprintf("func (e *%s) Get%s() *%s {", entityName, fieldName, enumName))
 	g.addLine("\tif !e.new {")
@@ -1218,19 +1291,8 @@ func (g *codeGenerator) generateGettersSetters(entityName string, schema *entity
 	for _, i := range fields.bytes {
 		fieldName := fields.prefix + fields.fields[i].Name
 		g.addImport("database/sql")
-		fromConverted := "\t\t\tv := value.(sql.NullString)"
-		fromConverted += "\n\t\t\tif v.Valid {\n\t\t\t\treturn []uint8(v.String)\n\t\t\t}"
-		fromConverted += "\n\t\t\treturn nil"
-		settings := getterSetterGenerateSettings{
-			ValueType:             "[]uint8",
-			FromRedisCode:         "v = []uint8(value)",
-			ToRedisCode:           "",
-			FromConverted:         fromConverted,
-			DefaultValue:          "nil",
-			AfterConvertedSet:     "\tasString := fmt.Sprintf(\"%v\", value)",
-			OriginDatabaseCompare: fmt.Sprintf("if e.originDatabaseValues[%d] == asString {", g.filedIndex),
-		}
-		g.generateGetterSetter(entityName, fieldName, schema, settings)
+		g.addImport("database/sql")
+		g.createGetterSetterBytesNullable(schema, fieldName, entityName)
 	}
 	for k, i := range fields.sliceStringsSets {
 		g.addImport(g.enumsImport)
