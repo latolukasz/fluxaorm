@@ -1972,8 +1972,14 @@ func (g *codeGenerator) addBindSetLines(schema *entitySchema, fields *tableField
 		result += fmt.Sprintf("\t\tvalue%s := e.Get%s()\n", fieldName, fieldName)
 		result += fmt.Sprintf("\t\tif value%s == nil { \n", fieldName)
 		result += fmt.Sprintf("\t\t\te.originDatabaseValues[%d] = sql.NullString{}\n", g.filedIndex)
+		if schema.hasRedisCache {
+			result += fmt.Sprintf("\t\t\te.originRedisValues[%d] = \"\"\n", g.filedIndex)
+		}
 		result += "\t\t} else {\n"
 		result += fmt.Sprintf("\t\t\te.originDatabaseValues[%d] = sql.NullString{Valid: true, String: string(value%s)}\n", g.filedIndex, fieldName)
+		if schema.hasRedisCache {
+			result += fmt.Sprintf("\t\te.originRedisValues[%d] = string(value%s)\n", g.filedIndex, fieldName)
+		}
 		result += "\t\t}\n"
 		g.filedIndex++
 	}
