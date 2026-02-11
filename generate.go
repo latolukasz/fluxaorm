@@ -168,9 +168,10 @@ func (g *codeGenerator) generateCodeForEntity(schema *entitySchema) error {
 		g.appendToLine(",`" + columnName + "`")
 	}
 	g.addLine(fmt.Sprintf(" FROM `%s` WHERE `ID` = ? LIMIT 1\"", schema.tableName))
-	g.addLine(fmt.Sprintf("\tparams := make([]any, %d)", len(schema.columnNames)))
+	g.addLine("\tparams := []any{")
 	g.filedIndex = 0
-	g.addLine(g.addQueryParamsLines(schema.fields))
+	g.addLine(strings.TrimRight(g.addQueryParamsLines(schema.fields), "\t\n"))
+	g.appendToLine("\t}\n")
 	g.filedIndex = 0
 	g.appendToLine(fmt.Sprintf("\tfound, err = ctx.Engine().DB(%s.dbCode).QueryRow(ctx, fluxaorm.NewWhere(query, id), &params[0]", providerName))
 	for i := 1; i < len(schema.columnNames); i++ {
@@ -1632,7 +1633,6 @@ func (g *codeGenerator) generateGettersSetters(entityName string, schema *entity
 		enumFullName := "enums." + enumName
 		fieldName := fields.prefix + fields.fields[i].Name
 		g.addImport("strings")
-		g.addImport("fmt")
 		if d.required {
 			g.createGetterSetterSet(schema, fieldName, entityName, enumFullName)
 		} else {
@@ -1734,90 +1734,73 @@ func (g *codeGenerator) lowerFirst(s string) string {
 func (g *codeGenerator) addQueryParamsLines(fields *tableFields) string {
 	result := ""
 	for range fields.uIntegers {
-		result += fmt.Sprintf("\tparams[%d] = uint64(0)\n", g.filedIndex)
-		g.filedIndex++
+		result += "\t\tuint64(0),\n"
 	}
 	for k := range fields.references {
 		if fields.referencesRequired[k] {
-			result += fmt.Sprintf("\tparams[%d] = uint64(0)\n", g.filedIndex)
+			result += "\t\tuint64(0),\n"
 		} else {
-			result += fmt.Sprintf("\tparams[%d] = sql.NullInt64{}\n", g.filedIndex)
+			result += "\t\tsql.NullInt64{},\n"
 		}
-		g.filedIndex++
 	}
 	for range fields.integers {
-		result += fmt.Sprintf("\tparams[%d] = int64(0)\n", g.filedIndex)
-		g.filedIndex++
+		result += "\t\tint64(0),\n"
 	}
 	for range fields.booleans {
-		result += fmt.Sprintf("\tparams[%d] = false\n", g.filedIndex)
-		g.filedIndex++
+		result += "\t\tfalse,\n"
 	}
 	for range fields.floats {
-		result += fmt.Sprintf("\tparams[%d] = float64(0)\n", g.filedIndex)
-		g.filedIndex++
+		result += "\t\tfloat64(0),\n"
 	}
 	for range fields.times {
-		result += fmt.Sprintf("\tparams[%d] = time.Time{}\n", g.filedIndex)
-		g.filedIndex++
+		result += "\t\ttime.Time{},\n"
 	}
 	for range fields.dates {
-		result += fmt.Sprintf("\tparams[%d] = time.Time{}\n", g.filedIndex)
-		g.filedIndex++
+		result += "\t\ttime.Time{},\n"
 	}
 	for k := range fields.strings {
 		if fields.stringsRequired[k] {
-			result += fmt.Sprintf("\tparams[%d] = \"\"\n", g.filedIndex)
+			result += "\t\t\"\",\n"
 		} else {
-			result += fmt.Sprintf("\tparams[%d] = sql.NullString{}\n", g.filedIndex)
+			result += "\t\tsql.NullString{},\n"
 		}
-		g.filedIndex++
 	}
 	for range fields.uIntegersNullable {
-		result += fmt.Sprintf("\tparams[%d] = sql.NullInt64{}\n", g.filedIndex)
-		g.filedIndex++
+		result += "\t\tsql.NullInt64{},\n"
 	}
 	for range fields.integersNullable {
-		result += fmt.Sprintf("\tparams[%d] = sql.NullInt64{}\n", g.filedIndex)
-		g.filedIndex++
+		result += "\t\tsql.NullInt64{},\n"
 	}
 	for k := range fields.stringsEnums {
 		d := fields.enums[k]
 		if d.required {
-			result += fmt.Sprintf("\tparams[%d] = \"\"\n", g.filedIndex)
+			result += "\t\t\"\",\n"
 		} else {
-			result += fmt.Sprintf("\tparams[%d] = sql.NullString{}\n", g.filedIndex)
+			result += "\t\tsql.NullString{},\n"
 		}
-		g.filedIndex++
 	}
 	for range fields.bytes {
-		result += fmt.Sprintf("\tparams[%d] = sql.NullString{}\n", g.filedIndex)
-		g.filedIndex++
+		result += "\t\tsql.NullString{},\n"
 	}
 	for k := range fields.sliceStringsSets {
 		d := fields.sets[k]
 		if d.required {
-			result += fmt.Sprintf("\tparams[%d] = \"\"\n", g.filedIndex)
+			result += "\t\t\"\",\n"
 		} else {
-			result += fmt.Sprintf("\tparams[%d] = sql.NullString{}\n", g.filedIndex)
+			result += "\t\tsql.NullString{},\n"
 		}
-		g.filedIndex++
 	}
 	for range fields.booleansNullable {
-		result += fmt.Sprintf("\tparams[%d] = sql.NullBool{}\n", g.filedIndex)
-		g.filedIndex++
+		result += "\t\tsql.NullBool{},\n"
 	}
 	for range fields.floatsNullable {
-		result += fmt.Sprintf("\tparams[%d] = sql.NullFloat64{}\n", g.filedIndex)
-		g.filedIndex++
+		result += "\t\tsql.NullFloat64{},\n"
 	}
 	for range fields.timesNullable {
-		result += fmt.Sprintf("\tparams[%d] = sql.NullTime{}\n", g.filedIndex)
-		g.filedIndex++
+		result += "\t\tsql.NullTime{},\n"
 	}
 	for range fields.datesNullable {
-		result += fmt.Sprintf("\tparams[%d] = sql.NullTime{}\n", g.filedIndex)
-		g.filedIndex++
+		result += "\t\tsql.NullTime{},\n"
 	}
 	for _, subFields := range fields.structsFields {
 		result += g.addQueryParamsLines(subFields)
