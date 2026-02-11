@@ -1187,6 +1187,82 @@ func (g *codeGenerator) createGetterSetterBoolNullable(schema *entitySchema, fie
 	g.filedIndex++
 }
 
+func (g *codeGenerator) createGetterSetterFloatNullable(schema *entitySchema, fieldName, entityName string, precision int) {
+	g.addLine(fmt.Sprintf("func (e *%s) Get%s() *float64 {", entityName, fieldName))
+	g.addLine("\tif !e.new {")
+	g.addLine("\t\tif e.databaseBind != nil {")
+	g.addLine(fmt.Sprintf("\t\t\tv, hasInDB := e.databaseBind[\"%s\"]", fieldName))
+	g.addLine("\t\t\tif hasInDB {")
+	g.addLine("\t\t\t\tvNullable := v.(sql.NullFloat64)")
+	g.addLine("\t\t\t\tif vNullable.Valid {")
+	g.addLine("\t\t\t\t\treturn &vNullable.Float64")
+	g.addLine("\t\t\t\t}")
+	g.addLine("\t\t\t\treturn nil")
+
+	g.addLine("\t\t\t}")
+	g.addLine("\t\t}")
+	if schema.hasRedisCache {
+		g.addLine("\t\tif e.originRedisValues != nil {")
+		g.addLine(fmt.Sprintf("\t\t\tif e.originRedisValues[%d] == \"\" {", g.filedIndex))
+		g.addLine("\t\t\t\treturn nil")
+		g.addLine("\t\t\t}")
+		g.addLine(fmt.Sprintf("\t\t\tfromRedis, _ := strconv.ParseFloat(e.originRedisValues[%d], 64)", g.filedIndex))
+		g.addLine("\t\t\treturn &fromRedis")
+		g.addLine("\t\t}")
+	}
+	g.addLine("\t}")
+	g.addLine("\tif e.originDatabaseValues != nil {")
+	g.addLine(fmt.Sprintf("\t\tif value := e.originDatabaseValues[%d]; value != nil {", g.filedIndex))
+	g.addLine("\t\t\tvNullable := value.(sql.NullFloat64)")
+	g.addLine("\t\t\tif vNullable.Valid {")
+	g.addLine("\t\t\t\treturn &vNullable.Float64")
+	g.addLine("\t\t\t}")
+	g.addLine("\t\t\treturn nil")
+	g.addLine("\t\t}")
+	g.addLine("\t}")
+	g.addLine("\treturn nil")
+	g.addLine("}")
+	g.addLine("")
+
+	g.addLine(fmt.Sprintf("func (e *%s) Set%s(value *float64) {", entityName, fieldName))
+	g.addLine("\tbindValue := sql.NullFloat64{}")
+	g.addLine("\tif value != nil {")
+	g.addLine("\t\tbindValue.Valid = true")
+	g.addLine("\t\tbindValue.Float64 = *value")
+	g.addLine("\t}")
+	g.addLine("\tif e.new {")
+	g.addLine(fmt.Sprintf("\t\te.originDatabaseValues[%d] = bindValue", g.filedIndex))
+	g.addLine("\t}")
+	if schema.hasRedisCache {
+		g.addLine("\tsame:= false")
+		g.addLine("\tif e.originRedisValues != nil {")
+		g.addLine("\t\tfromRedis := sql.NullFloat64{}")
+		g.addLine(fmt.Sprintf("\t\tif e.originRedisValues[%d] != \"\" {", g.filedIndex))
+		g.addLine("\t\t\tfromRedis.Valid = true")
+		g.addLine(fmt.Sprintf("\t\t\tfromRedis.Float64, _ = strconv.ParseFloat(e.originRedisValues[%d], 64)", g.filedIndex))
+		g.addLine("\t\t}")
+		g.addLine(fmt.Sprintf("\t\tsame = fromRedis.Valid == bindValue.Valid && math.Round(fromRedis.Float64*math.Pow10(%d)) == math.Round(bindValue.Float64*math.Pow10(%d))", precision, precision))
+		g.addLine("\t} else {")
+		g.addLine(fmt.Sprintf("\t\tsource := e.originDatabaseValues[%d].(sql.NullFloat64)", g.filedIndex))
+		g.addLine(fmt.Sprintf("\t\tsame = source.Valid == bindValue.Valid && math.Round(source.Float64*math.Pow10(%d)) == math.Round(bindValue.Float64*math.Pow10(%d))", precision, precision))
+		g.addLine("\t}")
+		g.addLine("\tif same {")
+		g.addLine(fmt.Sprintf("\t\tdelete(e.databaseBind, \"%s\")", fieldName))
+		g.addLine("\t\treturn")
+		g.addLine("\t}")
+	} else {
+		g.addLine(fmt.Sprintf("\tsource := e.originDatabaseValues[%d].(sql.NullFloat64)", g.filedIndex))
+		g.addLine(fmt.Sprintf("\tif source.Valid == bindValue.Valid && math.Round(source.Float64*math.Pow10(%d)) == math.Round(bindValue.Float64*math.Pow10(%d)) {", precision, precision))
+		g.addLine(fmt.Sprintf("\t\tdelete(e.databaseBind, \"%s\")", fieldName))
+		g.addLine("\t\treturn")
+		g.addLine("\t}")
+	}
+	g.addLine(fmt.Sprintf("\te.databaseBind[\"%s\"] = bindValue", fieldName))
+	g.addLine("}")
+	g.addLine("")
+	g.filedIndex++
+}
+
 func (g *codeGenerator) createGetterSetterSetNullable(schema *entitySchema, fieldName, entityName, setName string) {
 	g.addImport("sort")
 	g.addLine(fmt.Sprintf("func (e *%s) Get%s() []%s {", entityName, fieldName, setName))
@@ -1564,17 +1640,7 @@ func (g *codeGenerator) generateGettersSetters(entityName string, schema *entity
 	for k, i := range fields.floatsNullable {
 		fieldName := fields.prefix + fields.fields[i].Name
 		g.addImport("database/sql")
-		fromConverted := "\t\t\tv := value.(sql.NullFloat64)"
-		fromConverted += "\n\t\t\tif v.Valid {\n\t\t\t\treturn &v.Float64\n\t\t\t}"
-		fromConverted += "\n\t\t\treturn nil"
-		settings := getterSetterGenerateSettings{
-			ValueType:     "*float64",
-			FromRedisCode: "vSource, _ := strconv.ParseFloat(value, 64)\n\t\t\tv = &vSource",
-			ToRedisCode:   fmt.Sprintf("var asString string\n\t\t\tif value != nil {\n\t\t\tasString = strconv.FormatFloat(*value, 'f', %d, %d)\n\t\t}", fields.floatsPrecision[k], fields.floatsSize[k]),
-			FromConverted: fromConverted,
-			DefaultValue:  "nil",
-		}
-		g.generateGetterSetter(entityName, fieldName, schema, settings)
+		g.createGetterSetterFloatNullable(schema, fieldName, entityName, fields.floatsNullablePrecision[k])
 	}
 	for _, i := range fields.timesNullable {
 		g.addImport("time")
