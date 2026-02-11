@@ -47,10 +47,13 @@ func (r *Struct[E]) Get() *E {
 func (r *Struct[E]) setSerialized(v string) {
 	r.serialized = v
 	r.isSerialized = true
+	r.unserialized = nil
 }
 
 func (r Struct[E]) getSerialized() (string, error) {
-	if !r.isSerialized {
+	// If we have a decoded object in memory, prefer serializing it.
+	// This ensures mutations made through Get() are persisted on flush.
+	if r.unserialized != nil || !r.isSerialized {
 		asJson, err := jsoniter.ConfigFastest.MarshalToString(r.unserialized)
 		if err != nil {
 			return "", err
