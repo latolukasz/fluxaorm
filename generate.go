@@ -795,26 +795,26 @@ func (g *codeGenerator) createGetterSetterEnum(schema *entitySchema, fieldName, 
 
 	g.addLine(fmt.Sprintf("func (e *%s) Set%s(value %s) {", entityName, fieldName, enumName))
 	g.addLine("\tif e.new {")
-	g.addLine(fmt.Sprintf("\t\te.originDatabaseValues[%d] = value", g.filedIndex))
+	g.addLine(fmt.Sprintf("\t\te.originDatabaseValues[%d] = string(value)", g.filedIndex))
 	g.addLine("\t}")
 	if schema.hasRedisCache {
 		g.addLine("\tsame:= false")
 		g.addLine("\tif e.originRedisValues != nil {")
-		g.addLine(fmt.Sprintf("\t\tsame = e.originRedisValues[%d] == value", g.filedIndex))
+		g.addLine(fmt.Sprintf("\t\tsame = e.originRedisValues[%d] == string(value)", g.filedIndex))
 		g.addLine("\t} else {")
-		g.addLine(fmt.Sprintf("\t\tsame = e.originDatabaseValues[%d].(string) == value", g.filedIndex))
+		g.addLine(fmt.Sprintf("\t\tsame = e.originDatabaseValues[%d].(string) == string(value)", g.filedIndex))
 		g.addLine("\t}")
 		g.addLine("\tif same {")
 		g.addLine(fmt.Sprintf("\t\tdelete(e.databaseBind, \"%s\")", fieldName))
 		g.addLine("\t\treturn")
 		g.addLine("\t}")
 	} else {
-		g.addLine(fmt.Sprintf("\tif e.originDatabaseValues[%d].(string) == value {", g.filedIndex))
+		g.addLine(fmt.Sprintf("\tif e.originDatabaseValues[%d].(string) == string(value) {", g.filedIndex))
 		g.addLine(fmt.Sprintf("\t\tdelete(e.databaseBind, \"%s\")", fieldName))
 		g.addLine("\t\treturn")
 		g.addLine("\t}")
 	}
-	g.addLine(fmt.Sprintf("\te.databaseBind[\"%s\"] = value", fieldName))
+	g.addLine(fmt.Sprintf("\te.databaseBind[\"%s\"] = string(value)", fieldName))
 	g.addLine("}")
 	g.addLine("")
 	g.filedIndex++
