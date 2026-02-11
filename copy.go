@@ -52,10 +52,14 @@ func copyEntity(source, target reflect.Value, fields *tableFields, withID bool) 
 		copyField(source, target, fields, i)
 	}
 	for _, i := range fields.structJSONs {
-		target.Field(i).Set(source.Field(i))
+		copyStructJSONField(source.Field(i), target.Field(i))
 	}
 	for _, i := range fields.structJSONsArray {
-		copyField(source, target, fields, i)
+		fTarget := target.Field(i)
+		fSource := source.Field(i)
+		for j := 0; j < fields.arrays[i]; j++ {
+			copyStructJSONField(fSource.Index(j), fTarget.Index(j))
+		}
 	}
 	for _, i := range fields.integers {
 		target.Field(i).SetInt(source.Field(i).Int())
@@ -185,4 +189,22 @@ func copyField(source reflect.Value, target reflect.Value, fields *tableFields, 
 	for j := 0; j < fields.arrays[i]; j++ {
 		fTarget.Index(j).Set(fSource.Index(j))
 	}
+}
+
+func copyStructJSONField(source, target reflect.Value) {
+	target.Set(source)
+
+	getter, ok := source.Interface().(structGetter)
+	if !ok {
+		return
+	}
+	serialized, err := getter.getSerialized()
+	if err != nil {
+		return
+	}
+	setter, ok := target.Addr().Interface().(structSetter)
+	if !ok {
+		return
+	}
+	setter.setSerialized(serialized)
 }
