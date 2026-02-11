@@ -290,7 +290,6 @@ func (g *codeGenerator) generateCodeForEntity(schema *entitySchema) error {
 	g.addLine("\tid uint64")
 	g.addLine("\tnew bool")
 	g.addLine("\tdeleted bool")
-	g.addLine("\tconvertedValues []any")
 	g.addLine("\toriginDatabaseValues []any")
 	g.addLine("\tdatabaseBind fluxaorm.Bind")
 	if schema.hasRedisCache {
@@ -358,94 +357,6 @@ func (g *codeGenerator) generateCodeForEntity(schema *entitySchema) error {
 
 func (g *codeGenerator) addImport(value string) {
 	g.imports[value] = true
-}
-
-type getterSetterGenerateSettings struct {
-	ValueType               string
-	FromRedisCode           string
-	ToRedisCode             string
-	FromConverted           string
-	DefaultValue            string
-	DatabaseBindConvertCode string
-	AfterConvertedSet       string
-	OriginDatabaseCompare   string
-}
-
-func (g *codeGenerator) generateGetterSetter(entityName, fieldName string, schema *entitySchema, settings getterSetterGenerateSettings) {
-	g.addLine(fmt.Sprintf("func (e *%s) Get%s() %s {", entityName, fieldName, settings.ValueType))
-	g.addLine("\tif e.convertedValues != nil {")
-	g.addLine(fmt.Sprintf("\t\tif value := e.convertedValues[%d]; value != nil {", g.filedIndex))
-	g.addLine(settings.FromConverted)
-	g.addLine("\t\t}")
-	g.addLine("\t}")
-	g.addLine("\tif !e.new {")
-	if schema.hasRedisCache {
-		g.addLine("\t\tif e.originDatabaseValues != nil {")
-		g.addLine(fmt.Sprintf("\t\t\tif value := e.originDatabaseValues[%d]; value != nil {", g.filedIndex))
-		g.addLine(fmt.Sprintf("\t\t\t\treturn value.(%s)", settings.ValueType))
-		g.addLine("\t\t\t}")
-		g.addLine("\t\t}")
-		g.addLine(fmt.Sprintf("\t\tvar v %s", settings.ValueType))
-		g.addLine(fmt.Sprintf("\t\tif value := e.originRedisValues[%d]; value != \"\" {", g.filedIndex))
-		g.addLine(fmt.Sprintf("\t\t\t%s", settings.FromRedisCode))
-		g.addLine("\t\t}")
-		g.addLine(fmt.Sprintf("\t\te.convertedValues[%d] = v", g.filedIndex))
-		g.addLine("\t\treturn v")
-	} else {
-		g.addLine(fmt.Sprintf("\t\treturn e.originDatabaseValues[%d].(%s)", g.filedIndex, settings.ValueType))
-	}
-	g.addLine("\t}")
-	g.addLine(fmt.Sprintf("\treturn %s", settings.DefaultValue))
-	g.addLine("}")
-	g.addLine("")
-	g.addLine(fmt.Sprintf("func (e *%s) Set%s(value %s) {", entityName, fieldName, settings.ValueType))
-	g.addLine("\tif e.convertedValues == nil {")
-	g.addLine(fmt.Sprintf("\t\te.convertedValues = make([]any, %d)", len(schema.columnNames)))
-	g.addLine("\t}")
-	g.addLine(fmt.Sprintf("\te.convertedValues[%d] = value", g.filedIndex))
-	if settings.AfterConvertedSet != "" {
-		g.addLine(settings.AfterConvertedSet)
-	}
-	g.addLine("\tif !e.new {")
-	g.addLine("\t\tif e.originDatabaseValues != nil {")
-	if settings.OriginDatabaseCompare != "" {
-		g.addLine(fmt.Sprintf("\t\t\t%s", settings.OriginDatabaseCompare))
-	} else {
-		g.addLine(fmt.Sprintf("\t\t\tif e.originDatabaseValues[%d] == value {", g.filedIndex))
-	}
-	g.addLine(fmt.Sprintf("\t\t\t\tdelete(e.databaseBind, \"%s\")", fieldName))
-	if schema.hasRedisCache {
-		g.addLine(fmt.Sprintf("\t\t\t\tdelete(e.redisBind, %d)", g.filedIndex))
-	}
-	g.addLine("\t\t\t\treturn")
-	g.addLine("\t\t\t}")
-	g.addLine("\t\t}")
-	if schema.hasRedisCache {
-		if settings.ToRedisCode != "" {
-			g.addLine(fmt.Sprintf("\t\t%s", settings.ToRedisCode))
-		}
-		g.addLine(fmt.Sprintf("\t\tif e.originRedisValues[%d] == asString {", g.filedIndex))
-		g.addLine(fmt.Sprintf("\t\t\tdelete(e.databaseBind, \"%s\")", fieldName))
-		g.addLine(fmt.Sprintf("\t\t\tdelete(e.redisBind, %d)", g.filedIndex))
-		g.addLine("\t\t\treturn")
-		g.addLine("\t\t}")
-		g.addLine("\t\tif e.redisBind == nil {")
-		g.addLine("\t\t\te.redisBind = make(map[int]string)")
-		g.addLine("\t\t}")
-		g.addLine(fmt.Sprintf("\t\te.redisBind[%d] = asString", g.filedIndex))
-	}
-	g.addLine("\t\tif e.databaseBind == nil {")
-	g.addLine("\t\t\te.databaseBind = fluxaorm.Bind{}")
-	g.addLine("\t\t}")
-	if settings.DatabaseBindConvertCode != "" {
-		g.addLine(fmt.Sprintf("\t\t%s", settings.DatabaseBindConvertCode))
-	} else {
-		g.addLine(fmt.Sprintf("\t\te.databaseBind[\"%s\"] = value", fieldName))
-	}
-	g.addLine("\t}")
-	g.addLine("}")
-	g.addLine("")
-	g.filedIndex++
 }
 
 func (g *codeGenerator) createGetterSetterUint64(schema *entitySchema, fieldName, entityName, getterSuffix string) {
@@ -1125,6 +1036,86 @@ func (g *codeGenerator) createGetterSetterStringNullable(schema *entitySchema, f
 	g.filedIndex++
 }
 
+func (g *codeGenerator) createGetterSetterTimeNullable(schema *entitySchema, fieldName, entityName string, dateOnly bool) {
+	g.addLine(fmt.Sprintf("func (e *%s) Get%s() *time.Time {", entityName, fieldName))
+	g.addLine("\tif !e.new {")
+	g.addLine("\t\tif e.databaseBind != nil {")
+	g.addLine(fmt.Sprintf("\t\t\tv, hasInDB := e.databaseBind[\"%s\"]", fieldName))
+	g.addLine("\t\t\tif hasInDB {")
+	g.addLine("\t\t\t\tvNullable := v.(sql.NullTime)")
+	g.addLine("\t\t\t\tif vNullable.Valid {")
+	g.addLine("\t\t\t\t\treturn &vNullable.Time")
+	g.addLine("\t\t\t\t}")
+	g.addLine("\t\t\t\treturn nil")
+
+	g.addLine("\t\t\t}")
+	g.addLine("\t\t}")
+	if schema.hasRedisCache {
+		g.addLine("\t\tif e.originRedisValues != nil {")
+		g.addLine(fmt.Sprintf("\t\t\tif e.originRedisValues[%d] == \"\" {", g.filedIndex))
+		g.addLine("\t\t\t\treturn nil")
+		g.addLine("\t\t\t}")
+		g.addLine(fmt.Sprintf("\t\t\tfromRedis, _ := strconv.ParseInt(e.originRedisValues[%d], 10, 64)", g.filedIndex))
+		g.addLine("\t\t\tt := time.Unix(fromRedis, 0)")
+		g.addLine("\t\t\treturn &t")
+		g.addLine("\t\t}")
+	}
+	g.addLine("\t}")
+	g.addLine("\tif e.originDatabaseValues != nil {")
+	g.addLine(fmt.Sprintf("\t\tif value := e.originDatabaseValues[%d]; value != nil {", g.filedIndex))
+	g.addLine("\t\t\tvNullable := value.(sql.NullTime)")
+	g.addLine("\t\t\tif vNullable.Valid {")
+	g.addLine("\t\t\t\treturn &vNullable.Time")
+	g.addLine("\t\t\t}")
+	g.addLine("\t\t\treturn nil")
+	g.addLine("\t\t}")
+	g.addLine("\t}")
+	g.addLine("\treturn nil")
+	g.addLine("}")
+	g.addLine("")
+
+	g.addLine(fmt.Sprintf("func (e *%s) Set%s(value *time.Time) {", entityName, fieldName))
+	g.addLine("\tbindValue := sql.NullTime{}")
+	g.addLine("\tif value != nil {")
+	g.addLine("\t\tbindValue.Valid = true")
+	g.addLine("\t\tbindValue.Time = *value")
+	if dateOnly {
+		g.addLine("\t\tbindValue.Time = bindValue.Time.Truncate(time.Hour * 24)")
+	} else {
+		g.addLine("\t\tbindValue.Time = bindValue.Time.Truncate(time.Second)")
+	}
+	g.addLine("\t}")
+	g.addLine("\tif e.new {")
+	g.addLine(fmt.Sprintf("\t\te.originDatabaseValues[%d] = bindValue", g.filedIndex))
+	g.addLine("\t\treturn")
+	g.addLine("\t}")
+	if schema.hasRedisCache {
+		g.addLine("\tsame:= false")
+		g.addLine("\tif e.originRedisValues != nil {")
+		g.addLine("\t\tasString := \"\"")
+		g.addLine("\t\tif value != nil {")
+		g.addLine("\t\t\tasString = strconv.FormatInt(value.Unix(), 10)")
+		g.addLine("\t\t}")
+		g.addLine(fmt.Sprintf("\t\tsame = e.originRedisValues[%d] == asString", g.filedIndex))
+		g.addLine("\t} else {")
+		g.addLine(fmt.Sprintf("\t\tsame = e.originDatabaseValues[%d].(sql.NullTime) == bindValue", g.filedIndex))
+		g.addLine("\t}")
+		g.addLine("\tif same {")
+		g.addLine(fmt.Sprintf("\t\tdelete(e.databaseBind, \"%s\")", fieldName))
+		g.addLine("\t\treturn")
+		g.addLine("\t}")
+	} else {
+		g.addLine(fmt.Sprintf("\tif e.originDatabaseValues[%d].(sql.NullTime) == bindValue {", g.filedIndex))
+		g.addLine(fmt.Sprintf("\t\tdelete(e.databaseBind, \"%s\")", fieldName))
+		g.addLine("\t\treturn")
+		g.addLine("\t}")
+	}
+	g.addLine(fmt.Sprintf("\te.databaseBind[\"%s\"] = bindValue", fieldName))
+	g.addLine("}")
+	g.addLine("")
+	g.filedIndex++
+}
+
 func (g *codeGenerator) createGetterSetterBoolNullable(schema *entitySchema, fieldName, entityName string) {
 	g.addLine(fmt.Sprintf("func (e *%s) Get%s() *bool {", entityName, fieldName))
 	g.addLine("\tif !e.new {")
@@ -1662,33 +1653,13 @@ func (g *codeGenerator) generateGettersSetters(entityName string, schema *entity
 		g.addImport("time")
 		g.addImport("database/sql")
 		fieldName := fields.prefix + fields.fields[i].Name
-		fromConverted := "\t\t\tv := value.(sql.NullTime)"
-		fromConverted += "\n\t\t\tif v.Valid {\n\t\t\t\treturn &v.Time\n\t\t\t}"
-		fromConverted += "\n\t\t\treturn nil"
-		settings := getterSetterGenerateSettings{
-			ValueType:     "*time.Time",
-			FromRedisCode: "vSource, _ := time.ParseInLocation(time.DateTime, value, time.UTC)\n\t\t\tv = &vSource",
-			ToRedisCode:   "var asString string\n\t\t\tif value != nil {\n\t\t\tasString = value.Format(time.DateTime)\n\t\t}",
-			FromConverted: fromConverted,
-			DefaultValue:  "nil",
-		}
-		g.generateGetterSetter(entityName, fieldName, schema, settings)
+		g.createGetterSetterTimeNullable(schema, fieldName, entityName, false)
 	}
 	for _, i := range fields.datesNullable {
 		g.addImport("time")
 		g.addImport("database/sql")
 		fieldName := fields.prefix + fields.fields[i].Name
-		fromConverted := "\t\t\tv := value.(sql.NullTime)"
-		fromConverted += "\n\t\t\tif v.Valid {\n\t\t\t\treturn &v.Time\n\t\t\t}"
-		fromConverted += "\n\t\t\treturn nil"
-		settings := getterSetterGenerateSettings{
-			ValueType:     "*time.Time",
-			FromRedisCode: "vSource, _ := time.ParseInLocation(time.DateOnly, value, time.UTC)\n\t\t\tv = &vSource",
-			ToRedisCode:   "var asString string\n\t\t\tif value != nil {\n\t\t\tasString = value.Format(time.DateOnly)\n\t\t}",
-			FromConverted: fromConverted,
-			DefaultValue:  "nil",
-		}
-		g.generateGetterSetter(entityName, fieldName, schema, settings)
+		g.createGetterSetterTimeNullable(schema, fieldName, entityName, true)
 	}
 	for _, subFields := range fields.structsFields {
 		err := g.generateGettersSetters(entityName, schema, subFields)
