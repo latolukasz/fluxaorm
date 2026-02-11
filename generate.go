@@ -1114,6 +1114,79 @@ func (g *codeGenerator) createGetterSetterStringNullable(schema *entitySchema, f
 	g.filedIndex++
 }
 
+func (g *codeGenerator) createGetterSetterBoolNullable(schema *entitySchema, fieldName, entityName string) {
+	g.addLine(fmt.Sprintf("func (e *%s) Get%s() *bool {", entityName, fieldName))
+	g.addLine("\tif !e.new {")
+	g.addLine("\t\tif e.databaseBind != nil {")
+	g.addLine(fmt.Sprintf("\t\t\tv, hasInDB := e.databaseBind[\"%s\"]", fieldName))
+	g.addLine("\t\t\tif hasInDB {")
+	g.addLine("\t\t\t\tvNullable := v.(sql.NullBool)")
+	g.addLine("\t\t\t\tif vNullable.Valid {")
+	g.addLine("\t\t\t\t\treturn &vNullable.Bool")
+	g.addLine("\t\t\t\t}")
+	g.addLine("\t\t\t\treturn nil")
+
+	g.addLine("\t\t\t}")
+	g.addLine("\t\t}")
+	if schema.hasRedisCache {
+		g.addLine("\t\tif e.originRedisValues != nil {")
+		g.addLine(fmt.Sprintf("\t\t\tif e.originRedisValues[%d] == \"\" {", g.filedIndex))
+		g.addLine("\t\t\t\treturn nil")
+		g.addLine("\t\t\t}")
+		g.addLine(fmt.Sprintf("\t\t\tfromRedis := e.originRedisValues[%d] == \"1\"", g.filedIndex))
+		g.addLine("\t\t\treturn &fromRedis")
+		g.addLine("\t\t}")
+	}
+	g.addLine("\t}")
+	g.addLine("\tif e.originDatabaseValues != nil {")
+	g.addLine(fmt.Sprintf("\t\tif value := e.originDatabaseValues[%d]; value != nil {", g.filedIndex))
+	g.addLine("\t\t\tvNullable := value.(sql.NullBool)")
+	g.addLine("\t\t\tif vNullable.Valid {")
+	g.addLine("\t\t\t\treturn &vNullable.Bool")
+	g.addLine("\t\t\t}")
+	g.addLine("\t\t\treturn nil")
+	g.addLine("\t\t}")
+	g.addLine("\t}")
+	g.addLine("\treturn nil")
+	g.addLine("}")
+	g.addLine("")
+
+	g.addLine(fmt.Sprintf("func (e *%s) Set%s(value *bool) {", entityName, fieldName))
+	g.addLine("\tbindValue := sql.NullBool{}")
+	g.addLine("\tif value != nil {")
+	g.addLine("\t\tbindValue.Valid = true")
+	g.addLine("\t\tbindValue.Bool = *value")
+	g.addLine("\t}")
+	g.addLine("\tif e.new {")
+	g.addLine(fmt.Sprintf("\t\te.originDatabaseValues[%d] = bindValue", g.filedIndex))
+	g.addLine("\t}")
+	if schema.hasRedisCache {
+		g.addLine("\tsame:= false")
+		g.addLine("\tif e.originRedisValues != nil {")
+		g.addLine("\t\tasString := \"0\"")
+		g.addLine("\t\tif value != nil && *value {")
+		g.addLine("\t\t\tasString = \"1\"")
+		g.addLine("\t\t}")
+		g.addLine(fmt.Sprintf("\t\tsame = e.originRedisValues[%d] == asString", g.filedIndex))
+		g.addLine("\t} else {")
+		g.addLine(fmt.Sprintf("\t\tsame = e.originDatabaseValues[%d].(sql.NullBool) == bindValue", g.filedIndex))
+		g.addLine("\t}")
+		g.addLine("\tif same {")
+		g.addLine(fmt.Sprintf("\t\tdelete(e.databaseBind, \"%s\")", fieldName))
+		g.addLine("\t\treturn")
+		g.addLine("\t}")
+	} else {
+		g.addLine(fmt.Sprintf("\tif e.originDatabaseValues[%d].(sql.NullBool) == bindValue {", g.filedIndex))
+		g.addLine(fmt.Sprintf("\t\tdelete(e.databaseBind, \"%s\")", fieldName))
+		g.addLine("\t\treturn")
+		g.addLine("\t}")
+	}
+	g.addLine(fmt.Sprintf("\te.databaseBind[\"%s\"] = bindValue", fieldName))
+	g.addLine("}")
+	g.addLine("")
+	g.filedIndex++
+}
+
 func (g *codeGenerator) createGetterSetterSetNullable(schema *entitySchema, fieldName, entityName, setName string) {
 	g.addImport("sort")
 	g.addLine(fmt.Sprintf("func (e *%s) Get%s() []%s {", entityName, fieldName, setName))
@@ -1486,17 +1559,7 @@ func (g *codeGenerator) generateGettersSetters(entityName string, schema *entity
 	for _, i := range fields.booleansNullable {
 		fieldName := fields.prefix + fields.fields[i].Name
 		g.addImport("database/sql")
-		fromConverted := "\t\t\tv := value.(sql.NullBool)"
-		fromConverted += "\n\t\t\tif v.Valid {\n\t\t\t\treturn &v.Bool\n\t\t\t}"
-		fromConverted += "\n\t\t\treturn nil"
-		settings := getterSetterGenerateSettings{
-			ValueType:     "*bool",
-			FromRedisCode: "vSource := value == \"1\"\n\t\t\tv = &vSource",
-			ToRedisCode:   "var asString string\n\t\tif value != nil {\n\t\t\tif *value { asString = \"1\" } else { asString = \"0\" }\n\t\t}",
-			FromConverted: fromConverted,
-			DefaultValue:  "nil",
-		}
-		g.generateGetterSetter(entityName, fieldName, schema, settings)
+		g.createGetterSetterBoolNullable(schema, fieldName, entityName)
 	}
 	for k, i := range fields.floatsNullable {
 		fieldName := fields.prefix + fields.fields[i].Name
