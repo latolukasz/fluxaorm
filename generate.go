@@ -1114,6 +1114,94 @@ func (g *codeGenerator) createGetterSetterStringNullable(schema *entitySchema, f
 	g.filedIndex++
 }
 
+func (g *codeGenerator) createGetterSetterSetNullable(schema *entitySchema, fieldName, entityName, setName string) {
+	g.addImport("sort")
+	g.addLine(fmt.Sprintf("func (e *%s) Get%s() []%s {", entityName, fieldName, setName))
+	g.addLine("\tif !e.new {")
+	g.addLine("\t\tif e.databaseBind != nil {")
+	g.addLine(fmt.Sprintf("\t\t\tv, hasInDB := e.databaseBind[\"%s\"]", fieldName))
+	g.addLine("\t\t\tif hasInDB {")
+	g.addLine("\t\t\t\tvNullable := v.(sql.NullString)")
+	g.addLine("\t\t\t\tif vNullable.Valid {")
+	g.addLine("\t\t\t\t\tsliced := strings.Split(v.(string), \",\")")
+	g.addLine(fmt.Sprintf("\t\t\t\t\tvalue := make([]%s, len(sliced))", setName))
+	g.addLine("\t\t\t\t\tfor k, code := range sliced {")
+	g.addLine(fmt.Sprintf("\t\t\t\t\t\tvalue[k] = %s(code)", setName))
+	g.addLine("\t\t\t\t\t}")
+	g.addLine("\t\t\t\t\treturn value")
+	g.addLine("\t\t\t\t}")
+	g.addLine("\t\t\t\treturn nil")
+
+	g.addLine("\t\t\t}")
+	g.addLine("\t\t}")
+	if schema.hasRedisCache {
+		g.addLine("\t\tif e.originRedisValues != nil {")
+		g.addLine(fmt.Sprintf("\t\t\tif e.originRedisValues[%d] == \"\" {", g.filedIndex))
+		g.addLine("\t\t\t\treturn nil")
+		g.addLine("\t\t\t}")
+		g.addLine(fmt.Sprintf("\t\t\tsliced := strings.Split( e.originRedisValues[%d], \",\")", g.filedIndex))
+		g.addLine(fmt.Sprintf("\t\t\tvalue := make([]%s, len(sliced))", setName))
+		g.addLine("\t\t\tfor k, code := range sliced {")
+		g.addLine(fmt.Sprintf("\t\t\t\tvalue[k] = %s(code)", setName))
+		g.addLine("\t\t\t}")
+		g.addLine("\t\t\treturn value")
+		g.addLine("\t\t}")
+	}
+	g.addLine("\t}")
+	g.addLine("\tif e.originDatabaseValues != nil {")
+	g.addLine(fmt.Sprintf("\t\tif value := e.originDatabaseValues[%d]; value != nil {", g.filedIndex))
+	g.addLine("\t\t\tvNullable := value.(sql.NullString)")
+	g.addLine("\t\t\tif vNullable.Valid {")
+	g.addLine("\t\t\t\tsliced := strings.Split(vNullable.String, \",\")")
+	g.addLine(fmt.Sprintf("\t\t\t\tfinalValue := make([]%s, len(sliced))", setName))
+	g.addLine("\t\t\t\tfor k, code := range sliced {")
+	g.addLine(fmt.Sprintf("\t\t\t\t\tfinalValue[k] = %s(code)", setName))
+	g.addLine("\t\t\t\t}")
+	g.addLine("\t\t\t\treturn finalValue")
+	g.addLine("\t\t\t}")
+	g.addLine("\t\t\treturn nil")
+	g.addLine("\t\t}")
+	g.addLine("\t}")
+	g.addLine("\treturn nil")
+	g.addLine("}")
+	g.addLine("")
+
+	g.addLine(fmt.Sprintf("func (e *%s) Set%s(value *string) {", entityName, fieldName))
+	g.addLine("\tbindValue := sql.NullString{}")
+	g.addLine("\tif value != nil {")
+	g.addLine("\t\tbindValue.Valid = true")
+	g.addLine("\t\tbindValue.String = *value")
+	g.addLine("\t}")
+	g.addLine("\tif e.new {")
+	g.addLine(fmt.Sprintf("\t\te.originDatabaseValues[%d] = bindValue", g.filedIndex))
+	g.addLine("\t}")
+	if schema.hasRedisCache {
+		g.addLine("\tsame:= false")
+		g.addLine("\tif e.originRedisValues != nil {")
+		g.addLine("\t\tasString := \"\"")
+		g.addLine("\t\tif value != nil {")
+		g.addLine("\t\t\tasString = *value")
+		g.addLine("\t\t}")
+		g.addLine(fmt.Sprintf("\t\tsame = e.originRedisValues[%d] == asString", g.filedIndex))
+		g.addLine("\t} else {")
+		g.addLine(fmt.Sprintf("\t\tsame = e.originDatabaseValues[%d].(sql.NullString) == bindValue", g.filedIndex))
+		g.addLine("\t}")
+		g.addLine("\tif same {")
+		g.addLine(fmt.Sprintf("\t\tdelete(e.databaseBind, \"%s\")", fieldName))
+		g.addLine("\t\treturn")
+		g.addLine("\t}")
+	} else {
+		g.addLine(fmt.Sprintf("\tif e.originDatabaseValues[%d].(sql.NullString) == bindValue {", g.filedIndex))
+		g.addLine(fmt.Sprintf("\t\tdelete(e.databaseBind, \"%s\")", fieldName))
+		g.addLine("\t\treturn")
+		g.addLine("\t}")
+	}
+	g.addLine(fmt.Sprintf("\te.databaseBind[\"%s\"] = bindValue", fieldName))
+	g.addLine("}")
+	g.addLine("")
+	g.filedIndex++
+}
+
 func (g *codeGenerator) createGetterSetterBytesNullable(schema *entitySchema, fieldName, entityName string) {
 	g.addLine(fmt.Sprintf("func (e *%s) Get%s() []uint8 {", entityName, fieldName))
 	g.addLine("\tif !e.new {")
@@ -1389,25 +1477,10 @@ func (g *codeGenerator) generateGettersSetters(entityName string, schema *entity
 		fieldName := fields.prefix + fields.fields[i].Name
 		g.addImport("strings")
 		g.addImport("fmt")
-		settings := getterSetterGenerateSettings{
-			ValueType:             "[]" + enumFullName,
-			FromRedisCode:         fmt.Sprintf("values := strings.Split(value, \",\")\n\t\t\tv = make([]%s, len(values))\n\t\t\tfor k, code := range values {\n\t\t\t\tv[k] = enums.TestGenerateEnum(code)\n\t\t\t}", enumFullName),
-			ToRedisCode:           "",
-			FromConverted:         fmt.Sprintf("\t\t\treturn value.([]%s)", enumFullName),
-			DefaultValue:          "nil",
-			AfterConvertedSet:     "\tasString := fmt.Sprintf(\"%v\", value)",
-			OriginDatabaseCompare: fmt.Sprintf("if e.originDatabaseValues[%d] == asString {", g.filedIndex),
-		}
 		if d.required {
 			g.createGetterSetterSet(schema, fieldName, entityName, enumFullName)
 		} else {
-			g.addImport("database/sql")
-			settings.DatabaseBindConvertCode = "if len(value) == 0 {\n"
-			settings.DatabaseBindConvertCode += fmt.Sprintf("\t\t\te.databaseBind[\"%s\"] = nil\n", fieldName)
-			settings.DatabaseBindConvertCode += "\t\t} else {\n"
-			settings.DatabaseBindConvertCode += fmt.Sprintf("\t\t\te.databaseBind[\"%s\"] = asString\n", fieldName)
-			settings.DatabaseBindConvertCode += "\t\t}"
-			g.generateGetterSetter(entityName, fieldName, schema, settings)
+			g.createGetterSetterSetNullable(schema, fieldName, entityName, enumFullName)
 		}
 	}
 	for _, i := range fields.booleansNullable {
