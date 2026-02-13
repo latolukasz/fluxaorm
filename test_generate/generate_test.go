@@ -6,6 +6,8 @@ import (
 	"time"
 
 	"github.com/latolukasz/fluxaorm"
+	"github.com/latolukasz/fluxaorm/test_generate/entities"
+	"github.com/latolukasz/fluxaorm/test_generate/entities/enums"
 	"github.com/stretchr/testify/assert"
 )
 
@@ -114,41 +116,41 @@ func TestGenerate(t *testing.T) {
 	ctx := fluxaorm.PrepareTables(t, fluxaorm.NewRegistry(), generateEntity{}, generateEntityNoRedis{}, generateReferenceEntity{})
 	_ = os.MkdirAll("entities", 0755)
 
-	err := fluxaorm.Generate(ctx.Engine(), "entities")
-	assert.NoError(t, err)
-
-	//e := entities.GenerateEntityNoRedisProvider.New(ctx)
-	//assert.NotEmpty(t, e.GetID())
-	//assert.Equal(t, uint64(0), e.GetAge())
-	//assert.Equal(t, int64(0), e.GetBalance())
-	//assert.Nil(t, e.GetAgeNullable())
-	//assert.Nil(t, e.GetBalanceNullable())
-	//assert.Equal(t, "", e.GetName())
-	//assert.Nil(t, e.GetComment())
-	//assert.Equal(t, enums.TestGenerateEnumList.A, e.GetTestEnum())
-	//assert.Nil(t, e.GetTestEnumOptional())
-	//assert.Equal(t, []enums.TestGenerateEnum{enums.TestGenerateEnumList.A}, e.GetTestSet())
-	//assert.Nil(t, e.GetTestSetOptional())
-	//assert.Nil(t, e.GetByte())
-	//assert.False(t, e.GetBool())
-	//assert.Nil(t, e.GetBoolNullable())
-	//assert.Equal(t, float64(0), e.GetFloat())
-	//assert.Nil(t, e.GetFloatNullable())
-	//assert.Nil(t, e.GetTimeNullable())
-	//assert.Nil(t, e.GetDateNullable())
-	//assert.Equal(t, time.Date(1970, 1, 1, 0, 0, 0, 0, time.UTC), e.GetTime())
-	//assert.Equal(t, time.Date(1970, 1, 1, 0, 0, 0, 0, time.UTC), e.GetDate())
-	//assert.Nil(t, e.GetReferenceOptionalID())
-	//assert.NotNil(t, e)
-	//
-	//ctx.EnableQueryDebug()
-	//assert.NoError(t, ctx.Flush())
-	//
-	//id := e.GetID()
-	//e, found, err := entities.GenerateEntityNoRedisProvider.GetByID(ctx, id)
+	//err := fluxaorm.Generate(ctx.Engine(), "entities")
 	//assert.NoError(t, err)
-	//assert.True(t, found)
-	//assert.NotNil(t, e)
-	//assert.Equal(t, id, e.GetID())
-	//assert.Equal(t, uint64(0), e.GetAge())
+
+	e := entities.GenerateEntityNoRedisProvider.New(ctx)
+	assert.NotEmpty(t, e.GetID())
+	assert.Equal(t, uint64(0), e.GetAge())
+	assert.Equal(t, int64(0), e.GetBalance())
+	assert.Nil(t, e.GetAgeNullable())
+	assert.Nil(t, e.GetBalanceNullable())
+	assert.Equal(t, "", e.GetName())
+	assert.Nil(t, e.GetComment())
+	assert.Equal(t, enums.TestGenerateEnumList.A, e.GetTestEnum())
+	assert.Nil(t, e.GetTestEnumOptional())
+	assert.Equal(t, []enums.TestGenerateEnum{enums.TestGenerateEnumList.A}, e.GetTestSet())
+	assert.Nil(t, e.GetTestSetOptional())
+	assert.Nil(t, e.GetByte())
+	assert.False(t, e.GetBool())
+	assert.Nil(t, e.GetBoolNullable())
+	assert.Equal(t, float64(0), e.GetFloat())
+	assert.Nil(t, e.GetFloatNullable())
+	assert.Nil(t, e.GetTimeNullable())
+	assert.Nil(t, e.GetDateNullable())
+	assert.Equal(t, time.Date(1970, 1, 1, 0, 0, 0, 0, time.UTC), e.GetTime())
+	assert.Equal(t, time.Date(1970, 1, 1, 0, 0, 0, 0, time.UTC), e.GetDate())
+	assert.Nil(t, e.GetReferenceOptionalID())
+	assert.NotNil(t, e)
+
+	ctx.EnableQueryDebug()
+	assert.NoError(t, ctx.Flush())
+
+	id := e.GetID()
+	e, found, err := entities.GenerateEntityNoRedisProvider.GetByID(ctx, id)
+	assert.NoError(t, err)
+	assert.True(t, found)
+	assert.NotNil(t, e)
+	assert.Equal(t, id, e.GetID())
+	assert.Equal(t, uint64(0), e.GetAge())
 }
