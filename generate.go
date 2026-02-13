@@ -150,6 +150,10 @@ func (g *codeGenerator) generateCodeForEntity(schema *entitySchema) error {
 	g.addLine("\tredisCode string")
 	g.addLine("\tcacheIndex uint64")
 	g.addLine("\tuuidRedisKeyMutex *sync.Mutex")
+	if schema.hasRedisCache {
+		g.addLine("\tredisCachePrefix string")
+		g.addLine("\tredisCacheTTL int")
+	}
 	g.addLine("}")
 	g.addLine("")
 	g.addLine(fmt.Sprintf("var %s = %s{", providerName, providerNamePrivate))
@@ -157,6 +161,10 @@ func (g *codeGenerator) generateCodeForEntity(schema *entitySchema) error {
 	g.addLine(fmt.Sprintf("\tdbCode: \"%s\",", schema.mysqlPoolCode))
 	g.addLine(fmt.Sprintf("\tredisCode: \"%s\",", schema.getForcedRedisCode()))
 	g.addLine(fmt.Sprintf("\tcacheIndex: %d,", g.cacheIndex))
+	if schema.hasRedisCache {
+		g.addLine(fmt.Sprintf("\tredisCachePrefix: \"%s\",", schema.cacheKey+":"))
+		g.addLine(fmt.Sprintf("\tredisCacheTTL: %d,", schema.cacheTTL))
+	}
 	g.cacheIndex++
 	g.addLine(fmt.Sprintf("\tuuidRedisKeyMutex: &sync.Mutex{},"))
 	g.addLine("}")
@@ -321,7 +329,10 @@ func (g *codeGenerator) generateCodeForEntity(schema *entitySchema) error {
 	}
 	g.filedIndex = 0
 	insertQueryLine += g.addBindSetLines(schema, schema.fields)
-	insertQueryLine += fmt.Sprintf("\t\te.ctx.DatabasePipeLine(%s.dbCode).AddQuery(sqlQuery, e.originDatabaseValues...)", providerName)
+	insertQueryLine += fmt.Sprintf("\t\te.ctx.DatabasePipeLine(%s.dbCode).AddQuery(sqlQuery, e.originDatabaseValues...)\n", providerName)
+	if schema.hasRedisCache {
+		insertQueryLine += fmt.Sprintf("\t\te.ctx.RedisPipeLine(%s.redisCode).HSet(%s.redisCachePrefix+strconv.FormatUint(e.GetID(), 10), redisMSetValues...)", providerName, providerName)
+	}
 	g.addLine(insertQueryLine)
 	g.addLine("\t}")
 	g.addLine("\treturn nil")
