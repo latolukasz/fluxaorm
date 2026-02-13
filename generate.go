@@ -1908,16 +1908,17 @@ func (g *codeGenerator) addBindSetLines(schema *entitySchema, fields *tableField
 			}
 		} else {
 			result += fmt.Sprintf("\t\tvalue%s := e.Get%s()\n", fieldName, fieldName)
+			if schema.hasRedisCache {
+				result += fmt.Sprintf("\t\tredisMSetValues[%d] = \"%d\"\n", g.filedIndex*2, g.filedIndex)
+			}
 			result += fmt.Sprintf("\t\tif value%s == nil { \n", fieldName)
 			result += fmt.Sprintf("\t\t\te.originDatabaseValues[%d] = sql.NullString{}\n", g.filedIndex)
 			if schema.hasRedisCache {
-				result += fmt.Sprintf("\t\t\tredisMSetValues[%d] = \"%d\"\n", g.filedIndex*2, g.filedIndex)
 				result += fmt.Sprintf("\t\t\tredisMSetValues[%d] = \"\"\n", g.filedIndex*2+1)
 			}
 			result += "\t\t} else {\n"
 			result += fmt.Sprintf("\t\t\te.originDatabaseValues[%d] = sql.NullString{Valid: true, String: *value%s}\n", g.filedIndex, fieldName)
 			if schema.hasRedisCache {
-				result += fmt.Sprintf("\t\t\tredisMSetValues[%d] = \"%d\"\n", g.filedIndex*2, g.filedIndex)
 				result += fmt.Sprintf("\t\t\tredisMSetValues[%d] = *value%s\n", g.filedIndex*2+1, fieldName)
 			}
 			result += "\t\t}\n"
@@ -1927,16 +1928,17 @@ func (g *codeGenerator) addBindSetLines(schema *entitySchema, fields *tableField
 	for _, i := range fields.uIntegersNullable {
 		fieldName := fields.prefix + fields.fields[i].Name
 		result += fmt.Sprintf("\t\tvalue%s := e.Get%s()\n", fieldName, fieldName)
+		if schema.hasRedisCache {
+			result += fmt.Sprintf("\t\tredisMSetValues[%d] = \"%d\"\n", g.filedIndex*2, g.filedIndex)
+		}
 		result += fmt.Sprintf("\t\tif value%s == nil { \n", fieldName)
 		result += fmt.Sprintf("\t\t\te.originDatabaseValues[%d] = sql.NullInt64{}\n", g.filedIndex)
 		if schema.hasRedisCache {
-			result += fmt.Sprintf("\t\t\tredisMSetValues[%d] = \"%d\"\n", g.filedIndex*2, g.filedIndex)
 			result += fmt.Sprintf("\t\t\tredisMSetValues[%d] = \"\"\n", g.filedIndex*2+1)
 		}
 		result += "\t\t} else {\n"
 		result += fmt.Sprintf("\t\t\te.originDatabaseValues[%d] = sql.NullInt64{Valid: true, Int64: int64(*value%s)}\n", g.filedIndex, fieldName)
 		if schema.hasRedisCache {
-			result += fmt.Sprintf("\t\t\tredisMSetValues[%d] = \"%d\"\n", g.filedIndex*2, g.filedIndex)
 			result += fmt.Sprintf("\t\t\tredisMSetValues[%d] = *value%s\n", g.filedIndex*2+1, fieldName)
 		}
 		result += "\t\t}\n"
@@ -1945,16 +1947,17 @@ func (g *codeGenerator) addBindSetLines(schema *entitySchema, fields *tableField
 	for _, i := range fields.integersNullable {
 		fieldName := fields.prefix + fields.fields[i].Name
 		result += fmt.Sprintf("\t\tvalue%s := e.Get%s()\n", fieldName, fieldName)
+		if schema.hasRedisCache {
+			result += fmt.Sprintf("\t\tredisMSetValues[%d] = \"%d\"\n", g.filedIndex*2, g.filedIndex)
+		}
 		result += fmt.Sprintf("\t\tif value%s == nil { \n", fieldName)
 		result += fmt.Sprintf("\t\t\te.originDatabaseValues[%d] = sql.NullInt64{}\n", g.filedIndex)
 		if schema.hasRedisCache {
-			result += fmt.Sprintf("\t\t\tredisMSetValues[%d] = \"%d\"\n", g.filedIndex*2, g.filedIndex)
 			result += fmt.Sprintf("\t\t\tredisMSetValues[%d] = \"\"\n", g.filedIndex*2+1)
 		}
 		result += "\t\t} else {\n"
 		result += fmt.Sprintf("\t\t\te.originDatabaseValues[%d] = sql.NullInt64{Valid: true, Int64: *value%s}\n", g.filedIndex, fieldName)
 		if schema.hasRedisCache {
-			result += fmt.Sprintf("\t\t\tredisMSetValues[%d] = \"%d\"\n", g.filedIndex*2, g.filedIndex)
 			result += fmt.Sprintf("\t\t\tredisMSetValues[%d] = *value%s\n", g.filedIndex*2+1, fieldName)
 		}
 		result += "\t\t}\n"
@@ -1971,16 +1974,17 @@ func (g *codeGenerator) addBindSetLines(schema *entitySchema, fields *tableField
 			}
 		} else {
 			result += fmt.Sprintf("\t\tvalue%s := e.Get%s()\n", fieldName, fieldName)
+			if schema.hasRedisCache {
+				result += fmt.Sprintf("\t\tredisMSetValues[%d] = \"%d\"\n", g.filedIndex*2, g.filedIndex)
+			}
 			result += fmt.Sprintf("\t\tif value%s == nil { \n", fieldName)
 			result += fmt.Sprintf("\t\t\te.originDatabaseValues[%d] = sql.NullString{}\n", g.filedIndex)
 			if schema.hasRedisCache {
-				result += fmt.Sprintf("\t\t\tredisMSetValues[%d] = \"%d\"\n", g.filedIndex*2, g.filedIndex)
 				result += fmt.Sprintf("\t\t\tredisMSetValues[%d] = \"\"\n", g.filedIndex*2+1)
 			}
 			result += "\t\t} else {\n"
 			result += fmt.Sprintf("\t\t\te.originDatabaseValues[%d] = sql.NullString{Valid: true, String: string(*value%s)}\n", g.filedIndex, fieldName)
 			if schema.hasRedisCache {
-				result += fmt.Sprintf("\t\t\tredisMSetValues[%d] = \"%d\"\n", g.filedIndex*2, g.filedIndex)
 				result += fmt.Sprintf("\t\t\tredisMSetValues[%d] = string(*value%s)\n", g.filedIndex*2+1, fieldName)
 			}
 			result += "\t\t}\n"
@@ -1990,16 +1994,17 @@ func (g *codeGenerator) addBindSetLines(schema *entitySchema, fields *tableField
 	for _, i := range fields.bytes {
 		fieldName := fields.prefix + fields.fields[i].Name
 		result += fmt.Sprintf("\t\tvalue%s := e.Get%s()\n", fieldName, fieldName)
+		if schema.hasRedisCache {
+			result += fmt.Sprintf("\t\tredisMSetValues[%d] = \"%d\"\n", g.filedIndex*2, g.filedIndex)
+		}
 		result += fmt.Sprintf("\t\tif value%s == nil { \n", fieldName)
 		result += fmt.Sprintf("\t\t\te.originDatabaseValues[%d] = sql.NullString{}\n", g.filedIndex)
 		if schema.hasRedisCache {
-			result += fmt.Sprintf("\t\t\tredisMSetValues[%d] = \"%d\"\n", g.filedIndex*2, g.filedIndex)
 			result += fmt.Sprintf("\t\t\tredisMSetValues[%d] = \"\"\n", g.filedIndex*2+1)
 		}
 		result += "\t\t} else {\n"
 		result += fmt.Sprintf("\t\t\te.originDatabaseValues[%d] = sql.NullString{Valid: true, String: string(value%s)}\n", g.filedIndex, fieldName)
 		if schema.hasRedisCache {
-			result += fmt.Sprintf("\t\t\tredisMSetValues[%d] = \"%d\"\n", g.filedIndex*2, g.filedIndex)
 			result += fmt.Sprintf("\t\t\tredisMSetValues[%d] = string(value%s)\n", g.filedIndex*2+1, fieldName)
 		}
 		result += "\t\t}\n"
@@ -2023,10 +2028,12 @@ func (g *codeGenerator) addBindSetLines(schema *entitySchema, fields *tableField
 			}
 		} else {
 			result += fmt.Sprintf("\t\tvalue%s := e.Get%s()\n", fieldName, fieldName)
+			if schema.hasRedisCache {
+				result += fmt.Sprintf("\t\tredisMSetValues[%d] = \"%d\"\n", g.filedIndex*2, g.filedIndex)
+			}
 			result += fmt.Sprintf("\t\tif value%s == nil {\n", fieldName)
 			result += fmt.Sprintf("\t\t\te.originDatabaseValues[%d] = sql.NullString{}\n", g.filedIndex)
 			if schema.hasRedisCache {
-				result += fmt.Sprintf("\t\t\tredisMSetValues[%d] = \"%d\"\n", g.filedIndex*2, g.filedIndex)
 				result += fmt.Sprintf("\t\t\tredisMSetValues[%d] = \"\"\n", g.filedIndex*2+1)
 			}
 			result += "\t\t} else {\n"
@@ -2036,7 +2043,6 @@ func (g *codeGenerator) addBindSetLines(schema *entitySchema, fields *tableField
 			result += "\t\t\t}\n"
 			result += fmt.Sprintf("\t\t\te.originDatabaseValues[%d] = sql.NullString{Valid: true, String: strings.Join(value%sStrings, \",\")}\n", g.filedIndex, fieldName)
 			if schema.hasRedisCache {
-				result += fmt.Sprintf("\t\t\tredisMSetValues[%d] = \"%d\"\n", g.filedIndex*2, g.filedIndex)
 				result += fmt.Sprintf("\t\t\tredisMSetValues[%d] = e.originDatabaseValues[%d].(sql.NullString).String\n", g.filedIndex*2+1, g.filedIndex)
 			}
 			result += "\t\t}\n"
@@ -2046,20 +2052,20 @@ func (g *codeGenerator) addBindSetLines(schema *entitySchema, fields *tableField
 	for _, i := range fields.booleansNullable {
 		fieldName := fields.prefix + fields.fields[i].Name
 		result += fmt.Sprintf("\t\tvalue%s := e.Get%s()\n", fieldName, fieldName)
+		if schema.hasRedisCache {
+			result += fmt.Sprintf("\t\tredisMSetValues[%d] = \"%d\"\n", g.filedIndex*2, g.filedIndex)
+		}
 		result += fmt.Sprintf("\t\tif value%s == nil { \n", fieldName)
 		result += fmt.Sprintf("\t\t\te.originDatabaseValues[%d] = sql.NullBool{}\n", g.filedIndex)
 		if schema.hasRedisCache {
-			result += fmt.Sprintf("\t\t\tredisMSetValues[%d] = \"%d\"\n", g.filedIndex*2, g.filedIndex)
 			result += fmt.Sprintf("\t\t\tredisMSetValues[%d] = \"\"\n", g.filedIndex*2+1)
 		}
 		result += "\t\t} else {\n"
 		result += fmt.Sprintf("\t\t\te.originDatabaseValues[%d] = sql.NullBool{Valid: true, Bool: *value%s}\n", g.filedIndex, fieldName)
 		if schema.hasRedisCache {
 			result += fmt.Sprintf("\t\t\tif *value%s {\n", fieldName)
-			result += fmt.Sprintf("\t\t\t\tredisMSetValues[%d] = \"%d\"\n", g.filedIndex*2, g.filedIndex)
 			result += fmt.Sprintf("\t\t\t\tredisMSetValues[%d] = \"1\"\n", g.filedIndex*2+1)
 			result += fmt.Sprintf("\t\t\t} else {\n")
-			result += fmt.Sprintf("\t\t\t\tredisMSetValues[%d] = \"%d\"\n", g.filedIndex*2, g.filedIndex)
 			result += fmt.Sprintf("\t\t\t\tredisMSetValues[%d] = \"0\"\n", g.filedIndex*2+1)
 			result += fmt.Sprintf("\t\t\t}\n")
 		}
@@ -2069,16 +2075,17 @@ func (g *codeGenerator) addBindSetLines(schema *entitySchema, fields *tableField
 	for k, i := range fields.floatsNullable {
 		fieldName := fields.prefix + fields.fields[i].Name
 		result += fmt.Sprintf("\t\tvalue%s := e.Get%s()\n", fieldName, fieldName)
+		if schema.hasRedisCache {
+			result += fmt.Sprintf("\t\tredisMSetValues[%d] = \"%d\"\n", g.filedIndex*2, g.filedIndex)
+		}
 		result += fmt.Sprintf("\t\tif value%s == nil { \n", fieldName)
 		result += fmt.Sprintf("\t\t\te.originDatabaseValues[%d] = sql.NullFloat64{}\n", g.filedIndex)
 		if schema.hasRedisCache {
-			result += fmt.Sprintf("\t\t\tredisMSetValues[%d] = \"%d\"\n", g.filedIndex*2, g.filedIndex)
 			result += fmt.Sprintf("\t\t\tredisMSetValues[%d] = \"\"\n", g.filedIndex*2+1)
 		}
 		result += "\t\t} else {\n"
 		result += fmt.Sprintf("\t\t\te.originDatabaseValues[%d] = sql.NullFloat64{Valid: true, Float64: *value%s}\n", g.filedIndex, fieldName)
 		if schema.hasRedisCache {
-			result += fmt.Sprintf("\t\t\tredisMSetValues[%d] = \"%d\"\n", g.filedIndex*2, g.filedIndex)
 			result += fmt.Sprintf("\t\t\tredisMSetValues[%d] = strconv.FormatFloat(*value%s, 'f', %d, %d)\n", g.filedIndex*2+1, fieldName, fields.floatsNullablePrecision[k], fields.floatsNullableSize[k])
 		}
 		result += "\t\t}\n"
@@ -2087,16 +2094,17 @@ func (g *codeGenerator) addBindSetLines(schema *entitySchema, fields *tableField
 	for _, i := range fields.timesNullable {
 		fieldName := fields.prefix + fields.fields[i].Name
 		result += fmt.Sprintf("\t\tvalue%s := e.Get%s()\n", fieldName, fieldName)
+		if schema.hasRedisCache {
+			result += fmt.Sprintf("\t\tredisMSetValues[%d] = \"%d\"\n", g.filedIndex*2, g.filedIndex)
+		}
 		result += fmt.Sprintf("\t\tif value%s == nil { \n", fieldName)
 		result += fmt.Sprintf("\t\t\te.originDatabaseValues[%d] = sql.NullTime{}\n", g.filedIndex)
 		if schema.hasRedisCache {
-			result += fmt.Sprintf("\t\t\tredisMSetValues[%d] = \"%d\"\n", g.filedIndex*2, g.filedIndex)
 			result += fmt.Sprintf("\t\t\tredisMSetValues[%d] = \"\"\n", g.filedIndex*2+1)
 		}
 		result += "\t\t} else {\n"
 		result += fmt.Sprintf("\t\t\te.originDatabaseValues[%d] = sql.NullTime{Valid: true, Time: *value%s}\n", g.filedIndex, fieldName)
 		if schema.hasRedisCache {
-			result += fmt.Sprintf("\t\t\tredisMSetValues[%d] = \"%d\"\n", g.filedIndex*2, g.filedIndex)
 			result += fmt.Sprintf("\t\t\tredisMSetValues[%d] = strconv.FormatInt((*value%s).Unix(), 10)\n", g.filedIndex*2+1, fieldName)
 		}
 		result += "\t\t}\n"
@@ -2105,16 +2113,17 @@ func (g *codeGenerator) addBindSetLines(schema *entitySchema, fields *tableField
 	for _, i := range fields.datesNullable {
 		fieldName := fields.prefix + fields.fields[i].Name
 		result += fmt.Sprintf("\t\tvalue%s := e.Get%s()\n", fieldName, fieldName)
+		if schema.hasRedisCache {
+			result += fmt.Sprintf("\t\tredisMSetValues[%d] = \"%d\"\n", g.filedIndex*2, g.filedIndex)
+		}
 		result += fmt.Sprintf("\t\tif value%s == nil { \n", fieldName)
 		result += fmt.Sprintf("\t\t\te.originDatabaseValues[%d] = sql.NullTime{}\n", g.filedIndex)
 		if schema.hasRedisCache {
-			result += fmt.Sprintf("\t\t\tredisMSetValues[%d] = \"%d\"\n", g.filedIndex*2, g.filedIndex)
 			result += fmt.Sprintf("\t\t\tredisMSetValues[%d] = \"\"\n", g.filedIndex*2+1)
 		}
 		result += "\t\t} else {\n"
 		result += fmt.Sprintf("\t\t\te.originDatabaseValues[%d] = sql.NullTime{Valid: true, Time: *value%s}\n", g.filedIndex, fieldName)
 		if schema.hasRedisCache {
-			result += fmt.Sprintf("\t\t\tredisMSetValues[%d] = \"%d\"\n", g.filedIndex*2, g.filedIndex)
 			result += fmt.Sprintf("\t\t\tredisMSetValues[%d] = strconv.FormatInt((*value%s).Unix(), 10)\n", g.filedIndex*2+1, fieldName)
 		}
 		result += "\t\t}\n"
