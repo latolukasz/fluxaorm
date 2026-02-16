@@ -65,6 +65,12 @@ func (orm *ormImplementation) flushGenerated(async bool) (err error) {
 			return err
 		}
 	}
+	for _, redisPipeline := range orm.redisPipeLines {
+		_, err = redisPipeline.Exec(orm)
+		if err != nil {
+			return err
+		}
+	}
 	orm.trackedGeneratedEntities.Range(func(_ uint64, value *xsync.MapOf[uint64, Flushable]) bool {
 		value.Range(func(_ uint64, f Flushable) bool {
 			f.PrivateFlushed()

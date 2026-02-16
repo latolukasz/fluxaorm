@@ -1914,9 +1914,8 @@ func (g *codeGenerator) addRedisBindSetLines(schema *entitySchema, fields *table
 			result += fmt.Sprintf("\t\t\tvalue%sStrings[i] = string(v)\n", fieldName)
 			result += "\t\t}\n"
 			result += fmt.Sprintf("\t\te.originDatabaseValues.F%d =  strings.Join(value%sStrings, \",\")\n", g.filedIndex, fieldName)
-			result += fmt.Sprintf("\t\te.originRedisValues[%d] = e.originDatabaseValues.F%d\n", g.filedIndex, g.filedIndex)
-			result += fmt.Sprintf("\t\t\tredisMSetValues[%d] = \"%d\"\n", g.filedIndex*2, g.filedIndex)
-			result += fmt.Sprintf("\t\t\tredisMSetValues[%d] = e.originDatabaseValues.F%d\n", g.filedIndex*2+1, g.filedIndex)
+			result += fmt.Sprintf("\t\tredisMSetValues[%d] = \"%d\"\n", g.filedIndex*2, g.filedIndex)
+			result += fmt.Sprintf("\t\tredisMSetValues[%d] = e.originDatabaseValues.F%d\n", g.filedIndex*2+1, g.filedIndex)
 		} else {
 			result += fmt.Sprintf("\t\tvalue%s := e.Get%s()\n", fieldName, fieldName)
 			result += fmt.Sprintf("\t\tredisMSetValues[%d] = \"%d\"\n", g.filedIndex*2, g.filedIndex)
