@@ -211,7 +211,7 @@ func (g *codeGenerator) generateCodeForEntity(schema *entitySchema) error {
 	g.addLine("}")
 	g.addLine("")
 	g.addLine(fmt.Sprintf("func (p %s) NewWithID(ctx fluxaorm.Context, id uint64) *%s  {", providerNamePrivate, entityName))
-	g.addLine(fmt.Sprintf("\te := &%s{ctx: ctx, new: true, id: id, originDatabaseValues: &%s{}}", entityName, sqlRowName))
+	g.addLine(fmt.Sprintf("\te := &%s{ctx: ctx, new: true, id: id, originDatabaseValues: &%s{F0: id}}", entityName, sqlRowName))
 	g.addLine(fmt.Sprintf("\te.ctx.Track(e, %s.cacheIndex)", providerName))
 	if schema.hasRedisCache {
 		g.addImport("strconv")
@@ -752,6 +752,9 @@ func (g *codeGenerator) createGetterSetterSet(schema *entitySchema, fieldName, e
 		g.addLine("\t\t}")
 	}
 	g.addLine("\t}")
+	g.addLine(fmt.Sprintf("\tif e.originDatabaseValues.F%d == \"\" {", g.filedIndex))
+	g.addLine("\t\treturn nil")
+	g.addLine("\t}")
 	g.addLine(fmt.Sprintf("\tsliced := strings.Split(e.originDatabaseValues.F%d, \",\")", g.filedIndex))
 	g.addLine(fmt.Sprintf("\tfinalValue := make([]%s, len(sliced))", setName))
 	g.addLine("\tfor k, code := range sliced {")
@@ -1249,6 +1252,9 @@ func (g *codeGenerator) createGetterSetterSetNullable(schema *entitySchema, fiel
 	}
 	g.addLine("\t}")
 	g.addLine(fmt.Sprintf("\tif e.originDatabaseValues.F%d.Valid {", g.filedIndex))
+	g.addLine(fmt.Sprintf("\t\tif e.originDatabaseValues.F%d.String == \"\" {", g.filedIndex))
+	g.addLine("\t\t\treturn nil")
+	g.addLine("\t\t}")
 	g.addLine(fmt.Sprintf("\t\tsliced := strings.Split(e.originDatabaseValues.F%d.String, \",\")", g.filedIndex))
 	g.addLine(fmt.Sprintf("\t\tfinalValue := make([]%s, len(sliced))", setName))
 	g.addLine("\t\tfor k, code := range sliced {")

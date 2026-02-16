@@ -72,7 +72,11 @@ func (r *registry) Validate() (Engine, error) {
 		if len(k) > maxPoolLen {
 			maxPoolLen = len(k)
 		}
-		db, err := sql.Open("mysql", v.GetDataSourceURI())
+		sourceURI := v.GetDataSourceURI()
+		if v.GetOptions().Beta {
+			sourceURI += "?parseTime=true&loc=UTC"
+		}
+		db, err := sql.Open("mysql", sourceURI)
 		if err != nil {
 			return nil, err
 		}
@@ -314,6 +318,7 @@ type MySQLOptions struct {
 	DefaultEncoding    string
 	DefaultCollate     string
 	IgnoredTables      []string
+	Beta               bool
 }
 
 func (r *registry) RegisterMySQL(dataSourceName string, poolCode string, poolOptions *MySQLOptions) {

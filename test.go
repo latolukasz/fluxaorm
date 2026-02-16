@@ -22,7 +22,15 @@ func (h *MockLogHandler) Clear() {
 }
 
 func PrepareTables(t *testing.T, registry Registry, entities ...any) (orm Context) {
-	registry.RegisterMySQL("root:root@tcp(localhost:3397)/test", DefaultPoolCode, &MySQLOptions{})
+	return prepareTables(t, registry, &MySQLOptions{}, entities...)
+}
+
+func PrepareTablesBeta(t *testing.T, registry Registry, entities ...any) (orm Context) {
+	return prepareTables(t, registry, &MySQLOptions{Beta: true}, entities...)
+}
+
+func prepareTables(t *testing.T, registry Registry, mysqlOptions *MySQLOptions, entities ...any) (orm Context) {
+	registry.RegisterMySQL("root:root@tcp(localhost:3397)/test", DefaultPoolCode, mysqlOptions)
 	registry.RegisterRedis("localhost:6395", 0, DefaultPoolCode, nil)
 	registry.RegisterRedis("localhost:6395", 1, "second", nil)
 	registry.RegisterLocalCache(DefaultPoolCode, 0)
