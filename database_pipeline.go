@@ -26,7 +26,7 @@ func (dp *DatabasePipeline) Exec(ctx Context) error {
 		return err
 	}
 	for i, query := range dp.queries {
-		_, err = tr.Exec(ctx, query, dp.parameters[i])
+		_, err = tr.Exec(ctx, query, dp.parameters[i]...)
 		if err != nil {
 			return err
 		}
