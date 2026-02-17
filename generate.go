@@ -462,6 +462,9 @@ func (g *codeGenerator) createGetterSetterUint64(schema *entitySchema, fieldName
 		g.addLine("\t\treturn")
 		g.addLine("\t}")
 	}
+	g.addLine("\tif e.databaseBind == nil {")
+	g.addLine("\t\te.databaseBind = fluxaorm.Bind{}")
+	g.addLine("\t}")
 	g.addLine(fmt.Sprintf("\te.databaseBind[\"%s\"] = value", fieldName))
 	g.addLine("}")
 	g.addLine("")
@@ -511,6 +514,9 @@ func (g *codeGenerator) createGetterSetterInt64(schema *entitySchema, fieldName,
 		g.addLine("\t\treturn")
 		g.addLine("\t}")
 	}
+	g.addLine("\tif e.databaseBind == nil {")
+	g.addLine("\t\te.databaseBind = fluxaorm.Bind{}")
+	g.addLine("\t}")
 	g.addLine(fmt.Sprintf("\te.databaseBind[\"%s\"] = value", fieldName))
 	g.addLine("}")
 	g.addLine("")
@@ -559,6 +565,9 @@ func (g *codeGenerator) createGetterSetterBool(schema *entitySchema, fieldName, 
 		g.addLine("\t\treturn")
 		g.addLine("\t}")
 	}
+	g.addLine("\tif e.databaseBind == nil {")
+	g.addLine("\t\te.databaseBind = fluxaorm.Bind{}")
+	g.addLine("\t}")
 	g.addLine(fmt.Sprintf("\te.databaseBind[\"%s\"] = value", fieldName))
 	g.addLine("}")
 	g.addLine("")
@@ -609,6 +618,9 @@ func (g *codeGenerator) createGetterSetterFloat(schema *entitySchema, fieldName,
 		g.addLine("\t\treturn")
 		g.addLine("\t}")
 	}
+	g.addLine("\tif e.databaseBind == nil {")
+	g.addLine("\t\te.databaseBind = fluxaorm.Bind{}")
+	g.addLine("\t}")
 	g.addLine(fmt.Sprintf("\te.databaseBind[\"%s\"] = value", fieldName))
 	g.addLine("}")
 	g.addLine("")
@@ -663,6 +675,9 @@ func (g *codeGenerator) createGetterSetterTime(schema *entitySchema, fieldName, 
 		g.addLine("\t\treturn")
 		g.addLine("\t}")
 	}
+	g.addLine("\tif e.databaseBind == nil {")
+	g.addLine("\t\te.databaseBind = fluxaorm.Bind{}")
+	g.addLine("\t}")
 	g.addLine(fmt.Sprintf("\te.databaseBind[\"%s\"] = value", fieldName))
 	g.addLine("}")
 	g.addLine("")
@@ -710,6 +725,9 @@ func (g *codeGenerator) createGetterSetterString(schema *entitySchema, fieldName
 		g.addLine("\t\treturn")
 		g.addLine("\t}")
 	}
+	g.addLine("\tif e.databaseBind == nil {")
+	g.addLine("\t\te.databaseBind = fluxaorm.Bind{}")
+	g.addLine("\t}")
 	g.addLine(fmt.Sprintf("\te.databaseBind[\"%s\"] = value", fieldName))
 	g.addLine("}")
 	g.addLine("")
@@ -757,6 +775,9 @@ func (g *codeGenerator) createGetterSetterEnum(schema *entitySchema, fieldName, 
 		g.addLine("\t\treturn")
 		g.addLine("\t}")
 	}
+	g.addLine("\tif e.databaseBind == nil {")
+	g.addLine("\t\te.databaseBind = fluxaorm.Bind{}")
+	g.addLine("\t}")
 	g.addLine(fmt.Sprintf("\te.databaseBind[\"%s\"] = string(value)", fieldName))
 	g.addLine("}")
 	g.addLine("")
@@ -832,6 +853,12 @@ func (g *codeGenerator) createGetterSetterSet(schema *entitySchema, fieldName, e
 		g.addLine("\t\treturn")
 		g.addLine("\t}")
 	}
+	g.addLine("\tif e.databaseBind == nil {")
+	g.addLine("\t\te.databaseBind = fluxaorm.Bind{}")
+	g.addLine("\t}")
+	g.addLine("\tif e.databaseBind == nil {")
+	g.addLine("\t\te.databaseBind = fluxaorm.Bind{}")
+	g.addLine("\t}")
 	g.addLine(fmt.Sprintf("\te.databaseBind[\"%s\"] = asString", fieldName))
 	g.addLine("}")
 	g.addLine("")
@@ -902,6 +929,9 @@ func (g *codeGenerator) createGetterSetterUint64Nullable(schema *entitySchema, f
 		g.addLine("\t\treturn")
 		g.addLine("\t}")
 	}
+	g.addLine("\tif e.databaseBind == nil {")
+	g.addLine("\t\te.databaseBind = fluxaorm.Bind{}")
+	g.addLine("\t}")
 	g.addLine(fmt.Sprintf("\te.databaseBind[\"%s\"] = bindValue", fieldName))
 	g.addLine("}")
 	g.addLine("")
@@ -970,6 +1000,9 @@ func (g *codeGenerator) createGetterSetterInt64Nullable(schema *entitySchema, fi
 		g.addLine("\t\treturn")
 		g.addLine("\t}")
 	}
+	g.addLine("\tif e.databaseBind == nil {")
+	g.addLine("\t\te.databaseBind = fluxaorm.Bind{}")
+	g.addLine("\t}")
 	g.addLine(fmt.Sprintf("\te.databaseBind[\"%s\"] = bindValue", fieldName))
 	g.addLine("}")
 	g.addLine("")
@@ -1038,6 +1071,9 @@ func (g *codeGenerator) createGetterSetterStringNullable(schema *entitySchema, f
 		g.addLine("\t\treturn")
 		g.addLine("\t}")
 	}
+	g.addLine("\tif e.databaseBind == nil {")
+	g.addLine("\t\te.databaseBind = fluxaorm.Bind{}")
+	g.addLine("\t}")
 	g.addLine(fmt.Sprintf("\te.databaseBind[\"%s\"] = bindValue", fieldName))
 	g.addLine("}")
 	g.addLine("")
@@ -1112,6 +1148,9 @@ func (g *codeGenerator) createGetterSetterTimeNullable(schema *entitySchema, fie
 		g.addLine("\t\treturn")
 		g.addLine("\t}")
 	}
+	g.addLine("\tif e.databaseBind == nil {")
+	g.addLine("\t\te.databaseBind = fluxaorm.Bind{}")
+	g.addLine("\t}")
 	g.addLine(fmt.Sprintf("\te.databaseBind[\"%s\"] = bindValue", fieldName))
 	g.addLine("}")
 	g.addLine("")
@@ -1180,6 +1219,9 @@ func (g *codeGenerator) createGetterSetterBoolNullable(schema *entitySchema, fie
 		g.addLine("\t\treturn")
 		g.addLine("\t}")
 	}
+	g.addLine("\tif e.databaseBind == nil {")
+	g.addLine("\t\te.databaseBind = fluxaorm.Bind{}")
+	g.addLine("\t}")
 	g.addLine(fmt.Sprintf("\te.databaseBind[\"%s\"] = bindValue", fieldName))
 	g.addLine("}")
 	g.addLine("")
@@ -1251,6 +1293,9 @@ func (g *codeGenerator) createGetterSetterFloatNullable(schema *entitySchema, fi
 		g.addLine("\t\treturn")
 		g.addLine("\t}")
 	}
+	g.addLine("\tif e.databaseBind == nil {")
+	g.addLine("\t\te.databaseBind = fluxaorm.Bind{}")
+	g.addLine("\t}")
 	g.addLine(fmt.Sprintf("\te.databaseBind[\"%s\"] = bindValue", fieldName))
 	g.addLine("}")
 	g.addLine("")
@@ -1337,6 +1382,9 @@ func (g *codeGenerator) createGetterSetterSetNullable(schema *entitySchema, fiel
 		g.addLine("\t\treturn")
 		g.addLine("\t}")
 	}
+	g.addLine("\tif e.databaseBind == nil {")
+	g.addLine("\t\te.databaseBind = fluxaorm.Bind{}")
+	g.addLine("\t}")
 	g.addLine(fmt.Sprintf("\te.databaseBind[\"%s\"] = bindValue", fieldName))
 	g.addLine("}")
 	g.addLine("")
@@ -1405,6 +1453,9 @@ func (g *codeGenerator) createGetterSetterBytesNullable(schema *entitySchema, fi
 		g.addLine("\t\treturn")
 		g.addLine("\t}")
 	}
+	g.addLine("\tif e.databaseBind == nil {")
+	g.addLine("\t\te.databaseBind = fluxaorm.Bind{}")
+	g.addLine("\t}")
 	g.addLine(fmt.Sprintf("\te.databaseBind[\"%s\"] = bindValue", fieldName))
 	g.addLine("}")
 	g.addLine("")
@@ -1475,6 +1526,9 @@ func (g *codeGenerator) createGetterSetterEnumNullable(schema *entitySchema, fie
 		g.addLine("\t\treturn")
 		g.addLine("\t}")
 	}
+	g.addLine("\tif e.databaseBind == nil {")
+	g.addLine("\t\te.databaseBind = fluxaorm.Bind{}")
+	g.addLine("\t}")
 	g.addLine(fmt.Sprintf("\te.databaseBind[\"%s\"] = bindValue", fieldName))
 	g.addLine("}")
 	g.addLine("")
