@@ -179,6 +179,15 @@ func (g *codeGenerator) generateCodeForEntity(schema *entitySchema) error {
 	g.filedIndex = 0
 	g.addLine("}")
 	g.addLine("")
+
+	g.addLine(fmt.Sprintf("func (r *%s) redisValues() []any {", sqlRowName))
+	g.addLine(fmt.Sprintf("\tredisMSetValues := make([]any, %d)", len(schema.columnNames)+1))
+	g.addLine(fmt.Sprintf("\tredisMSetValues[0] = %s.redisCacheStamp", providerName))
+	g.addRedisBindSetLines(schema, schema.fields)
+	g.addLine("\treturn redisMSetValues")
+	g.addLine("}")
+	g.addLine("")
+
 	g.addLine(fmt.Sprintf("func (p %s) GetByID(ctx fluxaorm.Context, id uint64) (entity *%s, found bool, err error) {", providerNamePrivate, entityName))
 	if schema.hasRedisCache {
 		g.addLine("\tredisKey := p.redisCachePrefix + strconv.FormatUint(id, 10)")
@@ -219,6 +228,12 @@ func (g *codeGenerator) generateCodeForEntity(schema *entitySchema) error {
 	}
 	g.addLine("\t\treturn nil, false, nil")
 	g.addLine("\t}")
+	if schema.hasRedisCache {
+		g.addLine("\t_, err = ctx.Engine().Redis(p.redisCode).RPush(ctx, redisKey, sqlRow.redisValues()...)")
+		g.addLine("\tif err != nil {")
+		g.addLine("\t\treturn nil, false, err")
+		g.addLine("\t}")
+	}
 	g.addLine(fmt.Sprintf("\treturn &%s{ctx: ctx, id: id, originDatabaseValues: sqlRow}, true, nil", entityName))
 	g.addLine("}")
 	g.addLine("")
@@ -353,19 +368,13 @@ func (g *codeGenerator) generateCodeForEntity(schema *entitySchema) error {
 		insertQueryLine += ",`" + columnName + "`"
 	}
 	insertQueryLine += fmt.Sprintf(") VALUES (?%s)\"\n", strings.Repeat(",?", len(schema.columnNames)-1))
-	if schema.hasRedisCache {
-		insertQueryLine += fmt.Sprintf("\t\tredisMSetValues := make([]any, %d)\n", len(schema.columnNames)+1)
-		insertQueryLine += fmt.Sprintf("\t\tredisMSetValues[0] = %s.redisCacheStamp\n", providerName)
-		g.filedIndex = 0
-		insertQueryLine += g.addRedisBindSetLines(schema, schema.fields)
-	}
 	insertQueryLine += fmt.Sprintf("\t\te.ctx.DatabasePipeLine(%s.dbCode).AddQuery(sqlQuery, e.originDatabaseValues.F0", providerName)
 	for i := 1; i < len(schema.columnNames); i++ {
 		insertQueryLine += fmt.Sprintf(", e.originDatabaseValues.F%d", i)
 	}
 	insertQueryLine += ")\n"
 	if schema.hasRedisCache {
-		insertQueryLine += fmt.Sprintf("\t\te.ctx.RedisPipeLine(%s.redisCode).LPush(%s.redisCachePrefix+strconv.FormatUint(e.GetID(), 10), redisMSetValues...)", providerName, providerName)
+		insertQueryLine += fmt.Sprintf("\t\te.ctx.RedisPipeLine(%s.redisCode).LPush(%s.redisCachePrefix+strconv.FormatUint(e.GetID(), 10), e.originDatabaseValues.redisValues()...)", providerName, providerName)
 	}
 	g.addLine(insertQueryLine)
 	g.addLine("\t}")
@@ -1785,219 +1794,141 @@ func (g *codeGenerator) addSQLRowLines(fields *tableFields) string {
 	return result
 }
 
-func (g *codeGenerator) addRedisBindSetLines(schema *entitySchema, fields *tableFields) string {
-	result := ""
+func (g *codeGenerator) addRedisBindSetLines(schema *entitySchema, fields *tableFields) {
 	for range fields.uIntegers {
-		result += fmt.Sprintf("\t\tredisMSetValues[%d] = e.originDatabaseValues.F%d\n", g.filedIndex+1, g.filedIndex)
+		g.addLine(fmt.Sprintf("\tredisMSetValues[%d] = r.F%d", g.filedIndex+1, g.filedIndex))
 		g.filedIndex++
 	}
-	for k, i := range fields.references {
+	for k := range fields.references {
 		if fields.referencesRequired[k] {
-			result += fmt.Sprintf("\t\tredisMSetValues[%d] = e.originDatabaseValues.F%d\n", g.filedIndex+1, g.filedIndex)
+			g.addLine(fmt.Sprintf("\tredisMSetValues[%d] = r.F%d", g.filedIndex+1, g.filedIndex))
 		} else {
-			fieldName := fields.prefix + fields.fields[i].Name
-			result += fmt.Sprintf("\t\tvalue%s := e.Get%sID()\n", fieldName, fieldName)
-			result += fmt.Sprintf("\t\tif value%s == nil { \n", fieldName)
-			result += fmt.Sprintf("\t\t\tredisMSetValues[%d] = \"\"\n", g.filedIndex+1)
-			result += "\t\t} else {\n"
-			result += fmt.Sprintf("\t\t\te.originDatabaseValues.F%d.Valid = true\n", g.filedIndex)
-			result += fmt.Sprintf("\t\t\te.originDatabaseValues.F%d.Int64 = int64(*value%s)\n", g.filedIndex, fieldName)
-			if schema.hasRedisCache {
-				result += fmt.Sprintf("\t\t\tredisMSetValues[%d] = *value%s\n", g.filedIndex+1, fieldName)
-			}
-			result += "\t\t}\n"
+			g.addLine(fmt.Sprintf("\tif !r.F%d.Valid { ", g.filedIndex))
+			g.addLine(fmt.Sprintf("\t\tredisMSetValues[%d] = \"\"", g.filedIndex+1))
+			g.addLine("\t} else {")
+			g.addLine(fmt.Sprintf("\t\tredisMSetValues[%d] = r.F%d.Int64", g.filedIndex+1, g.filedIndex))
+			g.addLine("\t}")
 		}
 		g.filedIndex++
 	}
-	for _, i := range fields.integers {
-		fieldName := fields.prefix + fields.fields[i].Name
-		result += fmt.Sprintf("\t\te.originDatabaseValues.F%d = e.Get%s()\n", g.filedIndex, fieldName)
-		result += fmt.Sprintf("\t\tredisMSetValues[%d] = e.originDatabaseValues.F%d\n", g.filedIndex+1, g.filedIndex)
+	for range fields.integers {
+		g.addLine(fmt.Sprintf("\tredisMSetValues[%d] = r.F%d", g.filedIndex+1, g.filedIndex))
 		g.filedIndex++
 	}
-	for _, i := range fields.booleans {
-		fieldName := fields.prefix + fields.fields[i].Name
-		result += fmt.Sprintf("\t\te.originDatabaseValues.F%d = e.Get%s()\n", g.filedIndex, fieldName)
-		result += fmt.Sprintf("\t\tif e.Get%s() {\n", fieldName)
-		result += fmt.Sprintf("\t\t\tredisMSetValues[%d] = \"1\"\n", g.filedIndex+1)
-		result += fmt.Sprintf("\t\t} else {\n")
-		result += fmt.Sprintf("\t\t\tredisMSetValues[%d] = \"0\"\n", g.filedIndex+1)
-		result += fmt.Sprintf("\t\t}\n")
+	for range fields.booleans {
+		g.addLine(fmt.Sprintf("\tif r.F%d  {", g.filedIndex))
+		g.addLine(fmt.Sprintf("\t\tredisMSetValues[%d] = \"1\"", g.filedIndex+1))
+		g.addLine(fmt.Sprintf("\t} else {"))
+		g.addLine(fmt.Sprintf("\t\tredisMSetValues[%d] = \"0\"", g.filedIndex+1))
+		g.addLine(fmt.Sprintf("\t}"))
 		g.filedIndex++
 	}
-	for k, i := range fields.floats {
-		fieldName := fields.prefix + fields.fields[i].Name
-		result += fmt.Sprintf("\t\te.originDatabaseValues.F%d = e.Get%s()\n", g.filedIndex, fieldName)
-		result += fmt.Sprintf("\t\tredisMSetValues[%d] = strconv.FormatFloat(e.Get%s(), 'f', %d, %d)\n", g.filedIndex+1, fieldName, fields.floatsPrecision[k], fields.floatsSize[k])
+	for k := range fields.floats {
+		g.addLine(fmt.Sprintf("\tredisMSetValues[%d] = strconv.FormatFloat(r.F%d, 'f', %d, %d)", g.filedIndex+1, g.filedIndex, fields.floatsPrecision[k], fields.floatsSize[k]))
 		g.filedIndex++
 	}
-	for _, i := range fields.times {
-		fieldName := fields.prefix + fields.fields[i].Name
-		result += fmt.Sprintf("\t\te.originDatabaseValues.F%d = e.Get%s()\n", g.filedIndex, fieldName)
-		result += fmt.Sprintf("\t\tredisMSetValues[%d] = strconv.FormatInt(e.Get%s().Unix(), 10)\n", g.filedIndex+1, fieldName)
+	for range fields.times {
+		g.addLine(fmt.Sprintf("\tredisMSetValues[%d] = strconv.FormatInt(r.F%d.Unix(), 10)", g.filedIndex+1, g.filedIndex))
 		g.filedIndex++
 	}
-	for _, i := range fields.dates {
-		fieldName := fields.prefix + fields.fields[i].Name
-		result += fmt.Sprintf("\t\te.originDatabaseValues.F%d = e.Get%s()\n", g.filedIndex, fieldName)
-		result += fmt.Sprintf("\t\tredisMSetValues[%d] = strconv.FormatInt(e.Get%s().Unix(), 10)\n", g.filedIndex+1, fieldName)
+	for range fields.dates {
+		g.addLine(fmt.Sprintf("\tredisMSetValues[%d] = strconv.FormatInt(r.F%d.Unix(), 10)", g.filedIndex+1, g.filedIndex))
 		g.filedIndex++
 	}
-	for k, i := range fields.strings {
-		fieldName := fields.prefix + fields.fields[i].Name
+	for k := range fields.strings {
 		if fields.stringsRequired[k] {
-			result += fmt.Sprintf("\t\te.originDatabaseValues.F%d = e.Get%s()\n", g.filedIndex, fieldName)
-			result += fmt.Sprintf("\t\tredisMSetValues[%d] = e.originDatabaseValues.F%d\n", g.filedIndex+1, g.filedIndex)
+			g.addLine(fmt.Sprintf("\tredisMSetValues[%d] = r.F%d", g.filedIndex+1, g.filedIndex))
 		} else {
-			result += fmt.Sprintf("\t\tvalue%s := e.Get%s()\n", fieldName, fieldName)
-			result += fmt.Sprintf("\t\tif value%s == nil { \n", fieldName)
-			result += fmt.Sprintf("\t\t\tredisMSetValues[%d] = \"\"\n", g.filedIndex+1)
-			result += "\t\t} else {\n"
-			result += fmt.Sprintf("\t\t\te.originDatabaseValues.F%d.Valid = true\n", g.filedIndex)
-			result += fmt.Sprintf("\t\t\te.originDatabaseValues.F%d.String = *value%s\n", g.filedIndex, fieldName)
-			result += fmt.Sprintf("\t\t\tredisMSetValues[%d] = *value%s\n", g.filedIndex+1, fieldName)
-			result += "\t\t}\n"
+			g.addLine(fmt.Sprintf("\tredisMSetValues[%d] = r.F%d.String", g.filedIndex+1, g.filedIndex))
 		}
 		g.filedIndex++
 	}
-	for _, i := range fields.uIntegersNullable {
-		fieldName := fields.prefix + fields.fields[i].Name
-		result += fmt.Sprintf("\t\tvalue%s := e.Get%s()\n", fieldName, fieldName)
-		result += fmt.Sprintf("\t\tif value%s == nil { \n", fieldName)
-		result += fmt.Sprintf("\t\t\tredisMSetValues[%d] = \"\"\n", g.filedIndex+1)
-		result += "\t\t} else {\n"
-		result += fmt.Sprintf("\t\t\te.originDatabaseValues.F%d.Valid = true\n", g.filedIndex)
-		result += fmt.Sprintf("\t\t\te.originDatabaseValues.F%d.Int64 = int64(*value%s)\n", g.filedIndex, fieldName)
-		result += fmt.Sprintf("\t\t\tredisMSetValues[%d] = *value%s\n", g.filedIndex+1, fieldName)
-		result += "\t\t}\n"
+	for range fields.uIntegersNullable {
+		g.addLine(fmt.Sprintf("\tif !r.F%d.Valid { ", g.filedIndex))
+		g.addLine(fmt.Sprintf("\t\tredisMSetValues[%d] = \"\"", g.filedIndex+1))
+		g.addLine("\t} else {")
+		g.addLine(fmt.Sprintf("\t\tredisMSetValues[%d] = uint64(r.F%d.Int64)", g.filedIndex+1, g.filedIndex))
+		g.addLine("\t}")
 		g.filedIndex++
 	}
-	for _, i := range fields.integersNullable {
-		fieldName := fields.prefix + fields.fields[i].Name
-		result += fmt.Sprintf("\t\tvalue%s := e.Get%s()\n", fieldName, fieldName)
-		result += fmt.Sprintf("\t\tif value%s == nil { \n", fieldName)
-		result += fmt.Sprintf("\t\t\tredisMSetValues[%d] = \"\"\n", g.filedIndex+1)
-		result += "\t\t} else {\n"
-		result += fmt.Sprintf("\t\t\te.originDatabaseValues.F%d.Valid = true\n", g.filedIndex)
-		result += fmt.Sprintf("\t\t\te.originDatabaseValues.F%d.Int64 = *value%s\n", g.filedIndex, fieldName)
-		result += fmt.Sprintf("\t\t\tredisMSetValues[%d] = *value%s\n", g.filedIndex+1, fieldName)
-		result += "\t\t}\n"
+	for range fields.integersNullable {
+		g.addLine(fmt.Sprintf("\tif !r.F%d.Valid { ", g.filedIndex))
+		g.addLine(fmt.Sprintf("\t\tredisMSetValues[%d] = \"\"", g.filedIndex+1))
+		g.addLine("\t} else {")
+		g.addLine(fmt.Sprintf("\t\tredisMSetValues[%d] = r.F%d.Int64", g.filedIndex+1, g.filedIndex))
+		g.addLine("\t}")
 		g.filedIndex++
 	}
-	for k, i := range fields.stringsEnums {
+	for k := range fields.stringsEnums {
 		d := fields.enums[k]
-		fieldName := fields.prefix + fields.fields[i].Name
 		if d.required {
-			result += fmt.Sprintf("\t\te.originDatabaseValues.F%d = string(e.Get%s())\n", g.filedIndex, fieldName)
-			result += fmt.Sprintf("\t\tredisMSetValues[%d] = string(e.Get%s())\n", g.filedIndex+1, fieldName)
+			g.addLine(fmt.Sprintf("\tredisMSetValues[%d] = r.F%d", g.filedIndex+1, g.filedIndex))
 		} else {
-			result += fmt.Sprintf("\t\tvalue%s := e.Get%s()\n", fieldName, fieldName)
-			result += fmt.Sprintf("\t\tif value%s == nil { \n", fieldName)
-			result += fmt.Sprintf("\t\t\tredisMSetValues[%d] = \"\"\n", g.filedIndex+1)
-			result += "\t\t} else {\n"
-			result += fmt.Sprintf("\t\t\te.originDatabaseValues.F%d.Valid = true\n", g.filedIndex+1)
-			result += fmt.Sprintf("\t\t\te.originDatabaseValues.F%d.String = string(*value%s)\n", g.filedIndex, fieldName)
-			result += fmt.Sprintf("\t\t\tredisMSetValues[%d] = string(*value%s)\n", g.filedIndex+1, fieldName)
-			result += "\t\t}\n"
+			g.addLine(fmt.Sprintf("\tif !r.F%d.Valid { ", g.filedIndex))
+			g.addLine(fmt.Sprintf("\t\tredisMSetValues[%d] = \"\"", g.filedIndex+1))
+			g.addLine("\t} else {")
+			g.addLine(fmt.Sprintf("\t\tredisMSetValues[%d] = r.F%d.String", g.filedIndex+1, g.filedIndex))
+			g.addLine("\t}")
 		}
 		g.filedIndex++
 	}
-	for _, i := range fields.bytes {
-		fieldName := fields.prefix + fields.fields[i].Name
-		result += fmt.Sprintf("\t\tvalue%s := e.Get%s()\n", fieldName, fieldName)
-		result += fmt.Sprintf("\t\tif value%s == nil { \n", fieldName)
-		result += fmt.Sprintf("\t\t\tredisMSetValues[%d] = \"\"\n", g.filedIndex+1)
-		result += "\t\t} else {\n"
-		result += fmt.Sprintf("\t\t\te.originDatabaseValues.F%d.Valid = true\n", g.filedIndex)
-		result += fmt.Sprintf("\t\t\te.originDatabaseValues.F%d.String = string(value%s)\n", g.filedIndex, fieldName)
-		result += fmt.Sprintf("\t\t\tredisMSetValues[%d] = string(value%s)\n", g.filedIndex+1, fieldName)
-		result += "\t\t}\n"
+	for range fields.bytes {
+		g.addLine(fmt.Sprintf("\tif !r.F%d.Valid { ", g.filedIndex))
+		g.addLine(fmt.Sprintf("\t\tredisMSetValues[%d] = \"\"", g.filedIndex+1))
+		g.addLine("\t} else {")
+		g.addLine(fmt.Sprintf("\t\tredisMSetValues[%d] = r.F%d.String", g.filedIndex+1, g.filedIndex))
+		g.addLine("\t}")
 		g.filedIndex++
 	}
-	for k, i := range fields.sliceStringsSets {
+	for k := range fields.sliceStringsSets {
 		d := fields.sets[k]
-		fieldName := fields.prefix + fields.fields[i].Name
 		g.addImport("strings")
 		if d.required {
-			result += fmt.Sprintf("\t\tvalue%s := e.Get%s()\n", fieldName, fieldName)
-			result += fmt.Sprintf("\t\tvalue%sStrings := make([]string, len(value%s))\n", fieldName, fieldName)
-			result += fmt.Sprintf("\t\tfor i, v := range value%s {\n", fieldName)
-			result += fmt.Sprintf("\t\t\tvalue%sStrings[i] = string(v)\n", fieldName)
-			result += "\t\t}\n"
-			result += fmt.Sprintf("\t\te.originDatabaseValues.F%d =  strings.Join(value%sStrings, \",\")\n", g.filedIndex, fieldName)
-			result += fmt.Sprintf("\t\tredisMSetValues[%d] = e.originDatabaseValues.F%d\n", g.filedIndex+1, g.filedIndex)
+			g.addLine(fmt.Sprintf("\tredisMSetValues[%d] = r.F%d", g.filedIndex+1, g.filedIndex))
 		} else {
-			result += fmt.Sprintf("\t\tvalue%s := e.Get%s()\n", fieldName, fieldName)
-			result += fmt.Sprintf("\t\tif value%s == nil {\n", fieldName)
-			result += fmt.Sprintf("\t\t\tredisMSetValues[%d] = \"\"\n", g.filedIndex+1)
-			result += "\t\t} else {\n"
-			result += fmt.Sprintf("\t\t\tvalue%sStrings := make([]string, len(value%s))\n", fieldName, fieldName)
-			result += fmt.Sprintf("\t\t\tfor i, v := range value%s {\n", fieldName)
-			result += fmt.Sprintf("\t\t\t\tvalue%sStrings[i] = string(v)\n", fieldName)
-			result += "\t\t\t}\n"
-			result += fmt.Sprintf("\t\t\te.originDatabaseValues.F%d.Valid = true\n", g.filedIndex)
-			result += fmt.Sprintf("\t\t\te.originDatabaseValues.F%d.String = strings.Join(value%sStrings, \",\")\n", g.filedIndex, fieldName)
-			result += fmt.Sprintf("\t\t\tredisMSetValues[%d] = e.originDatabaseValues.F%d.String\n", g.filedIndex+1, g.filedIndex)
-			result += "\t\t}\n"
+			g.addLine(fmt.Sprintf("\tredisMSetValues[%d] = r.F%d.String", g.filedIndex+1, g.filedIndex))
 		}
 		g.filedIndex++
 	}
-	for _, i := range fields.booleansNullable {
-		fieldName := fields.prefix + fields.fields[i].Name
-		result += fmt.Sprintf("\t\tvalue%s := e.Get%s()\n", fieldName, fieldName)
-		result += fmt.Sprintf("\t\tif value%s == nil { \n", fieldName)
-		result += fmt.Sprintf("\t\t\tredisMSetValues[%d] = \"\"\n", g.filedIndex+1)
-		result += "\t\t} else {\n"
-		result += fmt.Sprintf("\t\t\te.originDatabaseValues.F%d.Valid = true\n", g.filedIndex)
-		result += fmt.Sprintf("\t\t\te.originDatabaseValues.F%d.Bool = *value%s\n", g.filedIndex, fieldName)
-		result += fmt.Sprintf("\t\t\tif *value%s {\n", fieldName)
-		result += fmt.Sprintf("\t\t\t\tredisMSetValues[%d] = \"1\"\n", g.filedIndex+1)
-		result += fmt.Sprintf("\t\t\t} else {\n")
-		result += fmt.Sprintf("\t\t\t\tredisMSetValues[%d] = \"0\"\n", g.filedIndex+1)
-		result += fmt.Sprintf("\t\t\t}\n")
-		result += "\t\t}\n"
+	for range fields.booleansNullable {
+		g.addLine(fmt.Sprintf("\tif !r.F%d.Valid { ", g.filedIndex))
+		g.addLine(fmt.Sprintf("\t\tredisMSetValues[%d] = \"\"", g.filedIndex+1))
+		g.addLine("\t} else {")
+		g.addLine(fmt.Sprintf("\t\tif r.F%d.Bool {", g.filedIndex))
+		g.addLine(fmt.Sprintf("\t\t\tredisMSetValues[%d] = \"1\"", g.filedIndex+1))
+		g.addLine(fmt.Sprintf("\t\t} else {"))
+		g.addLine(fmt.Sprintf("\t\t\tredisMSetValues[%d] = \"0\"", g.filedIndex+1))
+		g.addLine(fmt.Sprintf("\t\t}"))
+		g.addLine("\t}")
 		g.filedIndex++
 	}
-	for k, i := range fields.floatsNullable {
-		fieldName := fields.prefix + fields.fields[i].Name
-		result += fmt.Sprintf("\t\tvalue%s := e.Get%s()\n", fieldName, fieldName)
-		result += fmt.Sprintf("\t\tif value%s == nil { \n", fieldName)
-		result += fmt.Sprintf("\t\t\tredisMSetValues[%d] = \"\"\n", g.filedIndex+1)
-		result += "\t\t} else {\n"
-		result += fmt.Sprintf("\t\t\te.originDatabaseValues.F%d.Valid = true\n", g.filedIndex)
-		result += fmt.Sprintf("\t\t\te.originDatabaseValues.F%d.Float64 = *value%s\n", g.filedIndex, fieldName)
-		result += fmt.Sprintf("\t\t\tredisMSetValues[%d] = strconv.FormatFloat(*value%s, 'f', %d, %d)\n", g.filedIndex+1, fieldName, fields.floatsNullablePrecision[k], fields.floatsNullableSize[k])
-		result += "\t\t}\n"
+	for k := range fields.floatsNullable {
+		g.addLine(fmt.Sprintf("\tif !r.F%d.Valid { ", g.filedIndex))
+		g.addLine(fmt.Sprintf("\t\tredisMSetValues[%d] = \"\"", g.filedIndex+1))
+		g.addLine("\t} else {")
+		g.addLine(fmt.Sprintf("\t\tredisMSetValues[%d] = strconv.FormatFloat(r.F%d.Float64, 'f', %d, %d)", g.filedIndex+1, g.filedIndex, fields.floatsNullablePrecision[k], fields.floatsNullableSize[k]))
+		g.addLine("\t}")
 		g.filedIndex++
 	}
-	for _, i := range fields.timesNullable {
-		fieldName := fields.prefix + fields.fields[i].Name
-		result += fmt.Sprintf("\t\tvalue%s := e.Get%s()\n", fieldName, fieldName)
-		result += fmt.Sprintf("\t\tif value%s == nil { \n", fieldName)
-		result += fmt.Sprintf("\t\t\tredisMSetValues[%d] = \"\"\n", g.filedIndex+1)
-		result += "\t\t} else {\n"
-		result += fmt.Sprintf("\t\t\te.originDatabaseValues.F%d.Valid = true\n", g.filedIndex)
-		result += fmt.Sprintf("\t\t\te.originDatabaseValues.F%d.Time = *value%s\n", g.filedIndex, fieldName)
-		result += fmt.Sprintf("\t\t\tredisMSetValues[%d] = strconv.FormatInt((*value%s).Unix(), 10)\n", g.filedIndex+1, fieldName)
-		result += "\t\t}\n"
+	for range fields.timesNullable {
+		g.addLine(fmt.Sprintf("\tif !r.F%d.Valid {", g.filedIndex))
+		g.addLine(fmt.Sprintf("\t\tredisMSetValues[%d] = \"\"", g.filedIndex+1))
+		g.addLine("\t} else {")
+		g.addLine(fmt.Sprintf("\t\tredisMSetValues[%d] = strconv.FormatInt(r.F%d.Time.Unix(), 10)", g.filedIndex+1, g.filedIndex))
+		g.addLine("\t}")
 		g.filedIndex++
 	}
-	for _, i := range fields.datesNullable {
-		fieldName := fields.prefix + fields.fields[i].Name
-		result += fmt.Sprintf("\t\tvalue%s := e.Get%s()\n", fieldName, fieldName)
-		result += fmt.Sprintf("\t\tif value%s == nil { \n", fieldName)
-		result += fmt.Sprintf("\t\t\tredisMSetValues[%d] = \"\"\n", g.filedIndex+1)
-		result += "\t\t} else {\n"
-		result += fmt.Sprintf("\t\t\te.originDatabaseValues.F%d.Valid = true\n", g.filedIndex)
-		result += fmt.Sprintf("\t\t\te.originDatabaseValues.F%d.Time = *value%s\n", g.filedIndex, fieldName)
-		result += fmt.Sprintf("\t\t\tredisMSetValues[%d] = strconv.FormatInt((*value%s).Unix(), 10)\n", g.filedIndex+1, fieldName)
-		result += "\t\t}\n"
+	for range fields.datesNullable {
+		g.addLine(fmt.Sprintf("\tif !r.F%d.Valid {", g.filedIndex))
+		g.addLine(fmt.Sprintf("\t\tredisMSetValues[%d] = \"\"", g.filedIndex+1))
+		g.addLine("\t} else {")
+		g.addLine(fmt.Sprintf("\t\tredisMSetValues[%d] = strconv.FormatInt(r.F%d.Time.Unix(), 10)", g.filedIndex+1, g.filedIndex))
+		g.addLine("\t}")
 		g.filedIndex++
 	}
 	for _, subFields := range fields.structsFields {
-		result += g.addRedisBindSetLines(schema, subFields)
+		g.addRedisBindSetLines(schema, subFields)
 	}
-	return result
 }
 
 type Flushable interface {
