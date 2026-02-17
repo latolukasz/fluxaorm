@@ -31,6 +31,8 @@ func (dp *DatabasePipeline) Exec(ctx Context) error {
 			return err
 		}
 	}
+	dp.queries = dp.queries[:0]
+	dp.parameters = dp.parameters[:0]
 	defer func() {
 		_ = tr.Rollback(ctx)
 	}()

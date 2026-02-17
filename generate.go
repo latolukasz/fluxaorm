@@ -409,7 +409,7 @@ func (g *codeGenerator) generateCodeForEntity(schema *entitySchema) error {
 	g.addLine("")
 
 	g.filedIndex = 0
-	err = g.generateGettersSetters(entityName, schema, schema.fields)
+	err = g.generateGettersSetters(entityName, providerName, schema, schema.fields)
 	if err != nil {
 		return err
 	}
@@ -436,7 +436,7 @@ func (g *codeGenerator) addImport(value string) {
 	g.imports[value] = true
 }
 
-func (g *codeGenerator) createGetterSetterUint64(schema *entitySchema, fieldName, entityName, getterSuffix string) {
+func (g *codeGenerator) createGetterSetterUint64(schema *entitySchema, fieldName, entityName, getterSuffix, providerName string) {
 	g.addLine(fmt.Sprintf("func (e *%s) Get%s%s() uint64 {", entityName, fieldName, getterSuffix))
 	g.addLine("\tif !e.new {")
 	g.addLine("\t\tif e.databaseBind != nil {")
@@ -481,6 +481,7 @@ func (g *codeGenerator) createGetterSetterUint64(schema *entitySchema, fieldName
 	}
 	g.addLine("\tif e.databaseBind == nil {")
 	g.addLine("\t\te.databaseBind = fluxaorm.Bind{}")
+	g.addLine(fmt.Sprintf("\t\te.ctx.Track(e, %s.cacheIndex)", providerName))
 	g.addLine("\t}")
 	g.addLine(fmt.Sprintf("\te.databaseBind[\"%s\"] = value", fieldName))
 	g.addLine("}")
@@ -488,7 +489,7 @@ func (g *codeGenerator) createGetterSetterUint64(schema *entitySchema, fieldName
 	g.filedIndex++
 }
 
-func (g *codeGenerator) createGetterSetterInt64(schema *entitySchema, fieldName, entityName string) {
+func (g *codeGenerator) createGetterSetterInt64(schema *entitySchema, fieldName, entityName, providerName string) {
 	g.addLine(fmt.Sprintf("func (e *%s) Get%s() int64 {", entityName, fieldName))
 	g.addLine("\tif !e.new {")
 	g.addLine("\t\tif e.databaseBind != nil {")
@@ -533,6 +534,7 @@ func (g *codeGenerator) createGetterSetterInt64(schema *entitySchema, fieldName,
 	}
 	g.addLine("\tif e.databaseBind == nil {")
 	g.addLine("\t\te.databaseBind = fluxaorm.Bind{}")
+	g.addLine(fmt.Sprintf("\t\te.ctx.Track(e, %s.cacheIndex)", providerName))
 	g.addLine("\t}")
 	g.addLine(fmt.Sprintf("\te.databaseBind[\"%s\"] = value", fieldName))
 	g.addLine("}")
@@ -540,7 +542,7 @@ func (g *codeGenerator) createGetterSetterInt64(schema *entitySchema, fieldName,
 	g.filedIndex++
 }
 
-func (g *codeGenerator) createGetterSetterBool(schema *entitySchema, fieldName, entityName string) {
+func (g *codeGenerator) createGetterSetterBool(schema *entitySchema, fieldName, entityName, providerName string) {
 	g.addLine(fmt.Sprintf("func (e *%s) Get%s() bool {", entityName, fieldName))
 	g.addLine("\tif !e.new {")
 	g.addLine("\t\tif e.databaseBind != nil {")
@@ -584,6 +586,7 @@ func (g *codeGenerator) createGetterSetterBool(schema *entitySchema, fieldName, 
 	}
 	g.addLine("\tif e.databaseBind == nil {")
 	g.addLine("\t\te.databaseBind = fluxaorm.Bind{}")
+	g.addLine(fmt.Sprintf("\t\te.ctx.Track(e, %s.cacheIndex)", providerName))
 	g.addLine("\t}")
 	g.addLine(fmt.Sprintf("\te.databaseBind[\"%s\"] = value", fieldName))
 	g.addLine("}")
@@ -591,7 +594,7 @@ func (g *codeGenerator) createGetterSetterBool(schema *entitySchema, fieldName, 
 	g.filedIndex++
 }
 
-func (g *codeGenerator) createGetterSetterFloat(schema *entitySchema, fieldName, entityName string, precision int) {
+func (g *codeGenerator) createGetterSetterFloat(schema *entitySchema, fieldName, entityName, providerName string, precision int) {
 	g.addImport("math")
 	g.addLine(fmt.Sprintf("func (e *%s) Get%s() float64 {", entityName, fieldName))
 	g.addLine("\tif !e.new {")
@@ -637,6 +640,7 @@ func (g *codeGenerator) createGetterSetterFloat(schema *entitySchema, fieldName,
 	}
 	g.addLine("\tif e.databaseBind == nil {")
 	g.addLine("\t\te.databaseBind = fluxaorm.Bind{}")
+	g.addLine(fmt.Sprintf("\t\te.ctx.Track(e, %s.cacheIndex)", providerName))
 	g.addLine("\t}")
 	g.addLine(fmt.Sprintf("\te.databaseBind[\"%s\"] = value", fieldName))
 	g.addLine("}")
@@ -644,7 +648,7 @@ func (g *codeGenerator) createGetterSetterFloat(schema *entitySchema, fieldName,
 	g.filedIndex++
 }
 
-func (g *codeGenerator) createGetterSetterTime(schema *entitySchema, fieldName, entityName string, dateOnly bool) {
+func (g *codeGenerator) createGetterSetterTime(schema *entitySchema, fieldName, entityName, providerName string, dateOnly bool) {
 	g.addLine(fmt.Sprintf("func (e *%s) Get%s() time.Time {", entityName, fieldName))
 	g.addLine("\tif !e.new {")
 	g.addLine("\t\tif e.databaseBind != nil {")
@@ -694,6 +698,7 @@ func (g *codeGenerator) createGetterSetterTime(schema *entitySchema, fieldName, 
 	}
 	g.addLine("\tif e.databaseBind == nil {")
 	g.addLine("\t\te.databaseBind = fluxaorm.Bind{}")
+	g.addLine(fmt.Sprintf("\t\te.ctx.Track(e, %s.cacheIndex)", providerName))
 	g.addLine("\t}")
 	g.addLine(fmt.Sprintf("\te.databaseBind[\"%s\"] = value", fieldName))
 	g.addLine("}")
@@ -701,7 +706,7 @@ func (g *codeGenerator) createGetterSetterTime(schema *entitySchema, fieldName, 
 	g.filedIndex++
 }
 
-func (g *codeGenerator) createGetterSetterString(schema *entitySchema, fieldName, entityName string) {
+func (g *codeGenerator) createGetterSetterString(schema *entitySchema, fieldName, entityName, providerName string) {
 	g.addLine(fmt.Sprintf("func (e *%s) Get%s() string {", entityName, fieldName))
 	g.addLine("\tif !e.new {")
 	g.addLine("\t\tif e.databaseBind != nil {")
@@ -744,6 +749,7 @@ func (g *codeGenerator) createGetterSetterString(schema *entitySchema, fieldName
 	}
 	g.addLine("\tif e.databaseBind == nil {")
 	g.addLine("\t\te.databaseBind = fluxaorm.Bind{}")
+	g.addLine(fmt.Sprintf("\t\te.ctx.Track(e, %s.cacheIndex)", providerName))
 	g.addLine("\t}")
 	g.addLine(fmt.Sprintf("\te.databaseBind[\"%s\"] = value", fieldName))
 	g.addLine("}")
@@ -751,7 +757,7 @@ func (g *codeGenerator) createGetterSetterString(schema *entitySchema, fieldName
 	g.filedIndex++
 }
 
-func (g *codeGenerator) createGetterSetterEnum(schema *entitySchema, fieldName, entityName, enumName, defaultValue string) {
+func (g *codeGenerator) createGetterSetterEnum(schema *entitySchema, fieldName, entityName, enumName, providerName string) {
 	g.addLine(fmt.Sprintf("func (e *%s) Get%s() %s {", entityName, fieldName, enumName))
 	g.addLine("\tif !e.new {")
 	g.addLine("\t\tif e.databaseBind != nil {")
@@ -794,6 +800,7 @@ func (g *codeGenerator) createGetterSetterEnum(schema *entitySchema, fieldName, 
 	}
 	g.addLine("\tif e.databaseBind == nil {")
 	g.addLine("\t\te.databaseBind = fluxaorm.Bind{}")
+	g.addLine(fmt.Sprintf("\t\te.ctx.Track(e, %s.cacheIndex)", providerName))
 	g.addLine("\t}")
 	g.addLine(fmt.Sprintf("\te.databaseBind[\"%s\"] = string(value)", fieldName))
 	g.addLine("}")
@@ -801,7 +808,7 @@ func (g *codeGenerator) createGetterSetterEnum(schema *entitySchema, fieldName, 
 	g.filedIndex++
 }
 
-func (g *codeGenerator) createGetterSetterSet(schema *entitySchema, fieldName, entityName, setName, defaultValue string) {
+func (g *codeGenerator) createGetterSetterSet(schema *entitySchema, fieldName, entityName, setName, providerName string) {
 	g.addImport("sort")
 	g.addLine(fmt.Sprintf("func (e *%s) Get%s() []%s {", entityName, fieldName, setName))
 	g.addLine("\tif !e.new {")
@@ -872,9 +879,7 @@ func (g *codeGenerator) createGetterSetterSet(schema *entitySchema, fieldName, e
 	}
 	g.addLine("\tif e.databaseBind == nil {")
 	g.addLine("\t\te.databaseBind = fluxaorm.Bind{}")
-	g.addLine("\t}")
-	g.addLine("\tif e.databaseBind == nil {")
-	g.addLine("\t\te.databaseBind = fluxaorm.Bind{}")
+	g.addLine(fmt.Sprintf("\t\te.ctx.Track(e, %s.cacheIndex)", providerName))
 	g.addLine("\t}")
 	g.addLine(fmt.Sprintf("\te.databaseBind[\"%s\"] = asString", fieldName))
 	g.addLine("}")
@@ -882,7 +887,7 @@ func (g *codeGenerator) createGetterSetterSet(schema *entitySchema, fieldName, e
 	g.filedIndex++
 }
 
-func (g *codeGenerator) createGetterSetterUint64Nullable(schema *entitySchema, fieldName, entityName, getterSuffix string) {
+func (g *codeGenerator) createGetterSetterUint64Nullable(schema *entitySchema, fieldName, entityName, getterSuffix, providerName string) {
 	g.addLine(fmt.Sprintf("func (e *%s) Get%s%s() *uint64 {", entityName, fieldName, getterSuffix))
 	g.addLine("\tif !e.new {")
 	g.addLine("\t\tif e.databaseBind != nil {")
@@ -948,6 +953,7 @@ func (g *codeGenerator) createGetterSetterUint64Nullable(schema *entitySchema, f
 	}
 	g.addLine("\tif e.databaseBind == nil {")
 	g.addLine("\t\te.databaseBind = fluxaorm.Bind{}")
+	g.addLine(fmt.Sprintf("\t\te.ctx.Track(e, %s.cacheIndex)", providerName))
 	g.addLine("\t}")
 	g.addLine(fmt.Sprintf("\te.databaseBind[\"%s\"] = bindValue", fieldName))
 	g.addLine("}")
@@ -955,7 +961,7 @@ func (g *codeGenerator) createGetterSetterUint64Nullable(schema *entitySchema, f
 	g.filedIndex++
 }
 
-func (g *codeGenerator) createGetterSetterInt64Nullable(schema *entitySchema, fieldName, entityName, getterSuffix string) {
+func (g *codeGenerator) createGetterSetterInt64Nullable(schema *entitySchema, fieldName, entityName, getterSuffix, providerName string) {
 	g.addLine(fmt.Sprintf("func (e *%s) Get%s%s() *int64 {", entityName, fieldName, getterSuffix))
 	g.addLine("\tif !e.new {")
 	g.addLine("\t\tif e.databaseBind != nil {")
@@ -1019,6 +1025,7 @@ func (g *codeGenerator) createGetterSetterInt64Nullable(schema *entitySchema, fi
 	}
 	g.addLine("\tif e.databaseBind == nil {")
 	g.addLine("\t\te.databaseBind = fluxaorm.Bind{}")
+	g.addLine(fmt.Sprintf("\t\te.ctx.Track(e, %s.cacheIndex)", providerName))
 	g.addLine("\t}")
 	g.addLine(fmt.Sprintf("\te.databaseBind[\"%s\"] = bindValue", fieldName))
 	g.addLine("}")
@@ -1026,7 +1033,7 @@ func (g *codeGenerator) createGetterSetterInt64Nullable(schema *entitySchema, fi
 	g.filedIndex++
 }
 
-func (g *codeGenerator) createGetterSetterStringNullable(schema *entitySchema, fieldName, entityName string) {
+func (g *codeGenerator) createGetterSetterStringNullable(schema *entitySchema, fieldName, entityName, providerName string) {
 	g.addLine(fmt.Sprintf("func (e *%s) Get%s() *string {", entityName, fieldName))
 	g.addLine("\tif !e.new {")
 	g.addLine("\t\tif e.databaseBind != nil {")
@@ -1090,6 +1097,7 @@ func (g *codeGenerator) createGetterSetterStringNullable(schema *entitySchema, f
 	}
 	g.addLine("\tif e.databaseBind == nil {")
 	g.addLine("\t\te.databaseBind = fluxaorm.Bind{}")
+	g.addLine(fmt.Sprintf("\t\te.ctx.Track(e, %s.cacheIndex)", providerName))
 	g.addLine("\t}")
 	g.addLine(fmt.Sprintf("\te.databaseBind[\"%s\"] = bindValue", fieldName))
 	g.addLine("}")
@@ -1097,7 +1105,7 @@ func (g *codeGenerator) createGetterSetterStringNullable(schema *entitySchema, f
 	g.filedIndex++
 }
 
-func (g *codeGenerator) createGetterSetterTimeNullable(schema *entitySchema, fieldName, entityName string, dateOnly bool) {
+func (g *codeGenerator) createGetterSetterTimeNullable(schema *entitySchema, fieldName, entityName, providerName string, dateOnly bool) {
 	g.addLine(fmt.Sprintf("func (e *%s) Get%s() *time.Time {", entityName, fieldName))
 	g.addLine("\tif !e.new {")
 	g.addLine("\t\tif e.databaseBind != nil {")
@@ -1167,6 +1175,7 @@ func (g *codeGenerator) createGetterSetterTimeNullable(schema *entitySchema, fie
 	}
 	g.addLine("\tif e.databaseBind == nil {")
 	g.addLine("\t\te.databaseBind = fluxaorm.Bind{}")
+	g.addLine(fmt.Sprintf("\t\te.ctx.Track(e, %s.cacheIndex)", providerName))
 	g.addLine("\t}")
 	g.addLine(fmt.Sprintf("\te.databaseBind[\"%s\"] = bindValue", fieldName))
 	g.addLine("}")
@@ -1174,7 +1183,7 @@ func (g *codeGenerator) createGetterSetterTimeNullable(schema *entitySchema, fie
 	g.filedIndex++
 }
 
-func (g *codeGenerator) createGetterSetterBoolNullable(schema *entitySchema, fieldName, entityName string) {
+func (g *codeGenerator) createGetterSetterBoolNullable(schema *entitySchema, fieldName, entityName, providerName string) {
 	g.addLine(fmt.Sprintf("func (e *%s) Get%s() *bool {", entityName, fieldName))
 	g.addLine("\tif !e.new {")
 	g.addLine("\t\tif e.databaseBind != nil {")
@@ -1218,9 +1227,13 @@ func (g *codeGenerator) createGetterSetterBoolNullable(schema *entitySchema, fie
 	if schema.hasRedisCache {
 		g.addLine("\tsame:= false")
 		g.addLine("\tif e.originRedisValues != nil {")
-		g.addLine("\t\tasString := \"0\"")
-		g.addLine("\t\tif value != nil && *value {")
-		g.addLine("\t\t\tasString = \"1\"")
+		g.addLine("\t\tasString := \"\"")
+		g.addLine("\t\tif value != nil {")
+		g.addLine("\t\t\tif *value {")
+		g.addLine("\t\t\t\tasString = \"1\"")
+		g.addLine("\t\t\t} else {")
+		g.addLine("\t\t\t\tasString = \"0\"")
+		g.addLine("\t\t\t}")
 		g.addLine("\t\t}")
 		g.addLine(fmt.Sprintf("\t\tsame = e.originRedisValues[%d] == asString", g.filedIndex))
 		g.addLine("\t} else {")
@@ -1238,6 +1251,7 @@ func (g *codeGenerator) createGetterSetterBoolNullable(schema *entitySchema, fie
 	}
 	g.addLine("\tif e.databaseBind == nil {")
 	g.addLine("\t\te.databaseBind = fluxaorm.Bind{}")
+	g.addLine(fmt.Sprintf("\t\te.ctx.Track(e, %s.cacheIndex)", providerName))
 	g.addLine("\t}")
 	g.addLine(fmt.Sprintf("\te.databaseBind[\"%s\"] = bindValue", fieldName))
 	g.addLine("}")
@@ -1245,7 +1259,7 @@ func (g *codeGenerator) createGetterSetterBoolNullable(schema *entitySchema, fie
 	g.filedIndex++
 }
 
-func (g *codeGenerator) createGetterSetterFloatNullable(schema *entitySchema, fieldName, entityName string, precision int) {
+func (g *codeGenerator) createGetterSetterFloatNullable(schema *entitySchema, fieldName, entityName, providerName string, precision int) {
 	g.addLine(fmt.Sprintf("func (e *%s) Get%s() *float64 {", entityName, fieldName))
 	g.addLine("\tif !e.new {")
 	g.addLine("\t\tif e.databaseBind != nil {")
@@ -1312,6 +1326,7 @@ func (g *codeGenerator) createGetterSetterFloatNullable(schema *entitySchema, fi
 	}
 	g.addLine("\tif e.databaseBind == nil {")
 	g.addLine("\t\te.databaseBind = fluxaorm.Bind{}")
+	g.addLine(fmt.Sprintf("\t\te.ctx.Track(e, %s.cacheIndex)", providerName))
 	g.addLine("\t}")
 	g.addLine(fmt.Sprintf("\te.databaseBind[\"%s\"] = bindValue", fieldName))
 	g.addLine("}")
@@ -1319,7 +1334,7 @@ func (g *codeGenerator) createGetterSetterFloatNullable(schema *entitySchema, fi
 	g.filedIndex++
 }
 
-func (g *codeGenerator) createGetterSetterSetNullable(schema *entitySchema, fieldName, entityName, setName string) {
+func (g *codeGenerator) createGetterSetterSetNullable(schema *entitySchema, fieldName, entityName, setName, providerName string) {
 	g.addImport("sort")
 	g.addLine(fmt.Sprintf("func (e *%s) Get%s() []%s {", entityName, fieldName, setName))
 	g.addLine("\tif !e.new {")
@@ -1401,6 +1416,7 @@ func (g *codeGenerator) createGetterSetterSetNullable(schema *entitySchema, fiel
 	}
 	g.addLine("\tif e.databaseBind == nil {")
 	g.addLine("\t\te.databaseBind = fluxaorm.Bind{}")
+	g.addLine(fmt.Sprintf("\t\te.ctx.Track(e, %s.cacheIndex)", providerName))
 	g.addLine("\t}")
 	g.addLine(fmt.Sprintf("\te.databaseBind[\"%s\"] = bindValue", fieldName))
 	g.addLine("}")
@@ -1408,7 +1424,7 @@ func (g *codeGenerator) createGetterSetterSetNullable(schema *entitySchema, fiel
 	g.filedIndex++
 }
 
-func (g *codeGenerator) createGetterSetterBytesNullable(schema *entitySchema, fieldName, entityName string) {
+func (g *codeGenerator) createGetterSetterBytesNullable(schema *entitySchema, fieldName, entityName, providerName string) {
 	g.addLine(fmt.Sprintf("func (e *%s) Get%s() []uint8 {", entityName, fieldName))
 	g.addLine("\tif !e.new {")
 	g.addLine("\t\tif e.databaseBind != nil {")
@@ -1472,6 +1488,7 @@ func (g *codeGenerator) createGetterSetterBytesNullable(schema *entitySchema, fi
 	}
 	g.addLine("\tif e.databaseBind == nil {")
 	g.addLine("\t\te.databaseBind = fluxaorm.Bind{}")
+	g.addLine(fmt.Sprintf("\t\te.ctx.Track(e, %s.cacheIndex)", providerName))
 	g.addLine("\t}")
 	g.addLine(fmt.Sprintf("\te.databaseBind[\"%s\"] = bindValue", fieldName))
 	g.addLine("}")
@@ -1479,7 +1496,7 @@ func (g *codeGenerator) createGetterSetterBytesNullable(schema *entitySchema, fi
 	g.filedIndex++
 }
 
-func (g *codeGenerator) createGetterSetterEnumNullable(schema *entitySchema, fieldName, entityName, enumName string) {
+func (g *codeGenerator) createGetterSetterEnumNullable(schema *entitySchema, fieldName, entityName, enumName, providerName string) {
 	g.addLine(fmt.Sprintf("func (e *%s) Get%s() *%s {", entityName, fieldName, enumName))
 	g.addLine("\tif !e.new {")
 	g.addLine("\t\tif e.databaseBind != nil {")
@@ -1545,6 +1562,7 @@ func (g *codeGenerator) createGetterSetterEnumNullable(schema *entitySchema, fie
 	}
 	g.addLine("\tif e.databaseBind == nil {")
 	g.addLine("\t\te.databaseBind = fluxaorm.Bind{}")
+	g.addLine(fmt.Sprintf("\t\te.ctx.Track(e, %s.cacheIndex)", providerName))
 	g.addLine("\t}")
 	g.addLine(fmt.Sprintf("\te.databaseBind[\"%s\"] = bindValue", fieldName))
 	g.addLine("}")
@@ -1552,14 +1570,14 @@ func (g *codeGenerator) createGetterSetterEnumNullable(schema *entitySchema, fie
 	g.filedIndex++
 }
 
-func (g *codeGenerator) generateGettersSetters(entityName string, schema *entitySchema, fields *tableFields) error {
+func (g *codeGenerator) generateGettersSetters(entityName, providerName string, schema *entitySchema, fields *tableFields) error {
 	for _, i := range fields.uIntegers {
 		fieldName := fields.prefix + fields.fields[i].Name
 		if fieldName == "ID" {
 			g.filedIndex++
 			continue
 		}
-		g.createGetterSetterUint64(schema, fieldName, entityName, "")
+		g.createGetterSetterUint64(schema, fieldName, entityName, "", providerName)
 	}
 	for k, i := range fields.references {
 		fieldName := fields.prefix + fields.fields[i].Name
@@ -1567,9 +1585,9 @@ func (g *codeGenerator) generateGettersSetters(entityName string, schema *entity
 		refName := g.capitalizeFirst(refTypeName[strings.LastIndex(refTypeName, ".")+1:])
 		required := fields.referencesRequired[k]
 		if required {
-			g.createGetterSetterUint64(schema, fieldName, entityName, "ID")
+			g.createGetterSetterUint64(schema, fieldName, entityName, "ID", providerName)
 		} else {
-			g.createGetterSetterUint64Nullable(schema, fieldName, entityName, "ID")
+			g.createGetterSetterUint64Nullable(schema, fieldName, entityName, "ID", providerName)
 		}
 		g.addLine(fmt.Sprintf("func (e *%s) Get%s(ctx fluxaorm.Context) (reference *%s, found bool, err error) {", entityName, fieldName, refName))
 		g.addLine(fmt.Sprintf("\tid := e.Get%sID()", fieldName))
@@ -1585,44 +1603,44 @@ func (g *codeGenerator) generateGettersSetters(entityName string, schema *entity
 	}
 	for _, i := range fields.integers {
 		fieldName := fields.prefix + fields.fields[i].Name
-		g.createGetterSetterInt64(schema, fieldName, entityName)
+		g.createGetterSetterInt64(schema, fieldName, entityName, providerName)
 	}
 	for _, i := range fields.booleans {
 		fieldName := fields.prefix + fields.fields[i].Name
-		g.createGetterSetterBool(schema, fieldName, entityName)
+		g.createGetterSetterBool(schema, fieldName, entityName, providerName)
 	}
 	for k, i := range fields.floats {
 		fieldName := fields.prefix + fields.fields[i].Name
-		g.createGetterSetterFloat(schema, fieldName, entityName, fields.floatsPrecision[k])
+		g.createGetterSetterFloat(schema, fieldName, entityName, providerName, fields.floatsPrecision[k])
 	}
 	for _, i := range fields.times {
 		g.addImport("time")
 		fieldName := fields.prefix + fields.fields[i].Name
-		g.createGetterSetterTime(schema, fieldName, entityName, false)
+		g.createGetterSetterTime(schema, fieldName, entityName, providerName, false)
 	}
 	for _, i := range fields.dates {
 		g.addImport("time")
 		fieldName := fields.prefix + fields.fields[i].Name
-		g.createGetterSetterTime(schema, fieldName, entityName, true)
+		g.createGetterSetterTime(schema, fieldName, entityName, providerName, true)
 	}
 	for k, i := range fields.strings {
 		fieldName := fields.prefix + fields.fields[i].Name
 		if fields.stringsRequired[k] {
-			g.createGetterSetterString(schema, fieldName, entityName)
+			g.createGetterSetterString(schema, fieldName, entityName, providerName)
 		} else {
 			g.addImport("database/sql")
-			g.createGetterSetterStringNullable(schema, fieldName, entityName)
+			g.createGetterSetterStringNullable(schema, fieldName, entityName, providerName)
 		}
 	}
 	for _, i := range fields.uIntegersNullable {
 		fieldName := fields.prefix + fields.fields[i].Name
 		g.addImport("database/sql")
-		g.createGetterSetterUint64Nullable(schema, fieldName, entityName, "")
+		g.createGetterSetterUint64Nullable(schema, fieldName, entityName, "", providerName)
 	}
 	for _, i := range fields.integersNullable {
 		fieldName := fields.prefix + fields.fields[i].Name
 		g.addImport("database/sql")
-		g.createGetterSetterInt64Nullable(schema, fieldName, entityName, "")
+		g.createGetterSetterInt64Nullable(schema, fieldName, entityName, "", providerName)
 	}
 	for k, i := range fields.stringsEnums {
 		g.addImport(g.enumsImport)
@@ -1645,17 +1663,17 @@ func (g *codeGenerator) generateGettersSetters(entityName string, schema *entity
 		enumFullName := "enums." + enumName
 		fieldName := fields.prefix + fields.fields[i].Name
 		if d.required {
-			g.createGetterSetterEnum(schema, fieldName, entityName, enumFullName, d.defaultValue)
+			g.createGetterSetterEnum(schema, fieldName, entityName, enumFullName, providerName)
 		} else {
 			g.addImport("database/sql")
-			g.createGetterSetterEnumNullable(schema, fieldName, entityName, enumFullName)
+			g.createGetterSetterEnumNullable(schema, fieldName, entityName, enumFullName, providerName)
 		}
 	}
 	for _, i := range fields.bytes {
 		fieldName := fields.prefix + fields.fields[i].Name
 		g.addImport("database/sql")
 		g.addImport("database/sql")
-		g.createGetterSetterBytesNullable(schema, fieldName, entityName)
+		g.createGetterSetterBytesNullable(schema, fieldName, entityName, providerName)
 	}
 	for k, i := range fields.sliceStringsSets {
 		g.addImport(g.enumsImport)
@@ -1679,35 +1697,35 @@ func (g *codeGenerator) generateGettersSetters(entityName string, schema *entity
 		fieldName := fields.prefix + fields.fields[i].Name
 		g.addImport("strings")
 		if d.required {
-			g.createGetterSetterSet(schema, fieldName, entityName, enumFullName, d.defaultValue)
+			g.createGetterSetterSet(schema, fieldName, entityName, enumFullName, providerName)
 		} else {
-			g.createGetterSetterSetNullable(schema, fieldName, entityName, enumFullName)
+			g.createGetterSetterSetNullable(schema, fieldName, entityName, enumFullName, providerName)
 		}
 	}
 	for _, i := range fields.booleansNullable {
 		fieldName := fields.prefix + fields.fields[i].Name
 		g.addImport("database/sql")
-		g.createGetterSetterBoolNullable(schema, fieldName, entityName)
+		g.createGetterSetterBoolNullable(schema, fieldName, entityName, providerName)
 	}
 	for k, i := range fields.floatsNullable {
 		fieldName := fields.prefix + fields.fields[i].Name
 		g.addImport("database/sql")
-		g.createGetterSetterFloatNullable(schema, fieldName, entityName, fields.floatsNullablePrecision[k])
+		g.createGetterSetterFloatNullable(schema, fieldName, entityName, providerName, fields.floatsNullablePrecision[k])
 	}
 	for _, i := range fields.timesNullable {
 		g.addImport("time")
 		g.addImport("database/sql")
 		fieldName := fields.prefix + fields.fields[i].Name
-		g.createGetterSetterTimeNullable(schema, fieldName, entityName, false)
+		g.createGetterSetterTimeNullable(schema, fieldName, entityName, providerName, false)
 	}
 	for _, i := range fields.datesNullable {
 		g.addImport("time")
 		g.addImport("database/sql")
 		fieldName := fields.prefix + fields.fields[i].Name
-		g.createGetterSetterTimeNullable(schema, fieldName, entityName, true)
+		g.createGetterSetterTimeNullable(schema, fieldName, entityName, providerName, true)
 	}
 	for _, subFields := range fields.structsFields {
-		err := g.generateGettersSetters(entityName, schema, subFields)
+		err := g.generateGettersSetters(entityName, providerName, schema, subFields)
 		if err != nil {
 			return err
 		}
