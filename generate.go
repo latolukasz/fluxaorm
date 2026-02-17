@@ -180,13 +180,15 @@ func (g *codeGenerator) generateCodeForEntity(schema *entitySchema) error {
 	g.addLine("}")
 	g.addLine("")
 
-	g.addLine(fmt.Sprintf("func (r *%s) redisValues() []any {", sqlRowName))
-	g.addLine(fmt.Sprintf("\tredisMSetValues := make([]any, %d)", len(schema.columnNames)+1))
-	g.addLine(fmt.Sprintf("\tredisMSetValues[0] = %s.redisCacheStamp", providerName))
-	g.addRedisBindSetLines(schema, schema.fields)
-	g.addLine("\treturn redisMSetValues")
-	g.addLine("}")
-	g.addLine("")
+	if schema.hasRedisCache {
+		g.addLine(fmt.Sprintf("func (r *%s) redisValues() []any {", sqlRowName))
+		g.addLine(fmt.Sprintf("\tredisMSetValues := make([]any, %d)", len(schema.columnNames)+1))
+		g.addLine(fmt.Sprintf("\tredisMSetValues[0] = %s.redisCacheStamp", providerName))
+		g.addRedisBindSetLines(schema, schema.fields)
+		g.addLine("\treturn redisMSetValues")
+		g.addLine("}")
+		g.addLine("")
+	}
 
 	g.addLine(fmt.Sprintf("func (p %s) GetByID(ctx fluxaorm.Context, id uint64) (entity *%s, found bool, err error) {", providerNamePrivate, entityName))
 	if schema.hasRedisCache {
@@ -374,7 +376,7 @@ func (g *codeGenerator) generateCodeForEntity(schema *entitySchema) error {
 	}
 	insertQueryLine += ")\n"
 	if schema.hasRedisCache {
-		insertQueryLine += fmt.Sprintf("\t\te.ctx.RedisPipeLine(%s.redisCode).LPush(%s.redisCachePrefix+strconv.FormatUint(e.GetID(), 10), e.originDatabaseValues.redisValues()...)", providerName, providerName)
+		insertQueryLine += fmt.Sprintf("\t\te.ctx.RedisPipeLine(%s.redisCode).RPush(%s.redisCachePrefix+strconv.FormatUint(e.GetID(), 10), e.originDatabaseValues.redisValues()...)", providerName, providerName)
 	}
 	g.addLine(insertQueryLine)
 	g.addLine("\t}")
@@ -778,6 +780,9 @@ func (g *codeGenerator) createGetterSetterSet(schema *entitySchema, fieldName, e
 	g.addLine("\t\t}")
 	if schema.hasRedisCache {
 		g.addLine("\t\tif e.originRedisValues != nil {")
+		g.addLine(fmt.Sprintf("\t\t\tif e.originRedisValues[%d] == \"\" {", g.filedIndex))
+		g.addLine("\t\t\t\treturn nil")
+		g.addLine("\t\t\t}")
 		g.addLine(fmt.Sprintf("\t\t\tsliced := strings.Split(e.originRedisValues[%d], \",\")", g.filedIndex))
 		g.addLine(fmt.Sprintf("\t\t\tvalue := make([]%s, len(sliced))", setName))
 		g.addLine("\t\t\tfor k, code := range sliced {")
