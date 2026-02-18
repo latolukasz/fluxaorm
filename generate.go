@@ -374,6 +374,9 @@ func (g *codeGenerator) generateCodeForEntity(schema *entitySchema) error {
 
 	if schema.hasRedisCache {
 		g.addLine(fmt.Sprintf("func (e *%s) addToRedisBind(index int64, value any) {", entityName))
+		g.addLine("\tif e.redisBind == nil {")
+		g.addLine("\t\te.redisBind = make(map[int64]any)")
+		g.addLine("\t}")
 		g.addLine(fmt.Sprintf("\te.redisBind[index] = value"))
 		g.addLine("}")
 		g.addLine("")
