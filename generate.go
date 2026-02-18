@@ -680,7 +680,7 @@ func (g *codeGenerator) createGetterSetterFloat(schema *entitySchema, fieldName,
 	g.filedIndex++
 }
 
-func (g *codeGenerator) createGetterSetterTime(schema *entitySchema, fieldName, entityName, providerName string, dateOnly bool) {
+func (g *codeGenerator) createGetterSetterTime(schema *entitySchema, fieldName, entityName string, dateOnly bool) {
 	g.addLine(fmt.Sprintf("func (e *%s) Get%s() time.Time {", entityName, fieldName))
 	g.addLine("\tif !e.new {")
 	g.addLine("\t\tif e.databaseBind != nil {")
@@ -1206,8 +1206,8 @@ func (g *codeGenerator) createGetterSetterTimeNullable(schema *entitySchema, fie
 		g.addLine("\tsame:= false")
 		g.addLine("\tif e.originRedisValues != nil {")
 		g.addLine("\t\tasString := \"\"")
-		g.addLine("\t\tif value != nil {")
-		g.addLine("\t\t\tasString = strconv.FormatInt(value.Unix(), 10)")
+		g.addLine("\t\tif bindValue.Valid {")
+		g.addLine("\t\t\tasString = strconv.FormatInt(bindValue.Time.Unix(), 10)")
 		g.addLine("\t\t}")
 		g.addLine(fmt.Sprintf("\t\tsame = e.originRedisValues[%d] == asString", g.filedIndex))
 		g.addLine("\t} else {")
@@ -1683,12 +1683,12 @@ func (g *codeGenerator) generateGettersSetters(entityName, providerName string, 
 	for _, i := range fields.times {
 		g.addImport("time")
 		fieldName := fields.prefix + fields.fields[i].Name
-		g.createGetterSetterTime(schema, fieldName, entityName, providerName, false)
+		g.createGetterSetterTime(schema, fieldName, entityName, false)
 	}
 	for _, i := range fields.dates {
 		g.addImport("time")
 		fieldName := fields.prefix + fields.fields[i].Name
-		g.createGetterSetterTime(schema, fieldName, entityName, providerName, true)
+		g.createGetterSetterTime(schema, fieldName, entityName, true)
 	}
 	for k, i := range fields.strings {
 		fieldName := fields.prefix + fields.fields[i].Name
