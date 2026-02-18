@@ -359,10 +359,22 @@ func (g *codeGenerator) generateCodeForEntity(schema *entitySchema) error {
 	g.addLine("}")
 	g.addLine("")
 	g.addLine(fmt.Sprintf("func (e *%s) Delete() {", entityName))
-	g.addLine("\te.deleted = true")
+	if schema.hasFakeDelete {
+		g.addLine("\te.SetFakeDelete(true)")
+	} else {
+		g.addLine("\te.deleted = true")
+	}
 	g.addLine(fmt.Sprintf("\te.ctx.Track(e, %s.cacheIndex)", providerName))
 	g.addLine("}")
 	g.addLine("")
+
+	if schema.hasFakeDelete {
+		g.addLine(fmt.Sprintf("func (e *%s) ForceDelete() {", entityName))
+		g.addLine("\te.deleted = true")
+		g.addLine(fmt.Sprintf("\te.ctx.Track(e, %s.cacheIndex)", providerName))
+		g.addLine("}")
+		g.addLine("")
+	}
 
 	g.addLine(fmt.Sprintf("func (e *%s) addToDatabaseBind(column string, value any) {", entityName))
 	g.addLine("\tif e.databaseBind == nil {")

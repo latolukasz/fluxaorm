@@ -98,8 +98,9 @@ type generateEntityNoRedis struct {
 }
 
 type generateReferenceEntity struct {
-	ID   uint16
-	Name string
+	ID         uint16
+	Name       string
+	FakeDelete bool
 }
 
 //func BenchmarkGenerate(b *testing.B) {
