@@ -400,6 +400,14 @@ func (g *codeGenerator) generateCodeForEntity(schema *entitySchema) error {
 	g.addLine(insertQueryLine)
 	g.addLine("\t\treturn nil")
 	g.addLine("\t}")
+	g.addLine("\tif e.deleted {")
+	g.addLine(fmt.Sprintf("\t\tsqlQuery := \"DELETE FROM `%s` WHERE `ID` = ?\"", schema.tableName))
+	g.addLine(fmt.Sprintf("\t\te.ctx.DatabasePipeLine(%s.dbCode).AddQuery(sqlQuery, e.GetID())", providerName))
+	if schema.hasRedisCache {
+		g.addLine(fmt.Sprintf("\t\te.ctx.RedisPipeLine(%s.redisCode).Del(%s.redisCachePrefix + strconv.FormatUint(e.GetID(), 10))", providerName, providerName))
+	}
+	g.addLine("\t\treturn nil")
+	g.addLine("\t}")
 	g.addLine("\tif len(e.databaseBind) > 0 {")
 	g.addLine(fmt.Sprintf("\t\tsqlQuery := \"UPDATE `%s` SET\" ", schema.tableName))
 	g.addLine("\t\ti := 0")
