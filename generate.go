@@ -692,7 +692,7 @@ func (g *codeGenerator) createGetterSetterTime(schema *entitySchema, fieldName, 
 	if schema.hasRedisCache {
 		g.addLine("\t\tif e.originRedisValues != nil {")
 		g.addLine(fmt.Sprintf("\t\t\tfromRedis, _ := strconv.ParseInt(e.originRedisValues[%d], 10, 64)", g.filedIndex))
-		g.addLine("\t\t\treturn time.Unix(fromRedis, 0)")
+		g.addLine("\t\t\treturn time.Unix(fromRedis, 0).UTC()")
 		g.addLine("\t\t}")
 	}
 	g.addLine("\t}")
@@ -1175,7 +1175,7 @@ func (g *codeGenerator) createGetterSetterTimeNullable(schema *entitySchema, fie
 		g.addLine("\t\t\t\treturn nil")
 		g.addLine("\t\t\t}")
 		g.addLine(fmt.Sprintf("\t\t\tfromRedis, _ := strconv.ParseInt(e.originRedisValues[%d], 10, 64)", g.filedIndex))
-		g.addLine("\t\t\tt := time.Unix(fromRedis, 0)")
+		g.addLine("\t\t\tt := time.Unix(fromRedis, 0).UTC()")
 		g.addLine("\t\t\treturn &t")
 		g.addLine("\t\t}")
 	}
