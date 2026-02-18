@@ -360,6 +360,7 @@ func (g *codeGenerator) generateCodeForEntity(schema *entitySchema) error {
 	g.addLine("")
 	g.addLine(fmt.Sprintf("func (e *%s) Delete() {", entityName))
 	g.addLine("\te.deleted = true")
+	g.addLine(fmt.Sprintf("\te.ctx.Track(e, %s.cacheIndex)", providerName))
 	g.addLine("}")
 	g.addLine("")
 

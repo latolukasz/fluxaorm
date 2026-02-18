@@ -463,7 +463,18 @@ func TestGenerate(t *testing.T) {
 	e2.SetReferenceRequired(ref.GetID())
 	e.SetReferenceOptional(ref.GetID())
 	e2.SetReferenceOptional(ref.GetID())
+	assert.NoError(t, ctx.Flush())
 
+	e.Delete()
+	e2.Delete()
 	ctx.EnableQueryDebug()
 	assert.NoError(t, ctx.Flush())
+	e, found, err = entities.GenerateEntityProvider.GetByID(ctx, e.GetID())
+	assert.NoError(t, err)
+	assert.False(t, found)
+	assert.Nil(t, e)
+	e2, found, err = entities.GenerateEntityNoRedisProvider.GetByID(ctx, e2.GetID())
+	assert.NoError(t, err)
+	assert.False(t, found)
+	assert.Nil(t, e2)
 }
