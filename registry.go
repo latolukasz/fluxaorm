@@ -165,26 +165,9 @@ func (r *registry) Validate() (Engine, error) {
 			if r.localCaches == nil {
 				r.localCaches = make(map[string]LocalCache)
 			}
-			r.localCaches[schema.getCacheKey()] = newLocalCache(schema.getCacheKey(), schema.localCacheLimit, schema)
+			r.localCaches[schema.cacheKey] = newLocalCache(schema.cacheKey, schema.localCacheLimit, schema)
 		}
 		extractEnums(schema.fields, e.registry)
-	}
-
-	hasLog := false
-	for _, entityType := range r.entities {
-		logEntity, isLogEntity := reflect.New(entityType).Interface().(logEntityInterface)
-		if isLogEntity {
-			logSchema := e.registry.entitySchemas[entityType]
-			targetType := logEntity.getLogEntityTarget()
-			targetSchema := e.registry.entitySchemas[targetType]
-			logPool := targetSchema.getTag("log-pool", "default", "")
-			if logPool != "" {
-				logSchema.mysqlPoolCode = logPool
-			}
-			logSchema.tableName = "_LogEntity_" + targetSchema.mysqlPoolCode + "_" + targetType.Name()
-			e.registry.entityLogSchemas[targetType] = logSchema
-			hasLog = true
-		}
 	}
 	for k, v := range r.localCaches {
 		e.localCacheServers[k] = v
@@ -230,12 +213,6 @@ func (r *registry) Validate() (Engine, error) {
 			}
 		}
 	}
-	if hasLog {
-		_, has = r.redisStreamPools[LogChannelName]
-		if !has {
-			r.RegisterRedisStream(LogChannelName, "default")
-		}
-	}
 	e.registry.redisStreamGroups = r.redisStreamGroups
 	e.registry.redisStreamPools = r.redisStreamPools
 	if e.registry.hasMetrics {
@@ -277,14 +254,7 @@ func (r *registry) RegisterEntity(entity ...any) {
 		if t.Kind() == reflect.Ptr {
 			t = t.Elem()
 		}
-		name := t.String()
-		if strings.Index(name, "[") > 0 {
-			logEntity, isLogEntity := reflect.New(t).Interface().(logEntityInterface)
-			if isLogEntity {
-				name = "orm.LogEntity[" + logEntity.getLogEntityTarget().String() + "]"
-			}
-		}
-		r.entities[name] = t
+		r.entities[t.String()] = t
 	}
 }
 

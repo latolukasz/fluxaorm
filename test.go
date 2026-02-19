@@ -127,8 +127,3 @@ func runAsyncConsumer(ctx Context) error {
 	lazyFlashConsumer := NewLazyFlashConsumer(ctx)
 	return lazyFlashConsumer.Consume(time.Millisecond)
 }
-
-func runLogTablesConsumer(ctx Context) error {
-	lazyFlashConsumer := NewLogTablesConsumerSingle(ctx)
-	return lazyFlashConsumer.Consume(100, time.Millisecond)
-}

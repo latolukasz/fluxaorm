@@ -19,6 +19,11 @@ func GetEntitySchema[E any](ctx Context) EntitySchema {
 	return getEntitySchema[E](ctx)
 }
 
+type dirtyDefinition struct {
+	Stream  string
+	Columns map[string]bool
+}
+
 func getEntitySchema[E any](ctx Context) *entitySchema {
 	var entity E
 	return getEntitySchemaFromSource(ctx, entity)
@@ -61,7 +66,6 @@ type EntitySchema interface {
 	UpdateSchemaAndTruncateTable(ctx Context) error
 	GetSchemaChanges(ctx Context) (alters []Alter, has bool, err error)
 	DisableCache(local, redis bool)
-	getCacheKey() string
 	uuid(ctx Context) uint64
 	getForcedRedisCode() string
 	ClearCache(ctx Context) (int, error)
@@ -100,7 +104,6 @@ type entitySchema struct {
 	redisSearchIndexPoolCode string
 	redisSearchIndexName     string
 	redisSearchIndexPrefix   string
-	cacheAll                 bool
 	hasLocalCache            bool
 	localCache               *localCache
 	localCacheLimit          int
@@ -345,7 +348,6 @@ func (e *entitySchema) init(registry *registry, entityType reflect.Type) error {
 	}
 	e.tableName = e.getTag("table", entityType.Name(), entityType.Name())
 	e.archived = e.getTag("archived", "true", "") == "true"
-	e.cacheAll = e.getTag("cacheAll", "true", "") == "true"
 	redisCacheName := e.getTag("redisCache", DefaultPoolCode, "")
 	if redisCacheName != "" {
 		_, has := registry.redisPools[redisCacheName]
@@ -683,10 +685,6 @@ func (e *entitySchema) getForcedRedisCode() string {
 	return DefaultPoolCode
 }
 
-func (e *entitySchema) getCacheKey() string {
-	return e.cacheKey
-}
-
 func (e *entitySchema) DisableCache(local, redis bool) {
 	if local {
 		e.hasLocalCache = false
@@ -721,7 +719,7 @@ until cursor == '0'
 
 return deleted
 `
-	res, err := r.Eval(ctx, script, []string{e.getCacheKey() + ":*"})
+	res, err := r.Eval(ctx, script, []string{e.cacheKey + ":*"})
 	if err != nil {
 		return 0, err
 	}

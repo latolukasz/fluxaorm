@@ -363,7 +363,7 @@ func (g *codeGenerator) generateCodeForEntity(schema *entitySchema) error {
 	g.addLine("\treturn result, nil")
 	g.addLine("}")
 	g.addLine("")
-	g.addLine(fmt.Sprintf("func (p %s) GetAll(ctx fluxaorm.Context) (fluxaorm.EntityIterator[%s], error) {", providerNamePrivate, entityName))
+	g.addLine(fmt.Sprintf("func (p %s) GetAll(ctx fluxaorm.Context) ([]*%s, error) {", providerNamePrivate, entityName))
 	g.addLine("\treturn nil, nil")
 	g.addLine("}")
 	g.addLine("")
@@ -385,7 +385,7 @@ func (g *codeGenerator) generateCodeForEntity(schema *entitySchema) error {
 		for _, columnName := range index.Columns {
 			g.body += fmt.Sprintf(", %s any", g.lowerFirst(columnName))
 		}
-		g.addLine(fmt.Sprintf(") (fluxaorm.EntityIterator[%s], error) {", entityName))
+		g.addLine(fmt.Sprintf(") ([]*%s, error) {", entityName))
 		g.addLine("\treturn nil, nil")
 		g.addLine("}")
 		g.addLine("")
@@ -400,11 +400,11 @@ func (g *codeGenerator) generateCodeForEntity(schema *entitySchema) error {
 		g.addLine("}")
 		g.addLine("")
 	}
-	g.addLine(fmt.Sprintf("func (p %s) SearchWithCount(ctx fluxaorm.Context, where fluxaorm.Where, pager *fluxaorm.Pager) (entities fluxaorm.EntityIterator[%s], totalRows int, err error) {", providerNamePrivate, entityName))
+	g.addLine(fmt.Sprintf("func (p %s) SearchWithCount(ctx fluxaorm.Context, where fluxaorm.Where, pager *fluxaorm.Pager) (entities []*%s, totalRows int, err error) {", providerNamePrivate, entityName))
 	g.addLine("\treturn nil, 0, nil")
 	g.addLine("}")
 	g.addLine("")
-	g.addLine(fmt.Sprintf("func (p %s) Search(ctx fluxaorm.Context, where fluxaorm.Where, pager *fluxaorm.Pager) (entities fluxaorm.EntityIterator[%s], err error) {", providerNamePrivate, entityName))
+	g.addLine(fmt.Sprintf("func (p %s) Search(ctx fluxaorm.Context, where fluxaorm.Where, pager *fluxaorm.Pager) (entities []*%s, err error) {", providerNamePrivate, entityName))
 	g.addLine("\treturn nil, nil")
 	g.addLine("}")
 	g.addLine("")
@@ -466,7 +466,7 @@ func (g *codeGenerator) generateCodeForEntity(schema *entitySchema) error {
 	g.addLine("\tnew bool")
 	g.addLine("\tdeleted bool")
 	g.addLine(fmt.Sprintf("\toriginDatabaseValues *%s", sqlRowName))
-	g.addLine("\tdatabaseBind fluxaorm.Bind")
+	g.addLine("\tdatabaseBind map[string]any")
 	if schema.hasRedisCache {
 		g.addLine("\tredisBind map[int64]any")
 		g.addLine("\toriginRedisValues []string")
@@ -497,7 +497,7 @@ func (g *codeGenerator) generateCodeForEntity(schema *entitySchema) error {
 
 	g.addLine(fmt.Sprintf("func (e *%s) addToDatabaseBind(column string, value any) {", entityName))
 	g.addLine("\tif e.databaseBind == nil {")
-	g.addLine("\t\te.databaseBind = fluxaorm.Bind{}")
+	g.addLine("\t\te.databaseBind = map[string]any{}")
 	g.addLine(fmt.Sprintf("\t\te.ctx.Track(e, %s.cacheIndex)", providerName))
 	g.addLine("\t}")
 	g.addLine(fmt.Sprintf("\te.databaseBind[column] = value"))
