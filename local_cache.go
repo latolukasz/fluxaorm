@@ -13,13 +13,12 @@ import (
 type LocalCacheConfig interface {
 	GetCode() string
 	GetLimit() int
-	GetSchema() EntitySchema
 }
 
 type localCacheConfig struct {
 	code   string
 	limit  int
-	schema EntitySchema
+	schema *entitySchema
 }
 
 func (c *localCacheConfig) GetCode() string {
@@ -28,10 +27,6 @@ func (c *localCacheConfig) GetCode() string {
 
 func (c *localCacheConfig) GetLimit() int {
 	return c.limit
-}
-
-func (c *localCacheConfig) GetSchema() EntitySchema {
-	return c.schema
 }
 
 type LocalCacheUsage struct {

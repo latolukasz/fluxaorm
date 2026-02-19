@@ -56,7 +56,7 @@ func (r *registry) Validate() (Engine, error) {
 	l := len(r.entities)
 	e.registry.entitySchemas = make(map[reflect.Type]*entitySchema, l)
 	e.registry.entitySchemasQuickMap = make(map[reflect.Type]*entitySchema, l)
-	e.registry.entitySchemaList = make([]EntitySchema, l)
+	e.registry.entitySchemaList = make([]*entitySchema, l)
 	e.registry.entityLogSchemas = make(map[reflect.Type]*entitySchema, l)
 	e.registry.entities = make(map[string]reflect.Type)
 	e.registry.enums = make(map[string][]string)

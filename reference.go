@@ -4,8 +4,8 @@ import (
 	"reflect"
 )
 
-type ReferenceInterface interface {
-	Schema(ctx Context) EntitySchema
+type referenceInterface interface {
+	schema(ctx Context) *entitySchema
 	getType() reflect.Type
 }
 
@@ -15,8 +15,8 @@ type referenceDefinition struct {
 
 type Reference[E any] uint64
 
-func (r Reference[E]) Schema(ctx Context) EntitySchema {
-	return ctx.Engine().Registry().EntitySchema(r.getType())
+func (r Reference[E]) schema(ctx Context) *entitySchema {
+	return ctx.Engine().Registry().(*engineRegistryImplementation).entitySchemas[r.getType()]
 }
 
 func (r Reference[E]) getType() reflect.Type {

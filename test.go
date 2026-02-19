@@ -52,8 +52,7 @@ func prepareTables(t *testing.T, registry Registry, mysqlOptions *MySQLOptions, 
 		assert.NoError(t, err)
 	}
 
-	for _, entity := range entities {
-		schema := orm.Engine().Registry().EntitySchema(entity)
+	for _, schema := range orm.Engine().Registry().(*engineRegistryImplementation).entitySchemas {
 		assert.NotNil(t, schema)
 		err = schema.TruncateTable(orm)
 		assert.NoError(t, err)

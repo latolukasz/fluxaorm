@@ -9,7 +9,7 @@ import (
 )
 
 type codeGenerator struct {
-	engine      Engine
+	engine      *engineImplementation
 	dir         string
 	enums       map[string]bool
 	imports     map[string]bool
@@ -82,12 +82,12 @@ func Generate(engine Engine, outputDirectory string) error {
 		}
 	}
 
-	generator := codeGenerator{engine: engine, dir: absOutputDirectory, enums: nil, enumsImport: enumsImport}
+	generator := codeGenerator{engine: engine.(*engineImplementation), dir: absOutputDirectory, enums: nil, enumsImport: enumsImport}
 
-	for _, schema := range engine.Registry().Entities() {
+	for _, schema := range engine.Registry().(*engineRegistryImplementation).entitySchemas {
 		generator.body = ""
 		generator.imports = make(map[string]bool)
-		err = generator.generateCodeForEntity(schema.(*entitySchema))
+		err = generator.generateCodeForEntity(schema)
 		if err != nil {
 			return err
 		}
@@ -2230,10 +2230,4 @@ func (g *codeGenerator) addRedisBindSetLines(schema *entitySchema, fields *table
 	for _, subFields := range fields.structsFields {
 		g.addRedisBindSetLines(schema, subFields)
 	}
-}
-
-type Flushable interface {
-	PrivateFlush() error
-	PrivateFlushed()
-	GetID() uint64
 }

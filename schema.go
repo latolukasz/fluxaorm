@@ -17,9 +17,9 @@ type Alter struct {
 	Pool string
 }
 
-type TableSQLSchemaDefinition struct {
+type tableSQLSchemaDefinition struct {
 	ctx            Context
-	EntitySchema   EntitySchema
+	EntitySchema   *entitySchema
 	EntityColumns  []*ColumnSchemaDefinition
 	EntityIndexes  []*IndexSchemaDefinition
 	DBTableColumns []*ColumnSchemaDefinition
@@ -42,10 +42,10 @@ func GetAlters(ctx Context) (alters []Alter, err error) {
 	return final, nil
 }
 
-func (td *TableSQLSchemaDefinition) CreateTableSQL() string {
+func (td *tableSQLSchemaDefinition) CreateTableSQL() string {
 	pool := td.EntitySchema.GetDB()
 	createTableSQL := fmt.Sprintf("CREATE TABLE `%s`.`%s` (\n", pool.GetConfig().GetDatabaseName(), td.EntitySchema.GetTableName())
-	archived := td.EntitySchema.(*entitySchema).archived
+	archived := td.EntitySchema.archived
 	for i, value := range td.EntityColumns {
 		if archived && i == 0 {
 			createTableSQL += fmt.Sprintf("  %s AUTO_INCREMENT,\n", value.Definition)
@@ -130,11 +130,7 @@ func getAlters(ctx Context) (preAlters, alters, postAlters []Alter, err error) {
 		}
 	}
 	alters = make([]Alter, 0)
-	for _, schemaInterface := range ctx.Engine().Registry().Entities() {
-		schema := schemaInterface.(*entitySchema)
-		if schema.virtual {
-			continue
-		}
+	for _, schema := range ctx.Engine().Registry().(*engineRegistryImplementation).entitySchemas {
 		db := schema.GetDB()
 		tablesInEntities[db.GetConfig().GetCode()][schema.GetTableName()] = true
 		pre, middle, post, err := getSchemaChanges(ctx, schema)
@@ -235,7 +231,7 @@ func getSchemaChanges(ctx Context, entitySchema *entitySchema) (preAlters, alter
 	if err != nil {
 		return nil, nil, nil, err
 	}
-	sqlSchema := &TableSQLSchemaDefinition{
+	sqlSchema := &tableSQLSchemaDefinition{
 		ctx:           ctx,
 		EntitySchema:  entitySchema,
 		EntityIndexes: indexesSlice,
@@ -654,8 +650,8 @@ func checkColumn(engine Engine, schema *entitySchema, field *reflect.StructField
 				}
 				columns = append(columns, structFields...)
 				continue
-			} else if fieldType.Implements(reflect.TypeOf((*ReferenceInterface)(nil)).Elem()) {
-				refIDType := reflect.New(reflect.New(fieldType).Interface().(ReferenceInterface).getType()).Elem().FieldByName("ID").Type().String()
+			} else if fieldType.Implements(reflect.TypeOf((*referenceInterface)(nil)).Elem()) {
+				refIDType := reflect.New(reflect.New(fieldType).Interface().(referenceInterface).getType()).Elem().FieldByName("ID").Type().String()
 				definition, addNotNullIfNotSet, defaultValue = handleInt(refIDType, attributes, !isRequired)
 			} else if fieldType.Implements(reflect.TypeOf((*EnumValues)(nil)).Elem()) {
 				def := reflect.New(fieldType).Interface().(EnumValues)

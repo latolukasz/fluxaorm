@@ -15,65 +15,13 @@ import (
 	"github.com/pkg/errors"
 )
 
-func GetEntitySchema[E any](ctx Context) EntitySchema {
-	return getEntitySchema[E](ctx)
-}
-
 type dirtyDefinition struct {
 	Stream  string
 	Columns map[string]bool
 }
 
-func getEntitySchema[E any](ctx Context) *entitySchema {
-	var entity E
-	return getEntitySchemaFromSource(ctx, entity)
-}
-
-func getEntitySchemaFromSource(ctx Context, source any) *entitySchema {
-	ci := ctx.(*ormImplementation)
-	schema, has := ci.engine.registry.entitySchemasQuickMap[reflect.TypeOf(source)]
-	if !has {
-		return nil
-	}
-	return schema
-}
-
-type EntitySchemaSetter interface {
-	SetOption(key string, value any)
-	EntitySchemaShared
-}
-
-type EntitySchemaShared interface {
-	GetTableName() string
-	IsVirtual() bool
-	GetType() reflect.Type
-	GetColumns() []string
-	GetTag(field, key, trueValue, defaultValue string) string
-	Option(key string) any
-	GetUniqueIndexes() map[string][]string
-	GetDB() DB
-	GetLocalCache() (cache LocalCache, has bool)
-	GetRedisCache() (cache RedisCache, has bool)
-	GetRedisSearchPoolCode() string
-	GetRedisSearchIndexName() string
-}
-
-type EntitySchema interface {
-	EntitySchemaShared
-	DropTable(ctx Context) error
-	TruncateTable(ctx Context) error
-	UpdateSchema(ctx Context) error
-	UpdateSchemaAndTruncateTable(ctx Context) error
-	GetSchemaChanges(ctx Context) (alters []Alter, has bool, err error)
-	DisableCache(local, redis bool)
-	uuid(ctx Context) uint64
-	getForcedRedisCode() string
-	ClearCache(ctx Context) (int, error)
-}
-
 type entitySchema struct {
 	index                    uint64
-	virtual                  bool
 	cacheTTL                 int
 	tableName                string
 	archived                 bool
@@ -201,10 +149,6 @@ func (e *entitySchema) GetTableName() string {
 	return e.tableName
 }
 
-func (e *entitySchema) IsVirtual() bool {
-	return e.virtual
-}
-
 func (e *entitySchema) GetType() reflect.Type {
 	return e.t
 }
@@ -216,9 +160,6 @@ func (e *entitySchema) DropTable(ctx Context) error {
 }
 
 func (e *entitySchema) TruncateTable(ctx Context) error {
-	if e.virtual {
-		return nil
-	}
 	pool := e.GetDB()
 	if e.archived {
 		_, err := pool.Exec(ctx, fmt.Sprintf("DROP TABLE `%s`.`%s`", pool.GetConfig().GetDatabaseName(), e.tableName))
@@ -239,9 +180,6 @@ func (e *entitySchema) TruncateTable(ctx Context) error {
 }
 
 func (e *entitySchema) UpdateSchema(ctx Context) error {
-	if e.virtual {
-		return nil
-	}
 	pool := e.GetDB()
 	alters, has, err := e.GetSchemaChanges(ctx)
 	if err != nil {
@@ -321,7 +259,6 @@ func (e *entitySchema) init(registry *registry, entityType reflect.Type) error {
 	e.t = entityType
 	e.tSlice = reflect.SliceOf(reflect.PointerTo(entityType))
 	e.tags = extractTags(registry, entityType, "")
-	e.virtual = e.getTag("virtual", "true", "") == "true"
 	userTTL := e.getTag("ttl", "", "")
 	if userTTL != "" {
 		ttl, err := strconv.Atoi(userTTL)
@@ -467,9 +404,6 @@ func (e *entitySchema) init(registry *registry, entityType reflect.Type) error {
 	}
 	e.redisCacheName = redisCacheName
 	e.hasRedisCache = redisCacheName != ""
-	if e.virtual && !e.hasRedisCache && !e.hasLocalCache {
-		return fmt.Errorf("virtual entity '%s' has no cache pool defined", e.t.String())
-	}
 	e.cacheKey = cacheKey
 	err = e.validateIndexes()
 	if err != nil {
@@ -622,9 +556,6 @@ func (e *entitySchema) Option(key string) any {
 }
 
 func (e *entitySchema) uuid(ctx Context) uint64 {
-	if e.virtual {
-		return 0
-	}
 	r := ctx.Engine().Redis(e.getForcedRedisCode())
 	id, err := r.Incr(ctx, e.uuidCacheKey)
 	if err != nil {
@@ -854,7 +785,7 @@ func (e *entitySchema) buildTableFields(t reflect.Type, registry *registry,
 			} else if k == "slice" && fType.Elem().Implements(reflect.TypeOf((*EnumValues)(nil)).Elem()) {
 				definition := reflect.New(fType.Elem()).Interface().(EnumValues).EnumValues()
 				e.buildStringSliceField(fType.String(), attributes, definition)
-			} else if fType.Implements(reflect.TypeOf((*ReferenceInterface)(nil)).Elem()) {
+			} else if fType.Implements(reflect.TypeOf((*referenceInterface)(nil)).Elem()) {
 				e.buildReferenceField(attributes)
 				if attributes.Tags["cached"] == "true" {
 					fields.forcedOldBid[i] = true
@@ -925,7 +856,7 @@ func (e *entitySchema) buildReferenceField(attributes schemaFieldAttributes) {
 		}
 		var refType reflect.Type
 		if i == 0 {
-			refType = reflect.New(fType).Interface().(ReferenceInterface).getType()
+			refType = reflect.New(fType).Interface().(referenceInterface).getType()
 			def := referenceDefinition{
 				Type: refType,
 			}

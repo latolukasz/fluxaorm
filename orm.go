@@ -38,7 +38,7 @@ type Context interface {
 	getDBLoggers() (bool, []LogHandler)
 	getLocalCacheLoggers() (bool, []LogHandler)
 	getRedisLoggers() (bool, []LogHandler)
-	Track(f Flushable, cacheIndex uint64)
+	Track(e Entity, cacheIndex uint64)
 	GetEventBroker() EventBroker
 	getMetricsSourceTag() string
 }
@@ -46,7 +46,7 @@ type Context interface {
 type ormImplementation struct {
 	context                  context.Context
 	engine                   *engineImplementation
-	trackedGeneratedEntities *xsync.MapOf[uint64, *xsync.MapOf[uint64, Flushable]]
+	trackedGeneratedEntities *xsync.MapOf[uint64, *xsync.MapOf[uint64, Entity]]
 	cachedEntities           *xsync.MapOf[uint64, *xsync.MapOf[uint64, any]]
 	queryLoggersDB           []LogHandler
 	queryLoggersRedis        []LogHandler
@@ -161,16 +161,16 @@ func (orm *ormImplementation) getLocalCacheLoggers() (bool, []LogHandler) {
 	return false, nil
 }
 
-func (orm *ormImplementation) Track(f Flushable, cacheIndex uint64) {
+func (orm *ormImplementation) Track(f Entity, cacheIndex uint64) {
 	orm.mutexFlush.Lock()
 	defer orm.mutexFlush.Unlock()
 	if orm.trackedGeneratedEntities == nil {
-		orm.trackedGeneratedEntities = xsync.NewTypedMapOf[uint64, *xsync.MapOf[uint64, Flushable]](func(seed maphash.Seed, u uint64) uint64 {
+		orm.trackedGeneratedEntities = xsync.NewTypedMapOf[uint64, *xsync.MapOf[uint64, Entity]](func(seed maphash.Seed, u uint64) uint64 {
 			return u
 		})
 	}
-	entities, loaded := orm.trackedGeneratedEntities.LoadOrCompute(cacheIndex, func() *xsync.MapOf[uint64, Flushable] {
-		entities := xsync.NewTypedMapOf[uint64, Flushable](func(seed maphash.Seed, u uint64) uint64 {
+	entities, loaded := orm.trackedGeneratedEntities.LoadOrCompute(cacheIndex, func() *xsync.MapOf[uint64, Entity] {
+		entities := xsync.NewTypedMapOf[uint64, Entity](func(seed maphash.Seed, u uint64) uint64 {
 			return u
 		})
 		entities.Store(f.GetID(), f)
