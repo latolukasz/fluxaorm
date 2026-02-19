@@ -53,9 +53,60 @@ FLUXA ORM is a Go ORM targeting MySQL + Redis 8.0 with Redis Search. The main pa
 - `search_by_redis_index.go` — Redis Search index queries
 - `pager.go` — pagination support for search results
 
-### Code Generation
+### Code Generation — New System (Active Development)
 
-`generate.go` (83KB) — generates typed provider code for registered entities. Run after modifying entity definitions. Output goes to a configurable directory. See `test_generate/` for examples of generated code and entities.
+`generate.go` — generates fully-typed, zero-reflection Go code for each registered entity. This is the **primary direction of the project**. The goal is to replace the existing reflection-based ORM entirely once the generated system covers all required functionality.
+
+**Design goals:** developer-friendly API + maximum performance (minimal DB/Redis queries, minimal memory allocations, no reflection at runtime).
+
+#### Generated output structure (per entity)
+
+- **`XxxSQLRow` struct** — flat struct with fields `F0`, `F1`, `F2`... mapped 1:1 to DB columns; used for direct `Scan()` without reflection.
+- **`xxxProvider` / `XxxProvider` singleton** — holds static metadata (tableName, dbCode, redisCode, cacheIndex, redisCachePrefix, stamp, TTL). Exposes all query methods.
+- **`XxxEntity` struct** — the user-facing entity; holds `ctx`, `id`, `new`, `deleted`, `originDatabaseValues` (SQLRow), `databaseBind` (lazy map of changed columns), and optionally `redisBind` + `originRedisValues` for entities with Redis cache.
+
+#### Caching strategy in generated code
+
+- Redis cache stores entity as a **Redis List** (`RPush`). Index 0 = struct hash stamp; indices 1..N = field values serialised to strings (ints as decimal, floats as `f8`, booleans as `"1"`/`"0"`, times as Unix seconds, NULL as `""`).
+- `GetByID`: checks Redis List first → validates stamp → returns entity backed by `originRedisValues`; on cache miss queries MySQL and caches result; marks not-found with empty marker list `[""]`.
+- `GetByIDs`: batch MySQL `IN (...)` query, no Redis cache.
+
+#### Dirty tracking in generated code
+
+- Getters read from (in priority order): `databaseBind` (pending change) → `originRedisValues` (Redis cache) → `originDatabaseValues` (MySQL row).
+- Setters compare new value against current origin; if unchanged they `delete()` from the bind maps (idempotent/no-op); if changed they call `addToDatabaseBind` + `addToRedisBind`.
+- `PrivateFlush()` builds and enqueues INSERT/UPDATE/DELETE on the DB pipeline and LSet changes on the Redis pipeline — both via pipelining to minimise round-trips.
+
+#### UUID generation in generated code
+
+- Uses a Redis counter (`INCR` on a per-entity key).
+- On first use (counter == 1) acquires a distributed lock and initialises the counter from `MAX(ID)` in MySQL (`initUUID`).
+
+#### Field types supported by the generator
+
+`uint64`, `int64`, `bool`, `float64` (with precision), `time.Time` (datetime or date-only), `string`, `[]uint8` (byte), enums (typed string aliases), sets (`[]EnumType`, stored comma-separated sorted), nullable variants of all the above, and `fluxaorm.Reference[T]` (required and optional).
+
+#### Currently implemented vs stubbed
+
+| Feature | Status |
+|---|---|
+| `GetByID` (with Redis cache) | ✅ implemented |
+| `GetByIDs` (MySQL batch) | ✅ implemented |
+| `New` / `NewWithID` + UUID | ✅ implemented |
+| `PrivateFlush` (INSERT / UPDATE / DELETE) | ✅ implemented |
+| Typed getters & setters for all field types | ✅ implemented |
+| `Delete` / `ForceDelete` / fake-delete | ✅ implemented |
+| `GetByIndex` (non-unique) | 🔲 stub — returns nil |
+| `GetByUniqueIndex` | 🔲 stub — returns nil |
+| `GetAll` | 🔲 stub — returns nil |
+| `Search` / `SearchWithCount` / `SearchOne` | 🔲 stub — returns nil |
+| `SearchIDs` / `SearchIDsWithCount` | 🔲 stub — returns nil |
+
+#### Migration plan
+
+Once the generated system fully covers all required functionality, the legacy reflection-based ORM (`bind.go`, `column_setter.go`, `edit_entity_field.go`, `get_by_id.go`, `get_by_ids.go`, `get_by_index.go`, etc.) will be removed. **Do not invest in improving the legacy system** — new features go into `generate.go` and the generated output.
+
+See `test_generate/` for entity definitions used to test generation and `test_generate/entities/` for example generated output.
 
 ### Event System
 
