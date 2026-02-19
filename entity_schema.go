@@ -29,10 +29,8 @@ type entitySchema struct {
 	hasFakeDelete            bool
 	fields                   *tableFields
 	engine                   Engine
-	fieldsQuery              string
 	tags                     map[string]map[string]string
 	columnNames              []string
-	columnMapping            map[string]int
 	fieldDefinitions         map[string]schemaFieldAttributes
 	uniqueIndexes            map[string]indexDefinition
 	uniqueIndexesMapping     map[UniqueIndexDefinition]string
@@ -328,21 +326,17 @@ func (e *entitySchema) init(registry *registry, entityType reflect.Type) error {
 		return err
 	}
 	e.fields = fields
-	e.columnNames, e.fieldsQuery = e.fields.buildColumnNames("")
-	if len(e.fieldsQuery) > 0 {
-		e.fieldsQuery = e.fieldsQuery[1:]
-	}
+	e.columnNames = e.fields.buildColumnNames("")
 	columnMapping := make(map[string]int)
 	for i, name := range e.columnNames {
 		columnMapping[name] = i
 	}
-	cacheKey = hashString(cacheKey + e.fieldsQuery)
+	cacheKey = hashString(cacheKey + strings.Join(e.columnNames, ":"))
 	e.uuidCacheKey = cacheKey[0:12]
 	cacheKey = cacheKey[0:5]
 	h := fnv.New32a()
 	_, _ = h.Write([]byte(cacheKey))
 	e.structureHash = strconv.FormatUint(uint64(h.Sum32()), 10)
-	e.columnMapping = columnMapping
 	localCacheLimit := e.getTag("localCache", "0", "")
 	if localCacheLimit != "" {
 		localCacheLimitAsInt, err := strconv.Atoi(localCacheLimit)
@@ -424,8 +418,7 @@ func (e *entitySchema) validateIndexes() error {
 	for indexName, def := range e.indexes {
 		all[indexName] = make(map[int]string)
 		for i, columnName := range def.Columns {
-			_, has := e.columnMapping[columnName]
-			if !has {
+			if !slices.Contains(e.columnNames, columnName) {
 				return fmt.Errorf("index column '%s' not found in entity '%s'", columnName, e.t.String())
 			}
 			all[indexName][i+1] = columnName
@@ -434,8 +427,7 @@ func (e *entitySchema) validateIndexes() error {
 	for indexName, def := range e.uniqueIndexes {
 		all[indexName] = make(map[int]string)
 		for i, columnName := range def.Columns {
-			_, has := e.columnMapping[columnName]
-			if !has {
+			if !slices.Contains(e.columnNames, columnName) {
 				return fmt.Errorf("unique index column '%s' not found in entity '%s'", columnName, e.t.String())
 			}
 			all[indexName][i+1] = columnName
@@ -1118,7 +1110,7 @@ func extractTag(registry *registry, field reflect.StructField) map[string]map[st
 	return make(map[string]map[string]string)
 }
 
-func (fields *tableFields) buildColumnNames(subFieldPrefix string) ([]string, string) {
+func (fields *tableFields) buildColumnNames(subFieldPrefix string) []string {
 	fieldsQuery := ""
 	columns := make([]string, 0)
 	ids := fields.uIntegers
@@ -1159,11 +1151,10 @@ func (fields *tableFields) buildColumnNames(subFieldPrefix string) ([]string, st
 		if !field.Anonymous {
 			prefixName += field.Name
 		}
-		subColumns, subQuery := subFields.buildColumnNames(prefixName)
+		subColumns := subFields.buildColumnNames(prefixName)
 		columns = append(columns, subColumns...)
-		fieldsQuery += subQuery
 	}
-	return columns, fieldsQuery
+	return columns
 }
 
 var scanIntNullablePointer = func() any {
