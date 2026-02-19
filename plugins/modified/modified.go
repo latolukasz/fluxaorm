@@ -6,12 +6,12 @@ import (
 	"strings"
 	"time"
 
-	"github.com/latolukasz/fluxaorm"
+	"github.com/latolukasz/fluxaorm/v2"
 
 	"github.com/pkg/errors"
 )
 
-const optionKey = "_github.com/latolukasz/fluxaorm/plugins/modified/AddedField"
+const optionKey = "_github.com/latolukasz/fluxaorm/v2/plugins/modified/AddedField"
 const emptyTime = "0001-01-01 00:00:00"
 const emptyDate = "0001-01-01"
 

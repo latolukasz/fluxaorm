@@ -5,7 +5,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/latolukasz/fluxaorm"
+	"github.com/latolukasz/fluxaorm/v2"
 	"github.com/stretchr/testify/assert"
 )
 

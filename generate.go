@@ -144,7 +144,7 @@ func (g *codeGenerator) generateCodeForEntity(schema *entitySchema) error {
 	providerNamePrivate := entityPrivate + "Provider"
 	sqlRowName := entityPrivate + "SQLRow"
 	g.addImport("sync")
-	g.addImport("github.com/latolukasz/fluxaorm")
+	g.addImport("github.com/latolukasz/fluxaorm/v2")
 	g.addLine(fmt.Sprintf("type %s struct {", providerNamePrivate))
 	g.addLine("\ttableName string")
 	g.addLine("\tdbCode string")
