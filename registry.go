@@ -55,9 +55,7 @@ func (r *registry) Validate() (Engine, error) {
 	e.registry.options = make(map[string]any)
 	l := len(r.entities)
 	e.registry.entitySchemas = make(map[reflect.Type]*entitySchema, l)
-	e.registry.entitySchemasQuickMap = make(map[reflect.Type]*entitySchema, l)
 	e.registry.entitySchemaList = make([]*entitySchema, l)
-	e.registry.entityLogSchemas = make(map[reflect.Type]*entitySchema, l)
 	e.options = make(map[string]any)
 	if e.dbServers == nil {
 		e.dbServers = make(map[string]DB)
@@ -148,9 +146,7 @@ func (r *registry) Validate() (Engine, error) {
 			return nil, err
 		}
 		e.registry.entitySchemas[entityType] = schema
-		e.registry.entitySchemasQuickMap[entityType] = schema
 		e.registry.entitySchemaList[index-1] = schema
-		e.registry.entitySchemasQuickMap[reflect.PointerTo(entityType)] = schema
 		if schema.hasLocalCache {
 			if r.localCaches == nil {
 				r.localCaches = make(map[string]LocalCache)
