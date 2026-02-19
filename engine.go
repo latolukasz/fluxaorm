@@ -33,7 +33,6 @@ type Engine interface {
 
 type engineRegistryImplementation struct {
 	engine             *engineImplementation
-	entitySchemaList   []*entitySchema
 	entitySchemas      map[reflect.Type]*entitySchema
 	defaultQueryLogger *defaultLogLogger
 	dbTables           map[string]map[string]bool

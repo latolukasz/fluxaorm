@@ -68,81 +68,46 @@ type mapBindToScanPointer map[string]func() any
 type mapPointerToValue map[string]func(val any) any
 
 type tableFields struct {
-	t                              reflect.Type
-	fields                         map[int]reflect.StructField
-	forcedOldBid                   map[int]bool
-	arrays                         map[int]int
-	prefix                         string
-	uIntegers                      []int
-	uIntegersArray                 []int
-	integers                       []int
-	integersArray                  []int
-	references                     []int
-	referencesArray                []int
-	structJSONs                    []int
-	structJSONsArray               []int
-	referencesRequired             []bool
-	referencesRequiredArray        []bool
-	uIntegersNullable              []int
-	uIntegersNullableArray         []int
-	uIntegersNullableSize          []int
-	uIntegersNullableSizeArray     []int
-	integersNullable               []int
-	integersNullableArray          []int
-	integersNullableSize           []int
-	integersNullableSizeArray      []int
-	strings                        []int
-	stringsArray                   []int
-	stringMaxLengths               []int
-	stringMaxLengthsArray          []int
-	stringsRequired                []bool
-	stringsRequiredArray           []bool
-	stringsEnums                   []int
-	stringsEnumsArray              []int
-	enums                          []*enumDefinition
-	enumsArray                     []*enumDefinition
-	sliceStringsSets               []int
-	sliceStringsSetsArray          []int
-	sets                           []*enumDefinition
-	setsArray                      []*enumDefinition
-	bytes                          []int
-	bytesArray                     []int
-	booleans                       []int
-	booleansArray                  []int
-	booleansNullable               []int
-	booleansNullableArray          []int
-	floats                         []int
-	floatsArray                    []int
-	floatsPrecision                []int
-	floatsPrecisionArray           []int
-	floatsDecimalSize              []int
-	floatsDecimalSizeArray         []int
-	floatsSize                     []int
-	floatsSizeArray                []int
-	floatsUnsigned                 []bool
-	floatsUnsignedArray            []bool
-	floatsNullable                 []int
-	floatsNullableArray            []int
-	floatsNullablePrecision        []int
-	floatsNullablePrecisionArray   []int
-	floatsNullableDecimalSize      []int
-	floatsNullableDecimalSizeArray []int
-	floatsNullableUnsigned         []bool
-	floatsNullableUnsignedArray    []bool
-	floatsNullableSize             []int
-	floatsNullableSizeArray        []int
-	timesNullable                  []int
-	timesNullableArray             []int
-	datesNullable                  []int
-	datesNullableArray             []int
-	times                          []int
-	timesArray                     []int
-	dates                          []int
-	datesArray                     []int
-	structs                        []int
-	structsArray                   []int
-	structsFields                  []*tableFields
-	structsFieldsArray             []*tableFields
+	t                         reflect.Type
+	fields                    map[int]reflect.StructField
+	forcedOldBid              map[int]bool
+	arrays                    map[int]int
+	prefix                    string
+	uIntegers                 []int
+	integers                  []int
+	references                []int
+	structJSONs               []int
+	referencesRequired        []bool
+	uIntegersNullable         []int
+	uIntegersNullableSize     []int
+	integersNullable          []int
+	integersNullableSize      []int
+	strings                   []int
+	stringMaxLengths          []int
+	stringsRequired           []bool
+	stringsEnums              []int
+	enums                     []*enumDefinition
+	sliceStringsSets          []int
+	sets                      []*enumDefinition
+	bytes                     []int
+	booleans                  []int
+	booleansNullable          []int
+	floats                    []int
+	floatsPrecision           []int
+	floatsDecimalSize         []int
+	floatsSize                []int
+	floatsUnsigned            []bool
+	floatsNullable            []int
+	floatsNullablePrecision   []int
+	floatsNullableDecimalSize []int
+	floatsNullableUnsigned    []bool
+	floatsNullableSize        []int
+	timesNullable             []int
+	datesNullable             []int
+	times                     []int
+	dates                     []int
+	structs                   []int
+	structsFields             []*tableFields
 }
 
 func (e *entitySchema) GetTableName() string {
@@ -700,12 +665,6 @@ func (e *entitySchema) buildTableFields(t reflect.Type, registry *registry,
 			TypeName:    f.Type.String(),
 		}
 		fields.fields[i] = f
-		if f.Type.Kind().String() == "array" {
-			attributes.TypeName = f.Type.Elem().String()
-			fields.arrays[i] = f.Type.Len()
-			attributes.IsArray = true
-		}
-
 		switch attributes.TypeName {
 		case "uint":
 			e.buildUintField(attributes, 0, math.MaxUint)
@@ -768,9 +727,6 @@ func (e *entitySchema) buildTableFields(t reflect.Type, registry *registry,
 			e.buildTimeField(attributes)
 		default:
 			fType := f.Type
-			if attributes.IsArray {
-				fType = fType.Elem()
-			}
 			k := fType.Kind().String()
 			if fType.Implements(reflect.TypeOf((*structGetter)(nil)).Elem()) {
 				e.buildStructJSONField(attributes)
@@ -807,7 +763,6 @@ type schemaFieldAttributes struct {
 	Parents     []int
 	Prefix      string
 	ExtraPrefix string
-	IsArray     bool
 }
 
 func (attributes schemaFieldAttributes) GetColumnNames() []string {
@@ -826,34 +781,18 @@ func (attributes schemaFieldAttributes) GetColumnNames() []string {
 }
 
 func (e *entitySchema) buildUintField(attributes schemaFieldAttributes, min int64, max uint64) {
-	if attributes.IsArray {
-		attributes.Fields.uIntegersArray = append(attributes.Fields.uIntegersArray, attributes.Index)
-	} else {
-		attributes.Fields.uIntegers = append(attributes.Fields.uIntegers, attributes.Index)
-	}
-
+	attributes.Fields.uIntegers = append(attributes.Fields.uIntegers, attributes.Index)
 	for _, columnName := range attributes.GetColumnNames() {
 		e.fieldDefinitions[columnName] = attributes
 	}
 }
 
 func (e *entitySchema) buildReferenceField(attributes schemaFieldAttributes) {
-	if attributes.IsArray {
-		attributes.Fields.referencesArray = append(attributes.Fields.referencesArray, attributes.Index)
-	} else {
-		attributes.Fields.references = append(attributes.Fields.references, attributes.Index)
-	}
+	attributes.Fields.references = append(attributes.Fields.references, attributes.Index)
 	fType := attributes.Field.Type
-	if attributes.IsArray {
-		fType = fType.Elem()
-	}
 	for i, columnName := range attributes.GetColumnNames() {
 		isRequired := attributes.Tags["required"] == "true"
-		if attributes.IsArray {
-			attributes.Fields.referencesRequiredArray = append(attributes.Fields.referencesRequiredArray, isRequired)
-		} else {
-			attributes.Fields.referencesRequired = append(attributes.Fields.referencesRequired, isRequired)
-		}
+		attributes.Fields.referencesRequired = append(attributes.Fields.referencesRequired, isRequired)
 		var refType reflect.Type
 		if i == 0 {
 			refType = reflect.New(fType).Interface().(referenceInterface).getType()
@@ -867,15 +806,8 @@ func (e *entitySchema) buildReferenceField(attributes schemaFieldAttributes) {
 }
 
 func (e *entitySchema) buildStructJSONField(attributes schemaFieldAttributes) {
-	if attributes.IsArray {
-		attributes.Fields.structJSONsArray = append(attributes.Fields.structJSONsArray, attributes.Index)
-	} else {
-		attributes.Fields.structJSONs = append(attributes.Fields.structJSONs, attributes.Index)
-	}
+	attributes.Fields.structJSONs = append(attributes.Fields.structJSONs, attributes.Index)
 	fType := attributes.Field.Type
-	if attributes.IsArray {
-		fType = fType.Elem()
-	}
 	for i, columnName := range attributes.GetColumnNames() {
 		var refType reflect.Type
 		if i == 0 {
@@ -890,39 +822,20 @@ func (e *entitySchema) buildStructJSONField(attributes schemaFieldAttributes) {
 }
 
 func (e *entitySchema) buildUintPointerField(attributes schemaFieldAttributes, min int64, max uint64) {
-	if attributes.IsArray {
-		attributes.Fields.uIntegersNullableArray = append(attributes.Fields.uIntegersNullableArray, attributes.Index)
-	} else {
-		attributes.Fields.uIntegersNullable = append(attributes.Fields.uIntegersNullable, attributes.Index)
-	}
+	attributes.Fields.uIntegersNullable = append(attributes.Fields.uIntegersNullable, attributes.Index)
 	for i, columnName := range attributes.GetColumnNames() {
 		if i == 0 {
-			if attributes.IsArray {
-				switch attributes.TypeName {
-				case "*uint":
-					attributes.Fields.uIntegersNullableSizeArray = append(attributes.Fields.uIntegersNullableSizeArray, 0)
-				case "*uint8":
-					attributes.Fields.uIntegersNullableSizeArray = append(attributes.Fields.uIntegersNullableSizeArray, 8)
-				case "*uint16":
-					attributes.Fields.uIntegersNullableSizeArray = append(attributes.Fields.uIntegersNullableSizeArray, 16)
-				case "*uint32":
-					attributes.Fields.uIntegersNullableSizeArray = append(attributes.Fields.uIntegersNullableSizeArray, 32)
-				case "*uint64":
-					attributes.Fields.uIntegersNullableSizeArray = append(attributes.Fields.uIntegersNullableSizeArray, 64)
-				}
-			} else {
-				switch attributes.TypeName {
-				case "*uint":
-					attributes.Fields.uIntegersNullableSize = append(attributes.Fields.uIntegersNullableSize, 0)
-				case "*uint8":
-					attributes.Fields.uIntegersNullableSize = append(attributes.Fields.uIntegersNullableSize, 8)
-				case "*uint16":
-					attributes.Fields.uIntegersNullableSize = append(attributes.Fields.uIntegersNullableSize, 16)
-				case "*uint32":
-					attributes.Fields.uIntegersNullableSize = append(attributes.Fields.uIntegersNullableSize, 32)
-				case "*uint64":
-					attributes.Fields.uIntegersNullableSize = append(attributes.Fields.uIntegersNullableSize, 64)
-				}
+			switch attributes.TypeName {
+			case "*uint":
+				attributes.Fields.uIntegersNullableSize = append(attributes.Fields.uIntegersNullableSize, 0)
+			case "*uint8":
+				attributes.Fields.uIntegersNullableSize = append(attributes.Fields.uIntegersNullableSize, 8)
+			case "*uint16":
+				attributes.Fields.uIntegersNullableSize = append(attributes.Fields.uIntegersNullableSize, 16)
+			case "*uint32":
+				attributes.Fields.uIntegersNullableSize = append(attributes.Fields.uIntegersNullableSize, 32)
+			case "*uint64":
+				attributes.Fields.uIntegersNullableSize = append(attributes.Fields.uIntegersNullableSize, 64)
 			}
 		}
 		e.fieldDefinitions[columnName] = attributes
@@ -930,50 +843,27 @@ func (e *entitySchema) buildUintPointerField(attributes schemaFieldAttributes, m
 }
 
 func (e *entitySchema) buildIntField(attributes schemaFieldAttributes, min int64, max uint64) {
-	if attributes.IsArray {
-		attributes.Fields.integersArray = append(attributes.Fields.integersArray, attributes.Index)
-	} else {
-		attributes.Fields.integers = append(attributes.Fields.integers, attributes.Index)
-	}
+	attributes.Fields.integers = append(attributes.Fields.integers, attributes.Index)
 	for _, columnName := range attributes.GetColumnNames() {
 		e.fieldDefinitions[columnName] = attributes
 	}
 }
 
 func (e *entitySchema) buildIntPointerField(attributes schemaFieldAttributes, min int64, max uint64) {
-	if attributes.IsArray {
-		attributes.Fields.integersNullableArray = append(attributes.Fields.integersNullableArray, attributes.Index)
-	} else {
-		attributes.Fields.integersNullable = append(attributes.Fields.integersNullable, attributes.Index)
-	}
+	attributes.Fields.integersNullable = append(attributes.Fields.integersNullable, attributes.Index)
 	for i, columnName := range attributes.GetColumnNames() {
 		if i == 0 {
-			if attributes.IsArray {
-				switch attributes.TypeName {
-				case "*int":
-					attributes.Fields.integersNullableSizeArray = append(attributes.Fields.integersNullableSizeArray, 0)
-				case "*int8":
-					attributes.Fields.integersNullableSizeArray = append(attributes.Fields.integersNullableSizeArray, 8)
-				case "*int16":
-					attributes.Fields.integersNullableSizeArray = append(attributes.Fields.integersNullableSizeArray, 16)
-				case "*int32":
-					attributes.Fields.integersNullableSizeArray = append(attributes.Fields.integersNullableSizeArray, 32)
-				case "*int64":
-					attributes.Fields.integersNullableSizeArray = append(attributes.Fields.integersNullableSizeArray, 64)
-				}
-			} else {
-				switch attributes.TypeName {
-				case "*int":
-					attributes.Fields.integersNullableSize = append(attributes.Fields.integersNullableSize, 0)
-				case "*int8":
-					attributes.Fields.integersNullableSize = append(attributes.Fields.integersNullableSize, 8)
-				case "*int16":
-					attributes.Fields.integersNullableSize = append(attributes.Fields.integersNullableSize, 16)
-				case "*int32":
-					attributes.Fields.integersNullableSize = append(attributes.Fields.integersNullableSize, 32)
-				case "*int64":
-					attributes.Fields.integersNullableSize = append(attributes.Fields.integersNullableSize, 64)
-				}
+			switch attributes.TypeName {
+			case "*int":
+				attributes.Fields.integersNullableSize = append(attributes.Fields.integersNullableSize, 0)
+			case "*int8":
+				attributes.Fields.integersNullableSize = append(attributes.Fields.integersNullableSize, 8)
+			case "*int16":
+				attributes.Fields.integersNullableSize = append(attributes.Fields.integersNullableSize, 16)
+			case "*int32":
+				attributes.Fields.integersNullableSize = append(attributes.Fields.integersNullableSize, 32)
+			case "*int64":
+				attributes.Fields.integersNullableSize = append(attributes.Fields.integersNullableSize, 64)
 			}
 		}
 		e.fieldDefinitions[columnName] = attributes
@@ -981,30 +871,18 @@ func (e *entitySchema) buildIntPointerField(attributes schemaFieldAttributes, mi
 }
 
 func (e *entitySchema) buildEnumField(attributes schemaFieldAttributes, enumName string, definition any) {
-	if attributes.IsArray {
-		attributes.Fields.stringsEnumsArray = append(attributes.Fields.stringsEnumsArray, attributes.Index)
-	} else {
-		attributes.Fields.stringsEnums = append(attributes.Fields.stringsEnums, attributes.Index)
-	}
+	attributes.Fields.stringsEnums = append(attributes.Fields.stringsEnums, attributes.Index)
 	for i, columnName := range attributes.GetColumnNames() {
 		def := initEnumDefinition(enumName, definition, attributes.Tags["required"] == "true")
 		if i == 0 {
-			if attributes.IsArray {
-				attributes.Fields.enumsArray = append(attributes.Fields.enumsArray, def)
-			} else {
-				attributes.Fields.enums = append(attributes.Fields.enums, def)
-			}
+			attributes.Fields.enums = append(attributes.Fields.enums, def)
 		}
 		e.fieldDefinitions[columnName] = attributes
 	}
 }
 
 func (e *entitySchema) buildStringField(attributes schemaFieldAttributes) {
-	if attributes.IsArray {
-		attributes.Fields.stringsArray = append(attributes.Fields.stringsArray, attributes.Index)
-	} else {
-		attributes.Fields.strings = append(attributes.Fields.strings, attributes.Index)
-	}
+	attributes.Fields.strings = append(attributes.Fields.strings, attributes.Index)
 	for i, columnName := range attributes.GetColumnNames() {
 		isRequired := false
 		stringLength := 255
@@ -1016,76 +894,47 @@ func (e *entitySchema) buildStringField(attributes schemaFieldAttributes) {
 			} else if length != "" {
 				stringLength, _ = strconv.Atoi(length)
 			}
-			if attributes.IsArray {
-				attributes.Fields.stringMaxLengthsArray = append(attributes.Fields.stringMaxLengthsArray, stringLength)
-				attributes.Fields.stringsRequiredArray = append(attributes.Fields.stringsRequiredArray, isRequired)
-			} else {
-				attributes.Fields.stringMaxLengths = append(attributes.Fields.stringMaxLengths, stringLength)
-				attributes.Fields.stringsRequired = append(attributes.Fields.stringsRequired, isRequired)
-			}
+			attributes.Fields.stringMaxLengths = append(attributes.Fields.stringMaxLengths, stringLength)
+			attributes.Fields.stringsRequired = append(attributes.Fields.stringsRequired, isRequired)
 		}
 		e.fieldDefinitions[columnName] = attributes
 	}
 }
 
 func (e *entitySchema) buildBytesField(attributes schemaFieldAttributes) {
-	if attributes.IsArray {
-		attributes.Fields.bytesArray = append(attributes.Fields.bytesArray, attributes.Index)
-	} else {
-		attributes.Fields.bytes = append(attributes.Fields.bytes, attributes.Index)
-	}
+	attributes.Fields.bytes = append(attributes.Fields.bytes, attributes.Index)
 	for _, columnName := range attributes.GetColumnNames() {
 		e.fieldDefinitions[columnName] = attributes
 	}
 }
 
 func (e *entitySchema) buildStringSliceField(enumName string, attributes schemaFieldAttributes, definition any) {
-	if attributes.IsArray {
-		attributes.Fields.sliceStringsSetsArray = append(attributes.Fields.sliceStringsSetsArray, attributes.Index)
-	} else {
-		attributes.Fields.sliceStringsSets = append(attributes.Fields.sliceStringsSets, attributes.Index)
-	}
+	attributes.Fields.sliceStringsSets = append(attributes.Fields.sliceStringsSets, attributes.Index)
 	for i, columnName := range attributes.GetColumnNames() {
 		def := initEnumDefinition(enumName, definition, attributes.Tags["required"] == "true")
 		if i == 0 {
-			if attributes.IsArray {
-				attributes.Fields.setsArray = append(attributes.Fields.setsArray, def)
-			} else {
-				attributes.Fields.sets = append(attributes.Fields.sets, def)
-			}
+			attributes.Fields.sets = append(attributes.Fields.sets, def)
 		}
 		e.fieldDefinitions[columnName] = attributes
 	}
 }
 
 func (e *entitySchema) buildBoolField(attributes schemaFieldAttributes) {
-	if attributes.IsArray {
-		attributes.Fields.booleansArray = append(attributes.Fields.booleansArray, attributes.Index)
-	} else {
-		attributes.Fields.booleans = append(attributes.Fields.booleans, attributes.Index)
-	}
+	attributes.Fields.booleans = append(attributes.Fields.booleans, attributes.Index)
 	for _, columnName := range attributes.GetColumnNames() {
 		e.fieldDefinitions[columnName] = attributes
 	}
 }
 
 func (e *entitySchema) buildBoolPointerField(attributes schemaFieldAttributes) {
-	if attributes.IsArray {
-		attributes.Fields.booleansNullableArray = append(attributes.Fields.booleansNullableArray, attributes.Index)
-	} else {
-		attributes.Fields.booleansNullable = append(attributes.Fields.booleansNullable, attributes.Index)
-	}
+	attributes.Fields.booleansNullable = append(attributes.Fields.booleansNullable, attributes.Index)
 	for _, columnName := range attributes.GetColumnNames() {
 		e.fieldDefinitions[columnName] = attributes
 	}
 }
 
 func (e *entitySchema) buildFloatField(attributes schemaFieldAttributes) {
-	if attributes.IsArray {
-		attributes.Fields.floatsArray = append(attributes.Fields.floatsArray, attributes.Index)
-	} else {
-		attributes.Fields.floats = append(attributes.Fields.floats, attributes.Index)
-	}
+	attributes.Fields.floats = append(attributes.Fields.floats, attributes.Index)
 	precision := 8
 	decimalSize := -1
 	unsigned := false
@@ -1097,17 +946,9 @@ func (e *entitySchema) buildFloatField(attributes schemaFieldAttributes) {
 			}
 			if floatBitSize == 32 {
 				precision = 4
-				if attributes.IsArray {
-					attributes.Fields.floatsSizeArray = append(attributes.Fields.floatsSizeArray, 64)
-				} else {
-					attributes.Fields.floatsSize = append(attributes.Fields.floatsSize, 64)
-				}
+				attributes.Fields.floatsSize = append(attributes.Fields.floatsSize, 64)
 			} else {
-				if attributes.IsArray {
-					attributes.Fields.floatsSizeArray = append(attributes.Fields.floatsSizeArray, 64)
-				} else {
-					attributes.Fields.floatsSize = append(attributes.Fields.floatsSize, 64)
-				}
+				attributes.Fields.floatsSize = append(attributes.Fields.floatsSize, 64)
 			}
 			precisionAttribute, has := attributes.Tags["precision"]
 			if has {
@@ -1123,26 +964,16 @@ func (e *entitySchema) buildFloatField(attributes schemaFieldAttributes) {
 				}
 			}
 			unsigned = attributes.Tags["unsigned"] == "true"
-			if attributes.IsArray {
-				attributes.Fields.floatsPrecisionArray = append(attributes.Fields.floatsPrecisionArray, precision)
-				attributes.Fields.floatsDecimalSizeArray = append(attributes.Fields.floatsDecimalSizeArray, decimalSize)
-				attributes.Fields.floatsUnsignedArray = append(attributes.Fields.floatsUnsignedArray, unsigned)
-			} else {
-				attributes.Fields.floatsPrecision = append(attributes.Fields.floatsPrecision, precision)
-				attributes.Fields.floatsDecimalSize = append(attributes.Fields.floatsDecimalSize, decimalSize)
-				attributes.Fields.floatsUnsigned = append(attributes.Fields.floatsUnsigned, unsigned)
-			}
+			attributes.Fields.floatsPrecision = append(attributes.Fields.floatsPrecision, precision)
+			attributes.Fields.floatsDecimalSize = append(attributes.Fields.floatsDecimalSize, decimalSize)
+			attributes.Fields.floatsUnsigned = append(attributes.Fields.floatsUnsigned, unsigned)
 		}
 		e.fieldDefinitions[columnName] = attributes
 	}
 }
 
 func (e *entitySchema) buildFloatPointerField(attributes schemaFieldAttributes) {
-	if attributes.IsArray {
-		attributes.Fields.floatsNullableArray = append(attributes.Fields.floatsNullableArray, attributes.Index)
-	} else {
-		attributes.Fields.floatsNullable = append(attributes.Fields.floatsNullable, attributes.Index)
-	}
+	attributes.Fields.floatsNullable = append(attributes.Fields.floatsNullable, attributes.Index)
 	unsigned := false
 	precision := 8
 	decimalSize := -1
@@ -1155,17 +986,9 @@ func (e *entitySchema) buildFloatPointerField(attributes schemaFieldAttributes) 
 			}
 			if floatBitSize == 32 {
 				precision = 4
-				if attributes.IsArray {
-					attributes.Fields.floatsNullableSizeArray = append(attributes.Fields.floatsNullableSizeArray, 32)
-				} else {
-					attributes.Fields.floatsNullableSize = append(attributes.Fields.floatsNullableSize, 32)
-				}
+				attributes.Fields.floatsNullableSize = append(attributes.Fields.floatsNullableSize, 32)
 			} else {
-				if attributes.IsArray {
-					attributes.Fields.floatsNullableSizeArray = append(attributes.Fields.floatsNullableSizeArray, 64)
-				} else {
-					attributes.Fields.floatsNullableSize = append(attributes.Fields.floatsNullableSize, 64)
-				}
+				attributes.Fields.floatsNullableSize = append(attributes.Fields.floatsNullableSize, 64)
 			}
 			precisionAttribute, has := attributes.Tags["precision"]
 			if has {
@@ -1180,15 +1003,9 @@ func (e *entitySchema) buildFloatPointerField(attributes schemaFieldAttributes) 
 					decimalSize -= precision
 				}
 			}
-			if attributes.IsArray {
-				attributes.Fields.floatsNullablePrecisionArray = append(attributes.Fields.floatsNullablePrecisionArray, precision)
-				attributes.Fields.floatsNullableDecimalSizeArray = append(attributes.Fields.floatsNullableDecimalSizeArray, decimalSize)
-				attributes.Fields.floatsNullableUnsignedArray = append(attributes.Fields.floatsNullableUnsignedArray, unsigned)
-			} else {
-				attributes.Fields.floatsNullablePrecision = append(attributes.Fields.floatsNullablePrecision, precision)
-				attributes.Fields.floatsNullableDecimalSize = append(attributes.Fields.floatsNullableDecimalSize, decimalSize)
-				attributes.Fields.floatsNullableUnsigned = append(attributes.Fields.floatsNullableUnsigned, unsigned)
-			}
+			attributes.Fields.floatsNullablePrecision = append(attributes.Fields.floatsNullablePrecision, precision)
+			attributes.Fields.floatsNullableDecimalSize = append(attributes.Fields.floatsNullableDecimalSize, decimalSize)
+			attributes.Fields.floatsNullableUnsigned = append(attributes.Fields.floatsNullableUnsigned, unsigned)
 		}
 		e.fieldDefinitions[columnName] = attributes
 	}
@@ -1196,18 +1013,10 @@ func (e *entitySchema) buildFloatPointerField(attributes schemaFieldAttributes) 
 
 func (e *entitySchema) buildTimePointerField(attributes schemaFieldAttributes) {
 	_, hasTime := attributes.Tags["time"]
-	if attributes.IsArray {
-		if hasTime {
-			attributes.Fields.timesNullableArray = append(attributes.Fields.timesNullableArray, attributes.Index)
-		} else {
-			attributes.Fields.datesNullableArray = append(attributes.Fields.datesNullableArray, attributes.Index)
-		}
+	if hasTime {
+		attributes.Fields.timesNullable = append(attributes.Fields.timesNullable, attributes.Index)
 	} else {
-		if hasTime {
-			attributes.Fields.timesNullable = append(attributes.Fields.timesNullable, attributes.Index)
-		} else {
-			attributes.Fields.datesNullable = append(attributes.Fields.datesNullable, attributes.Index)
-		}
+		attributes.Fields.datesNullable = append(attributes.Fields.datesNullable, attributes.Index)
 	}
 	for _, columnName := range attributes.GetColumnNames() {
 		e.fieldDefinitions[columnName] = attributes
@@ -1216,18 +1025,10 @@ func (e *entitySchema) buildTimePointerField(attributes schemaFieldAttributes) {
 
 func (e *entitySchema) buildTimeField(attributes schemaFieldAttributes) {
 	_, hasTime := attributes.Tags["time"]
-	if attributes.IsArray {
-		if hasTime {
-			attributes.Fields.timesArray = append(attributes.Fields.timesArray, attributes.Index)
-		} else {
-			attributes.Fields.datesArray = append(attributes.Fields.datesArray, attributes.Index)
-		}
+	if hasTime {
+		attributes.Fields.times = append(attributes.Fields.times, attributes.Index)
 	} else {
-		if hasTime {
-			attributes.Fields.times = append(attributes.Fields.times, attributes.Index)
-		} else {
-			attributes.Fields.dates = append(attributes.Fields.dates, attributes.Index)
-		}
+		attributes.Fields.dates = append(attributes.Fields.dates, attributes.Index)
 	}
 	for _, columnName := range attributes.GetColumnNames() {
 		e.fieldDefinitions[columnName] = attributes
@@ -1241,35 +1042,16 @@ func (e *entitySchema) buildStructField(attributes schemaFieldAttributes, regist
 		parents = append(parents, attributes.Parents...)
 	}
 	parents = append(parents, attributes.Index)
-	if attributes.IsArray {
-		attributes.Fields.structsArray = append(attributes.Fields.structsArray, attributes.Index)
-		for i := range attributes.GetColumnNames() {
-			newParents := make([]int, 0)
-			for _, p := range parents {
-				newParents = append(newParents, p)
-			}
-			newParents = append(newParents, (i+1)*-1)
-			extraPrefix := fmt.Sprintf("_%d_", i+1)
-			subFields, err := e.buildTableFields(attributes.Field.Type.Elem(), registry, 0, attributes.Field.Name, newParents, schemaTags, extraPrefix)
-			if err != nil {
-				return err
-			}
-			if i == 0 {
-				attributes.Fields.structsFieldsArray = append(attributes.Fields.structsFieldsArray, subFields)
-			}
-		}
-	} else {
-		attributes.Fields.structs = append(attributes.Fields.structs, attributes.Index)
-		subPrefix := ""
-		if !attributes.Field.Anonymous {
-			subPrefix = attributes.Field.Name
-		}
-		subFields, err := e.buildTableFields(attributes.Field.Type, registry, 0, subPrefix, parents, schemaTags, "")
-		if err != nil {
-			return err
-		}
-		attributes.Fields.structsFields = append(attributes.Fields.structsFields, subFields)
+	attributes.Fields.structs = append(attributes.Fields.structs, attributes.Index)
+	subPrefix := ""
+	if !attributes.Field.Anonymous {
+		subPrefix = attributes.Field.Name
 	}
+	subFields, err := e.buildTableFields(attributes.Field.Type, registry, 0, subPrefix, parents, schemaTags, "")
+	if err != nil {
+		return err
+	}
+	attributes.Fields.structsFields = append(attributes.Fields.structsFields, subFields)
 	return nil
 }
 
@@ -1355,41 +1137,23 @@ func (fields *tableFields) buildColumnNames(subFieldPrefix string) ([]string, st
 	fieldsQuery := ""
 	columns := make([]string, 0)
 	ids := fields.uIntegers
-	ids = append(ids, fields.uIntegersArray...)
 	ids = append(ids, fields.references...)
-	ids = append(ids, fields.referencesArray...)
 	ids = append(ids, fields.structJSONs...)
-	ids = append(ids, fields.structJSONsArray...)
 	ids = append(ids, fields.integers...)
-	ids = append(ids, fields.integersArray...)
 	ids = append(ids, fields.booleans...)
-	ids = append(ids, fields.booleansArray...)
 	ids = append(ids, fields.floats...)
-	ids = append(ids, fields.floatsArray...)
 	ids = append(ids, fields.times...)
-	ids = append(ids, fields.timesArray...)
 	ids = append(ids, fields.dates...)
-	ids = append(ids, fields.datesArray...)
 	ids = append(ids, fields.strings...)
-	ids = append(ids, fields.stringsArray...)
 	ids = append(ids, fields.uIntegersNullable...)
-	ids = append(ids, fields.uIntegersNullableArray...)
 	ids = append(ids, fields.integersNullable...)
-	ids = append(ids, fields.integersNullableArray...)
 	ids = append(ids, fields.stringsEnums...)
-	ids = append(ids, fields.stringsEnumsArray...)
 	ids = append(ids, fields.bytes...)
-	ids = append(ids, fields.bytesArray...)
 	ids = append(ids, fields.sliceStringsSets...)
-	ids = append(ids, fields.sliceStringsSetsArray...)
 	ids = append(ids, fields.booleansNullable...)
-	ids = append(ids, fields.booleansNullableArray...)
 	ids = append(ids, fields.floatsNullable...)
-	ids = append(ids, fields.floatsNullableArray...)
 	ids = append(ids, fields.timesNullable...)
-	ids = append(ids, fields.timesNullableArray...)
 	ids = append(ids, fields.datesNullable...)
-	ids = append(ids, fields.datesNullableArray...)
 	for _, index := range ids {
 		l := fields.arrays[index]
 		if l > 0 {
@@ -1413,15 +1177,6 @@ func (fields *tableFields) buildColumnNames(subFieldPrefix string) ([]string, st
 		subColumns, subQuery := subFields.buildColumnNames(prefixName)
 		columns = append(columns, subColumns...)
 		fieldsQuery += subQuery
-	}
-	for z, k := range fields.structsArray {
-		l := fields.arrays[k]
-		for i := 1; i <= l; i++ {
-			attr := fields.structsFieldsArray[z]
-			subColumns, subQuery := attr.buildColumnNames(attr.prefix + "_" + strconv.Itoa(i) + "_")
-			columns = append(columns, subColumns...)
-			fieldsQuery += subQuery
-		}
 	}
 	return columns, fieldsQuery
 }
