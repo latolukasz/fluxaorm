@@ -33,7 +33,6 @@ type Engine interface {
 
 type engineRegistryImplementation struct {
 	engine                *engineImplementation
-	entities              map[string]reflect.Type
 	entitySchemaList      []*entitySchema
 	entitySchemas         map[reflect.Type]*entitySchema
 	entitySchemasQuickMap map[reflect.Type]*entitySchema
