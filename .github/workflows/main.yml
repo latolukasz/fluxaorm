@@ -33,10 +33,6 @@ jobs:
     name: Test & coverage
     runs-on: ubuntu-latest
     services:
-      dragonfly:
-        image: docker.dragonflydb.io/dragonflydb/dragonfly
-        ports:
-          - 6395:6379
       mysql:
         image: mysql/mysql-server:8.0
         env:

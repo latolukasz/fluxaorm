@@ -35,7 +35,7 @@ func TestLocker(t *testing.T) {
 	left, err := lock.TTL(orm)
 	assert.NoError(t, err)
 	assert.LessOrEqual(t, left.Microseconds(), time.Second.Microseconds())
-	lock.Release(orm) // dragonfly-db fix
+	lock.Release(orm)
 
 	_, has, err = l.Obtain(orm, "test_key", time.Second*10, time.Second*10)
 	assert.NoError(t, err)

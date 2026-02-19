@@ -18,7 +18,7 @@ To run a single test:
 go test -race -p 1 -run TestName ./...
 ```
 
-Tests require running MySQL and Redis (Dragonfly) services. See `docker/` for setup.
+Tests require running MySQL and Redis services. See `docker/` for setup.
 
 Linting is configured in `revive.toml`. Cyclomatic complexity threshold is 100.
 
