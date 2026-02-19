@@ -24,11 +24,9 @@ type entitySchema struct {
 	index                    uint64
 	cacheTTL                 int
 	tableName                string
-	archived                 bool
 	mysqlPoolCode            string
 	t                        reflect.Type
 	hasFakeDelete            bool
-	tSlice                   reflect.Type
 	fields                   *tableFields
 	engine                   Engine
 	fieldsQuery              string
@@ -126,20 +124,9 @@ func (e *entitySchema) DropTable(ctx Context) error {
 
 func (e *entitySchema) TruncateTable(ctx Context) error {
 	pool := e.GetDB()
-	if e.archived {
-		_, err := pool.Exec(ctx, fmt.Sprintf("DROP TABLE `%s`.`%s`", pool.GetConfig().GetDatabaseName(), e.tableName))
-		if err != nil {
-			return err
-		}
-		err = e.UpdateSchema(ctx)
-		if err != nil {
-			return err
-		}
-	} else {
-		_, err := pool.Exec(ctx, fmt.Sprintf("TRUNCATE TABLE `%s`.`%s`", pool.GetConfig().GetDatabaseName(), e.tableName))
-		if err != nil {
-			return err
-		}
+	_, err := pool.Exec(ctx, fmt.Sprintf("TRUNCATE TABLE `%s`.`%s`", pool.GetConfig().GetDatabaseName(), e.tableName))
+	if err != nil {
+		return err
 	}
 	return nil
 }
@@ -222,7 +209,6 @@ func (e *entitySchema) GetSchemaChanges(ctx Context) (alters []Alter, has bool, 
 
 func (e *entitySchema) init(registry *registry, entityType reflect.Type) error {
 	e.t = entityType
-	e.tSlice = reflect.SliceOf(reflect.PointerTo(entityType))
 	e.tags = extractTags(registry, entityType, "")
 	userTTL := e.getTag("ttl", "", "")
 	if userTTL != "" {
@@ -249,7 +235,6 @@ func (e *entitySchema) init(registry *registry, entityType reflect.Type) error {
 		return fmt.Errorf("mysql pool '%s' not found", e.mysqlPoolCode)
 	}
 	e.tableName = e.getTag("table", entityType.Name(), entityType.Name())
-	e.archived = e.getTag("archived", "true", "") == "true"
 	redisCacheName := e.getTag("redisCache", DefaultPoolCode, "")
 	if redisCacheName != "" {
 		_, has := registry.redisPools[redisCacheName]

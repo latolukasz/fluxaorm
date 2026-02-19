@@ -45,12 +45,7 @@ func GetAlters(ctx Context) (alters []Alter, err error) {
 func (td *tableSQLSchemaDefinition) CreateTableSQL() string {
 	pool := td.EntitySchema.GetDB()
 	createTableSQL := fmt.Sprintf("CREATE TABLE `%s`.`%s` (\n", pool.GetConfig().GetDatabaseName(), td.EntitySchema.GetTableName())
-	archived := td.EntitySchema.archived
-	for i, value := range td.EntityColumns {
-		if archived && i == 0 {
-			createTableSQL += fmt.Sprintf("  %s AUTO_INCREMENT,\n", value.Definition)
-			continue
-		}
+	for _, value := range td.EntityColumns {
 		createTableSQL += fmt.Sprintf("  %s,\n", value.Definition)
 	}
 	var indexDefinitions []string
@@ -68,13 +63,7 @@ func (td *tableSQLSchemaDefinition) CreateTableSQL() string {
 	collate := " COLLATE=" + pool.GetConfig().GetOptions().DefaultEncoding + "_" +
 		pool.GetConfig().GetOptions().DefaultCollate
 	engine := "InnoDB"
-	if archived {
-		engine = "ARCHIVE"
-	}
 	createTableSQL += fmt.Sprintf(") ENGINE=%s DEFAULT CHARSET=%s%s", engine, pool.GetConfig().GetOptions().DefaultEncoding, collate)
-	if archived {
-		createTableSQL += " ROW_FORMAT=COMPRESSED KEY_BLOCK_SIZE=8"
-	}
 	createTableSQL += ";"
 	return createTableSQL
 }
@@ -315,7 +304,7 @@ func getSchemaChanges(ctx Context, entitySchema *entitySchema) (preAlters, alter
 		return
 	}
 	hasAlterEngineCharset := sqlSchema.DBEncoding != pool.GetConfig().GetOptions().DefaultEncoding
-	hasAlterEngine := (!entitySchema.archived && sqlSchema.Engine != "InnoDB") || (entitySchema.archived && sqlSchema.Engine != "ARCHIVE")
+	hasAlterEngine := sqlSchema.Engine != "InnoDB"
 	hasAlters := hasAlterEngineCharset || hasAlterEngine
 	hasAlterNormal := false
 
@@ -487,12 +476,7 @@ OUTER:
 		alters = append(alters, Alter{SQL: alterSQL, Safe: safe, Pool: entitySchema.GetDB().GetConfig().GetCode()})
 	} else if hasAlterEngineCharset || hasAlterEngine {
 		collate := " COLLATE=" + pool.GetConfig().GetOptions().DefaultEncoding + "_" + pool.GetConfig().GetOptions().DefaultCollate
-		alterSQL += " ENGINE="
-		if entitySchema.archived {
-			alterSQL += "ARCHIVE"
-		} else {
-			alterSQL += "InnoDB"
-		}
+		alterSQL += " ENGINE=InnoDB"
 		alterSQL += fmt.Sprintf(" DEFAULT CHARSET=%s%s;", pool.GetConfig().GetOptions().DefaultEncoding, collate)
 		alters = append(alters, Alter{SQL: alterSQL, Safe: true, Pool: entitySchema.GetDB().GetConfig().GetCode()})
 	}
@@ -675,9 +659,6 @@ func checkColumn(engine Engine, schema *entitySchema, field *reflect.StructField
 			definition += " DEFAULT " + defaultValue
 		} else if !isNotNull && addDefaultNullIfNullable {
 			definition += " DEFAULT NULL"
-		}
-		if schema.archived && prefix == "" && columnName == "ID" {
-			definition += " AUTO_INCREMENT"
 		}
 		columns = append(columns, &ColumnSchemaDefinition{columnName, fmt.Sprintf("`%s` %s", columnName, definition)})
 	}
