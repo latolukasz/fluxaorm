@@ -15,8 +15,6 @@ import (
 	"github.com/pkg/errors"
 )
 
-const redisSearchIndexPrefix = "orm:"
-
 func GetEntitySchema[E any](ctx Context) EntitySchema {
 	return getEntitySchema[E](ctx)
 }
@@ -63,81 +61,56 @@ type EntitySchema interface {
 	UpdateSchemaAndTruncateTable(ctx Context) error
 	GetSchemaChanges(ctx Context) (alters []Alter, has bool, err error)
 	DisableCache(local, redis bool)
-	NewEntity(ctx Context) any
-	GetByID(ctx Context, id uint64) (entity any, found bool, err error)
-	GetByIDs(ctx Context, ids ...uint64) (EntityAnonymousIterator, error)
-	Search(ctx Context, where Where, pager *Pager) (EntityAnonymousIterator, error)
-	SearchWithCount(ctx Context, where Where, pager *Pager) (results EntityAnonymousIterator, totalRows int, err error)
-	SearchIDs(ctx Context, where Where, pager *Pager) ([]uint64, error)
-	SearchIDsWithCount(ctx Context, where Where, pager *Pager) (results []uint64, totalRows int, err error)
-	IsDirty(ctx Context, id uint64) (oldValues, newValues Bind, hasChanges bool)
-	Copy(ctx Context, source any) any
-	EditEntityField(ctx Context, entity any, field string, value any) error
-	EditEntity(ctx Context, entity any) any
-	DeleteEntity(ctx Context, entity any)
 	getCacheKey() string
 	uuid(ctx Context) uint64
 	getForcedRedisCode() string
-	ReindexRedisIndex(ctx Context) error
 	ClearCache(ctx Context) (int, error)
 }
 
-type columnAttrToStringSetter func(v any, fromBind bool) (string, error)
-type fieldBindSetter func(v any) (any, error)
-type fieldSetter func(v any, e reflect.Value)
-type fieldGetter func(reflect.Value) any
-
 type entitySchema struct {
-	index                     uint64
-	virtual                   bool
-	cacheTTL                  int
-	tableName                 string
-	archived                  bool
-	mysqlPoolCode             string
-	t                         reflect.Type
-	hasFakeDelete             bool
-	tSlice                    reflect.Type
-	fields                    *tableFields
-	engine                    Engine
-	fieldsQuery               string
-	tags                      map[string]map[string]string
-	columnNames               []string
-	columnMapping             map[string]int
-	columnAttrToStringSetters map[string]columnAttrToStringSetter
-	fieldBindSetters          map[string]fieldBindSetter
-	fieldDefinitions          map[string]schemaFieldAttributes
-	fieldSetters              map[string]fieldSetter
-	fieldGetters              map[string]fieldGetter
-	uniqueIndexes             map[string]indexDefinition
-	uniqueIndexesMapping      map[UniqueIndexDefinition]string
-	uniqueIndexesColumns      map[string][]string
-	cachedUniqueIndexes       map[string]indexDefinition
-	references                map[string]referenceDefinition
-	structJSONs               map[string]structDefinition
-	indexes                   map[string]indexDefinition
-	indexesMapping            map[IndexDefinition]string
-	cachedIndexes             map[string]indexDefinition
-	dirtyAdded                []*dirtyDefinition
-	dirtyUpdated              []*dirtyDefinition
-	dirtyDeleted              []*dirtyDefinition
-	options                   map[string]any
-	redisSearchIndexPoolCode  string
-	redisSearchIndexName      string
-	redisSearchIndexPrefix    string
-	redisSearchFields         map[string]redisSearchIndexDefinition
-	cacheAll                  bool
-	hasLocalCache             bool
-	localCache                *localCache
-	localCacheLimit           int
-	redisCacheName            string
-	hasRedisCache             bool
-	redisCache                *redisCache
-	cacheKey                  string
-	uuidCacheKey              string
-	uuidMutex                 sync.Mutex
-	structureHash             string
-	mapBindToScanPointer      mapBindToScanPointer
-	mapPointerToValue         mapPointerToValue
+	index                    uint64
+	virtual                  bool
+	cacheTTL                 int
+	tableName                string
+	archived                 bool
+	mysqlPoolCode            string
+	t                        reflect.Type
+	hasFakeDelete            bool
+	tSlice                   reflect.Type
+	fields                   *tableFields
+	engine                   Engine
+	fieldsQuery              string
+	tags                     map[string]map[string]string
+	columnNames              []string
+	columnMapping            map[string]int
+	fieldDefinitions         map[string]schemaFieldAttributes
+	uniqueIndexes            map[string]indexDefinition
+	uniqueIndexesMapping     map[UniqueIndexDefinition]string
+	uniqueIndexesColumns     map[string][]string
+	cachedUniqueIndexes      map[string]indexDefinition
+	references               map[string]referenceDefinition
+	structJSONs              map[string]structDefinition
+	indexes                  map[string]indexDefinition
+	indexesMapping           map[IndexDefinition]string
+	cachedIndexes            map[string]indexDefinition
+	dirtyAdded               []*dirtyDefinition
+	dirtyUpdated             []*dirtyDefinition
+	dirtyDeleted             []*dirtyDefinition
+	options                  map[string]any
+	redisSearchIndexPoolCode string
+	redisSearchIndexName     string
+	redisSearchIndexPrefix   string
+	cacheAll                 bool
+	hasLocalCache            bool
+	localCache               *localCache
+	localCacheLimit          int
+	redisCacheName           string
+	hasRedisCache            bool
+	redisCache               *redisCache
+	cacheKey                 string
+	uuidCacheKey             string
+	uuidMutex                sync.Mutex
+	structureHash            string
 }
 
 type mapBindToScanPointer map[string]func() any
@@ -363,9 +336,6 @@ func (e *entitySchema) init(registry *registry, entityType reflect.Type) error {
 	e.uniqueIndexes = make(map[string]indexDefinition)
 	e.uniqueIndexesMapping = make(map[UniqueIndexDefinition]string)
 	e.cachedIndexes = make(map[string]indexDefinition)
-	e.redisSearchFields = make(map[string]redisSearchIndexDefinition)
-	e.mapBindToScanPointer = mapBindToScanPointer{}
-	e.mapPointerToValue = mapPointerToValue{}
 	fakeDeleteField, foundFakeDeleteField := e.t.FieldByName("FakeDelete")
 	e.hasFakeDelete = foundFakeDeleteField && fakeDeleteField.Type.Kind() == reflect.Bool
 	e.mysqlPoolCode = e.getTag("mysql", "default", DefaultPoolCode)
@@ -456,11 +426,7 @@ func (e *entitySchema) init(registry *registry, entityType reflect.Type) error {
 		e.dirtyUpdated = editList
 		e.dirtyDeleted = deleteList
 	}
-	e.columnAttrToStringSetters = make(map[string]columnAttrToStringSetter)
-	e.fieldBindSetters = make(map[string]fieldBindSetter)
 	e.fieldDefinitions = make(map[string]schemaFieldAttributes)
-	e.fieldSetters = make(map[string]fieldSetter)
-	e.fieldGetters = make(map[string]fieldGetter)
 	e.cachedIndexes = make(map[string]indexDefinition)
 	e.cachedUniqueIndexes = make(map[string]indexDefinition)
 	e.uniqueIndexesColumns = make(map[string][]string)
@@ -503,193 +469,9 @@ func (e *entitySchema) init(registry *registry, entityType reflect.Type) error {
 		return fmt.Errorf("virtual entity '%s' has no cache pool defined", e.t.String())
 	}
 	e.cacheKey = cacheKey
-
-	redisCode := e.getTag("redisSearch", DefaultPoolCode, "")
-	if redisCode != "" {
-		e.redisSearchIndexName = redisSearchIndexPrefix + e.tableName
-		_, has := registry.redisPools[redisCode]
-		if !has {
-			return fmt.Errorf("redis pool '%s' not found", redisCode)
-		}
-		if registry.redisPools[redisCode].GetDatabaseNumber() > 0 {
-			return fmt.Errorf("redis search pool '%s' must be in database 0", redisCode)
-		}
-		e.redisSearchIndexPoolCode = redisCode
-		hasSearchable := false
-		for columnName, def := range e.fieldDefinitions {
-			searchable := def.Tags["searchable"]
-			sortable := def.Tags["sortable"]
-			if searchable == "true" {
-				hasSearchable = true
-				definition := redisSearchIndexDefinition{}
-				fieldDef := e.fieldDefinitions[columnName]
-				fieldType := ""
-				switch fieldDef.TypeName {
-				case "string":
-					fieldType = "TEXT"
-					if def.Tags["rs_tag"] == "true" {
-						fieldType = "TAG"
-					}
-					if fieldDef.Tags["required"] != "true" {
-						definition.sqlFieldQuery = "IFNULL(`" + columnName + "`,'NULL')"
-						definition.convertBindToHashValue = defaultConvertBindToHashValueNullable
-					} else {
-						definition.sqlFieldQuery = "`" + columnName + "`"
-						definition.convertBindToHashValue = defaultConvertBindToHashValueNotNullable
-					}
-					break
-				case "int", "int8", "int16", "int32", "int64",
-					"uint", "uint8", "uint16", "uint32", "uint64",
-					"float32", "float64":
-					fieldType = "NUMERIC"
-					if def.Tags["rs_tag"] == "true" {
-						fieldType = "TAG"
-					}
-					definition.sqlFieldQuery = "`" + columnName + "`"
-					definition.convertBindToHashValue = defaultConvertBindToHashValueNotNullable
-					break
-				case "*int", "*int8", "*int16", "*int32", "*int64",
-					"*uint", "*uint8", "*uint16", "*uint32", "*uint64",
-					"*float32", "*float64":
-					fieldType = "NUMERIC"
-					if def.Tags["rs_tag"] == "true" {
-						fieldType = "TAG"
-					}
-					definition.sqlFieldQuery = "IFNULL(`" + columnName + "`,0)"
-					definition.convertBindToHashValue = func(a any) any {
-						if a == nil {
-							return 0
-						}
-						return a
-					}
-					break
-				case "bool":
-					fieldType = "TAG"
-					definition.sqlFieldQuery = "`" + columnName + "`"
-					definition.convertBindToHashValue = func(a any) any {
-						if a.(bool) {
-							return 1
-						}
-						return 0
-					}
-					break
-				case "*bool":
-					fieldType = "TAG"
-					definition.sqlFieldQuery = "IFNULL(`" + columnName + "`,'NULL')"
-					definition.convertBindToHashValue = func(a any) any {
-						if a == nil {
-							return nullRedisValue
-						}
-						if a.(bool) {
-							return 1
-						}
-						return 0
-					}
-					break
-				case "time.Time":
-					fieldType = "NUMERIC"
-					definition.sqlFieldQuery = "UNIX_TIMESTAMP(`" + columnName + "`)"
-					definition.convertBindToHashValue = func(a any) any {
-						asS := a.(string)
-						if len(asS) == 19 {
-							t, _ := time.ParseInLocation(time.DateTime, asS, time.UTC)
-							return t.Unix()
-						}
-						t, _ := time.ParseInLocation(time.DateOnly, asS, time.UTC)
-						return t.Unix()
-					}
-					break
-				case "*time.Time":
-					fieldType = "NUMERIC"
-					definition.sqlFieldQuery = "IFNULL(UNIX_TIMESTAMP(`" + columnName + "`),0)"
-					definition.convertBindToHashValue = func(a any) any {
-						if a == nil {
-							return 0
-						}
-						asS := a.(string)
-						if len(asS) == 10 {
-							t, _ := time.ParseInLocation(time.DateTime, asS, time.UTC)
-							return t.Unix()
-						}
-						t, _ := time.ParseInLocation(time.DateOnly, asS, time.UTC)
-						return t.Unix()
-					}
-					break
-				default:
-					if fieldDef.Field.Type.Implements(reflect.TypeOf((*EnumValues)(nil)).Elem()) {
-						fieldType = "TAG"
-						if fieldDef.Tags["required"] != "true" {
-							definition.sqlFieldQuery = "IFNULL(`" + columnName + "`,'NULL')"
-							definition.convertBindToHashValue = defaultConvertBindToHashValueNullable
-						} else {
-							definition.sqlFieldQuery = "`" + columnName + "`"
-							definition.convertBindToHashValue = defaultConvertBindToHashValueNotNullable
-						}
-						break
-					}
-					if fieldDef.Field.Type.Kind().String() == "slice" && fieldDef.Field.Type.Elem().Implements(reflect.TypeOf((*EnumValues)(nil)).Elem()) {
-						fieldType = "TAG"
-						if fieldDef.Tags["required"] != "true" {
-							definition.sqlFieldQuery = "IFNULL(`" + columnName + "`,'NULL')"
-							definition.convertBindToHashValue = defaultConvertBindToHashValueNullable
-						} else {
-							definition.sqlFieldQuery = "`" + columnName + "`"
-							definition.convertBindToHashValue = defaultConvertBindToHashValueNotNullable
-						}
-						break
-					}
-					if fieldDef.Field.Type.Implements(reflect.TypeOf((*ReferenceInterface)(nil)).Elem()) {
-						fieldType = "NUMERIC"
-						if fieldDef.Tags["required"] != "true" {
-							definition.sqlFieldQuery = "IFNULL(`" + columnName + "`,0)"
-							definition.convertBindToHashValue = func(a any) any {
-								if a == nil {
-									return 0
-								}
-								return a
-							}
-						} else {
-							definition.sqlFieldQuery = "`" + columnName + "`"
-							definition.convertBindToHashValue = defaultConvertBindToHashValueNotNullable
-						}
-						break
-					}
-					return fmt.Errorf("unsopported redis search type for field '%s'", columnName)
-				}
-
-				definition.FieldType = fieldType
-
-				if sortable == "true" {
-					definition.Sortable = true
-				}
-				if definition.FieldType == "TEXT" && def.Tags["rs_no-steam"] == "true" {
-					definition.NoStem = true
-				}
-				e.redisSearchFields[columnName] = definition
-			}
-		}
-		if !hasSearchable {
-			return fmt.Errorf("no searchable field found for entity '%s'", e.t.String())
-		}
-	}
-	if e.redisSearchIndexName != "" {
-		hash := hashString(e.createRedisSearchIndexDefinition(e.redisSearchIndexName))[0:5]
-		e.redisSearchIndexName += ":" + hash
-		e.redisSearchIndexPrefix = e.redisSearchIndexName + ":"
-	}
-
 	err = e.validateIndexes()
 	if err != nil {
 		return err
-	}
-	for _, plugin := range registry.plugins {
-		pluginInterfaceValidateEntitySchema, isInterface := plugin.(PluginInterfaceValidateEntitySchema)
-		if isInterface {
-			err = pluginInterfaceValidateEntitySchema.ValidateEntitySchema(e)
-			if err != nil {
-				return err
-			}
-		}
 	}
 	return nil
 }
@@ -915,265 +697,6 @@ func (e *entitySchema) DisableCache(local, redis bool) {
 	}
 }
 
-func (e *entitySchema) NewEntity(ctx Context) any {
-	schema := ctx.Engine().Registry().EntitySchema(e.t)
-	return newEntity(ctx, schema.(*entitySchema))
-}
-
-func (e *entitySchema) GetByID(ctx Context, id uint64) (entity any, found bool, err error) {
-	schema := ctx.Engine().Registry().EntitySchema(e.t)
-	if schema == nil {
-		return nil, false, nil
-	}
-	return getByID(ctx.(*ormImplementation), id, schema.(*entitySchema))
-}
-
-func (e *entitySchema) GetByIDs(ctx Context, ids ...uint64) (EntityAnonymousIterator, error) {
-	schemaI := ctx.Engine().Registry().EntitySchema(e.t)
-	if schemaI == nil {
-		return nil, nil
-	}
-	schema := schemaI.(*entitySchema)
-	if len(ids) == 0 {
-		return emptyResultsAnonymousIteratorInstance, nil
-	}
-	if schema.hasLocalCache {
-		return &localCacheAnonymousIDsIterator{orm: ctx.(*ormImplementation), schema: schema, ids: ids, index: -1}, nil
-	}
-	results := &entityAnonymousIteratorAdvanced{index: -1, ids: ids, schema: schema, orm: ctx.(*ormImplementation)}
-	results.rows = make([]any, len(ids))
-	var missingKeys []int
-	cacheRedis, hasRedisCache := schema.GetRedisCache()
-	var redisPipeline *RedisPipeLine
-	if hasRedisCache {
-		redisPipeline = ctx.RedisPipeLine(cacheRedis.GetCode())
-		l := int64(len(schema.columnNames) + 1)
-		foundInContextCache := 0
-		for i, id := range ids {
-			fromContextCache, inContextCache := ctx.getEntityFromCache(schema, id)
-			if inContextCache {
-				results.rows[i] = fromContextCache
-				foundInContextCache++
-			}
-		}
-		if foundInContextCache == len(ids) {
-			return results, nil
-		}
-		lRanges := make([]*PipeLineSlice, len(ids)-foundInContextCache)
-		k := 0
-		for i, id := range ids {
-			if results.rows[i] == nil {
-				lRanges[k] = redisPipeline.LRange(schema.cacheKey+":"+strconv.FormatUint(id, 10), 0, l)
-				k++
-			}
-		}
-		_, err := redisPipeline.Exec(ctx)
-		if err != nil {
-			return nil, err
-		}
-		k = 0
-		for i, id := range ids {
-			if results.rows[i] != nil {
-				continue
-			}
-			row, err := lRanges[k].Result()
-			if err != nil {
-				return nil, err
-			}
-			k++
-			if len(row) > 0 {
-				if len(row) == 1 {
-					continue
-				}
-				value := reflect.New(schema.t)
-				e := value.Interface()
-				if deserializeFromRedis(row, schema, value.Elem()) {
-					ctx.cacheEntity(schema, id, e)
-				}
-				results.rows[i] = e
-			} else {
-				missingKeys = append(missingKeys, i)
-			}
-		}
-		if len(missingKeys) == 0 {
-			return results, nil
-		}
-	} else {
-		for i, id := range ids {
-			fromContextCache, inContextCache := ctx.getEntityFromCache(schema, id)
-			if inContextCache {
-				results.rows[i] = fromContextCache
-			} else {
-				missingKeys = append(missingKeys, i)
-			}
-		}
-		if len(missingKeys) == 0 {
-			return results, nil
-		}
-	}
-
-	q := "SELECT " + schema.fieldsQuery + " FROM `" + schema.GetTableName() + "` WHERE `ID` IN ("
-	toSearch := 0
-	if len(missingKeys) > 0 {
-		for i, key := range missingKeys {
-			if i > 0 {
-				q += ","
-			}
-			q += strconv.FormatUint(ids[key], 10)
-		}
-		toSearch = len(missingKeys)
-	} else {
-		for i, id := range ids {
-			if i > 0 {
-				q += ","
-			}
-			q += strconv.FormatUint(id, 10)
-		}
-		toSearch = len(ids)
-	}
-	q += ")"
-	execRedisPipeline := false
-	res, def, err := schema.GetDB().Query(ctx, q)
-	if err != nil {
-		return nil, err
-	}
-	defer def()
-	foundInDB := 0
-	for res.Next() {
-		foundInDB++
-		pointers := prepareScan(schema)
-		err = res.Scan(pointers...)
-		if err != nil {
-			return nil, err
-		}
-		value := reflect.New(schema.t)
-		deserializeFromDB(schema.fields, value.Elem(), pointers)
-		id := *pointers[0].(*uint64)
-		for i, originalID := range ids { // TODO too slow
-			if id == originalID {
-				results.rows[i] = value.Interface()
-			}
-		}
-		if schema.hasLocalCache {
-			schema.localCache.setEntity(ctx, id, value.Interface())
-		} else {
-			ctx.cacheEntity(schema, id, value.Interface())
-		}
-		if hasRedisCache {
-			bind := make(Bind)
-			err := fillBindFromOneSource(ctx, bind, value.Elem(), schema.fields, "")
-			if err != nil {
-				return nil, err
-			}
-			values := convertBindToRedisValue(bind, schema)
-			redisPipeline.RPush(schema.getCacheKey()+":"+strconv.FormatUint(id, 10), values...)
-			execRedisPipeline = true
-		}
-	}
-	def()
-	if foundInDB < toSearch && (schema.hasLocalCache || hasRedisCache) {
-		for i, id := range ids {
-			if results.rows[i] == nil {
-				if schema.hasLocalCache {
-					schema.localCache.setEntity(ctx, id, nil)
-				} else {
-					ctx.cacheEntity(schema, id, nil)
-				}
-				if hasRedisCache {
-					cacheKey := schema.getCacheKey() + ":" + strconv.FormatUint(id, 10)
-					redisPipeline.Del(cacheKey)
-					redisPipeline.RPush(cacheKey, cacheNilValue)
-					execRedisPipeline = true
-				}
-			}
-		}
-	}
-	if execRedisPipeline {
-		_, err := redisPipeline.Exec(ctx)
-		if err != nil {
-			return nil, err
-		}
-	}
-	return results, nil
-}
-
-func (e *entitySchema) SearchWithCount(ctx Context, where Where, pager *Pager) (results EntityAnonymousIterator, totalRows int, err error) {
-	return e.search(ctx, where, pager, true)
-}
-
-func (e *entitySchema) Search(ctx Context, where Where, pager *Pager) (EntityAnonymousIterator, error) {
-	results, _, err := e.search(ctx, where, pager, false)
-	if err != nil {
-		return nil, err
-	}
-	return results, nil
-}
-
-func (e *entitySchema) SearchIDs(ctx Context, where Where, pager *Pager) ([]uint64, error) {
-	schema := ctx.Engine().Registry().EntitySchema(e.t)
-	if schema == nil {
-		return nil, nil
-	}
-	ids, _, err := searchIDs(ctx, schema, where, pager, false)
-	return ids, err
-}
-
-func (e *entitySchema) SearchIDsWithCount(ctx Context, where Where, pager *Pager) (results []uint64, totalRows int, err error) {
-	schema := ctx.Engine().Registry().EntitySchema(e.t)
-	if schema == nil {
-		return nil, 0, nil
-	}
-	return searchIDs(ctx, schema, where, pager, true)
-}
-
-func (e *entitySchema) IsDirty(ctx Context, id uint64) (oldValues, newValues Bind, hasChanges bool) {
-	schema := ctx.Engine().Registry().EntitySchema(e.t)
-	if schema == nil {
-		return nil, nil, false
-	}
-	return isDirty(ctx, schema.(*entitySchema), id)
-}
-
-func (e *entitySchema) Copy(ctx Context, source any) any {
-	schema := ctx.Engine().Registry().EntitySchema(e.t)
-	if schema == nil {
-		return nil
-	}
-	insertable := newEntityInsertable(ctx, schema.(*entitySchema), 0)
-	copyEntity(reflect.ValueOf(source).Elem(), insertable.value.Elem(), schema.(*entitySchema).fields, false)
-	return insertable.entity
-}
-
-func (e *entitySchema) EditEntityField(ctx Context, entity any, field string, value any) error {
-	return editEntityField(ctx, entity, field, value, false)
-}
-
-func (e *entitySchema) EditEntity(ctx Context, source any) any {
-	writable := copyToEdit(ctx, source)
-	if writable == nil {
-		return nil
-	}
-	writable.id = writable.value.Elem().Field(0).Uint()
-	writable.source = source
-	ctx.trackEntity(writable)
-	return writable.entity
-}
-
-func (e *entitySchema) DeleteEntity(ctx Context, source any) {
-	schemaI := ctx.Engine().Registry().EntitySchema(e.t)
-	if schemaI == nil {
-		return
-	}
-	schema := schemaI.(*entitySchema)
-	toRemove := &removableEntity{}
-	toRemove.ctx = ctx
-	toRemove.source = source
-	toRemove.value = reflect.ValueOf(source).Elem()
-	toRemove.id = toRemove.value.Field(0).Uint()
-	toRemove.schema = schema
-	ctx.trackEntity(toRemove)
-}
-
 func (e *entitySchema) ClearCache(ctx Context) (int, error) {
 	if e.hasLocalCache {
 		e.localCache.Clear(ctx)
@@ -1203,57 +726,6 @@ return deleted
 		return 0, err
 	}
 	return int(res.(int64)), nil
-}
-
-func (e *entitySchema) search(ctx Context, where Where, pager *Pager, withCount bool) (results EntityAnonymousIterator, totalRows int, err error) {
-	schemaI := ctx.Engine().Registry().EntitySchema(e.t)
-	if schemaI == nil {
-		return nil, 0, err
-	}
-	schema := schemaI.(*entitySchema)
-	entities := reflect.New(reflect.SliceOf(reflect.PointerTo(e.t))).Elem()
-	if schema.hasLocalCache {
-		ids, total, err := searchIDs(ctx, schema, where, pager, withCount)
-		if err != nil {
-			return nil, 0, err
-		}
-		if total == 0 {
-			return emptyResultsAnonymousIteratorInstance, 0, nil
-		}
-		return &localCacheIDsAnonymousIterator{c: ctx.(*ormImplementation), schema: schema, ids: ids, index: -1}, total, nil
-	}
-	whereQuery := where.String()
-	query := "SELECT " + schema.fieldsQuery + " FROM `" + schema.GetTableName() + "` WHERE " + whereQuery
-	if pager != nil {
-		query += " " + pager.String()
-	}
-	pool := schema.GetDB()
-	queryResults, def, err := pool.Query(ctx, query, where.GetParameters()...)
-	if err != nil {
-		return nil, 0, err
-	}
-	defer def()
-
-	i := 0
-	for queryResults.Next() {
-		pointers := prepareScan(schema)
-		err = queryResults.Scan(pointers...)
-		if err != nil {
-			return nil, 0, err
-		}
-		value := reflect.New(schema.t)
-		deserializeFromDB(schema.fields, value.Elem(), pointers)
-		entities = reflect.Append(entities, value)
-		i++
-	}
-	def()
-	totalRows = i
-	if pager != nil {
-		totalRows = getTotalRows(ctx, withCount, pager, where, schema, i)
-	}
-	resultsIterator := &entityAnonymousIterator{index: -1, orm: ctx.(*ormImplementation), schema: schema}
-	resultsIterator.rows = entities
-	return resultsIterator, totalRows, nil
 }
 
 func (e *entitySchema) buildTableFields(t reflect.Type, registry *registry,
@@ -1431,19 +903,8 @@ func (e *entitySchema) buildUintField(attributes schemaFieldAttributes, min int6
 		attributes.Fields.uIntegers = append(attributes.Fields.uIntegers, attributes.Index)
 	}
 
-	for i, columnName := range attributes.GetColumnNames() {
-		e.mapBindToScanPointer[columnName] = func() any {
-			v := uint64(0)
-			return &v
-		}
-		e.mapPointerToValue[columnName] = func(val any) any {
-			return *val.(*uint64)
-		}
-		e.fieldBindSetters[columnName] = createNumberFieldBindSetter(columnName, true, false, min, max)
+	for _, columnName := range attributes.GetColumnNames() {
 		e.fieldDefinitions[columnName] = attributes
-		e.columnAttrToStringSetters[columnName] = createUint64AttrToStringSetter(e.fieldBindSetters[columnName])
-		e.fieldSetters[columnName] = createNumberFieldSetter(attributes, true, false, i)
-		e.fieldGetters[columnName] = createFieldGetter(attributes, false, i)
 	}
 }
 
@@ -1464,9 +925,6 @@ func (e *entitySchema) buildReferenceField(attributes schemaFieldAttributes) {
 		} else {
 			attributes.Fields.referencesRequired = append(attributes.Fields.referencesRequired, isRequired)
 		}
-
-		e.mapBindToScanPointer[columnName] = scanIntNullablePointer
-		e.mapPointerToValue[columnName] = pointerUintNullableScan
 		var refType reflect.Type
 		if i == 0 {
 			refType = reflect.New(fType).Interface().(ReferenceInterface).getType()
@@ -1475,12 +933,7 @@ func (e *entitySchema) buildReferenceField(attributes schemaFieldAttributes) {
 			}
 			e.references[columnName] = def
 		}
-		idSetter := createNumberFieldBindSetter(columnName, true, !isRequired, 0, math.MaxUint64)
-		e.fieldBindSetters[columnName] = createReferenceFieldBindSetter(columnName, refType, idSetter, !isRequired)
 		e.fieldDefinitions[columnName] = attributes
-		e.columnAttrToStringSetters[columnName] = createUint64AttrToStringSetter(e.fieldBindSetters[columnName])
-		e.fieldSetters[columnName] = createReferenceFieldSetter(attributes, i)
-		e.fieldGetters[columnName] = createFieldGetter(attributes, false, i)
 	}
 }
 
@@ -1495,8 +948,6 @@ func (e *entitySchema) buildStructJSONField(attributes schemaFieldAttributes) {
 		fType = fType.Elem()
 	}
 	for i, columnName := range attributes.GetColumnNames() {
-		e.mapBindToScanPointer[columnName] = scanStringNullablePointer
-		e.mapPointerToValue[columnName] = pointerStringNullableScan
 		var refType reflect.Type
 		if i == 0 {
 			refType = reflect.New(fType).Interface().(structGetter).getType()
@@ -1505,11 +956,7 @@ func (e *entitySchema) buildStructJSONField(attributes schemaFieldAttributes) {
 			}
 			e.structJSONs[columnName] = def
 		}
-		e.fieldBindSetters[columnName] = createStructJSONFieldBindSetter()
 		e.fieldDefinitions[columnName] = attributes
-		e.columnAttrToStringSetters[columnName] = createStringAttrToStringSetter(e.fieldBindSetters[columnName])
-		e.fieldSetters[columnName] = createStructJSONFieldSetter(attributes, i)
-		e.fieldGetters[columnName] = createFieldGetter(attributes, false, i)
 	}
 }
 
@@ -1549,13 +996,7 @@ func (e *entitySchema) buildUintPointerField(attributes schemaFieldAttributes, m
 				}
 			}
 		}
-		e.mapBindToScanPointer[columnName] = scanIntNullablePointer
-		e.mapPointerToValue[columnName] = pointerUintNullableScan
-		e.fieldBindSetters[columnName] = createNumberFieldBindSetter(columnName, true, true, min, max)
 		e.fieldDefinitions[columnName] = attributes
-		e.columnAttrToStringSetters[columnName] = createUint64AttrToStringSetter(e.fieldBindSetters[columnName])
-		e.fieldSetters[columnName] = createNumberFieldSetter(attributes, true, true, i)
-		e.fieldGetters[columnName] = createFieldGetter(attributes, true, i)
 	}
 }
 
@@ -1565,19 +1006,8 @@ func (e *entitySchema) buildIntField(attributes schemaFieldAttributes, min int64
 	} else {
 		attributes.Fields.integers = append(attributes.Fields.integers, attributes.Index)
 	}
-	for i, columnName := range attributes.GetColumnNames() {
-		e.mapBindToScanPointer[columnName] = func() any {
-			v := int64(0)
-			return &v
-		}
-		e.mapPointerToValue[columnName] = func(val any) any {
-			return *val.(*int64)
-		}
-		e.fieldBindSetters[columnName] = createNumberFieldBindSetter(columnName, false, false, min, max)
+	for _, columnName := range attributes.GetColumnNames() {
 		e.fieldDefinitions[columnName] = attributes
-		e.columnAttrToStringSetters[columnName] = createInt64AttrToStringSetter(e.fieldBindSetters[columnName])
-		e.fieldSetters[columnName] = createNumberFieldSetter(attributes, false, false, i)
-		e.fieldGetters[columnName] = createFieldGetter(attributes, false, i)
 	}
 }
 
@@ -1617,13 +1047,7 @@ func (e *entitySchema) buildIntPointerField(attributes schemaFieldAttributes, mi
 				}
 			}
 		}
-		e.mapBindToScanPointer[columnName] = scanIntNullablePointer
-		e.mapPointerToValue[columnName] = pointerIntNullableScan
-		e.fieldBindSetters[columnName] = createNumberFieldBindSetter(columnName, false, true, min, max)
 		e.fieldDefinitions[columnName] = attributes
-		e.columnAttrToStringSetters[columnName] = createInt64AttrToStringSetter(e.fieldBindSetters[columnName])
-		e.fieldSetters[columnName] = createNumberFieldSetter(attributes, false, true, i)
-		e.fieldGetters[columnName] = createFieldGetter(attributes, true, i)
 	}
 }
 
@@ -1642,23 +1066,7 @@ func (e *entitySchema) buildEnumField(attributes schemaFieldAttributes, enumName
 				attributes.Fields.enums = append(attributes.Fields.enums, def)
 			}
 		}
-
-		e.mapBindToScanPointer[columnName] = func() any {
-			return &sql.NullString{}
-		}
-		e.mapPointerToValue[columnName] = func(val any) any {
-			v := val.(*sql.NullString)
-			if v.Valid {
-				return v.String
-			}
-			return nil
-		}
-		stringSetter := createStringFieldBindSetter(columnName, 0, def.required)
-		e.fieldBindSetters[columnName] = createEnumFieldBindSetter(columnName, stringSetter, def)
 		e.fieldDefinitions[columnName] = attributes
-		e.columnAttrToStringSetters[columnName] = createStringAttrToStringSetter(e.fieldBindSetters[columnName])
-		e.fieldSetters[columnName] = createStringFieldSetter(attributes, i)
-		e.fieldGetters[columnName] = createFieldGetter(attributes, false, i)
 	}
 }
 
@@ -1687,21 +1095,7 @@ func (e *entitySchema) buildStringField(attributes schemaFieldAttributes) {
 				attributes.Fields.stringsRequired = append(attributes.Fields.stringsRequired, isRequired)
 			}
 		}
-		e.mapBindToScanPointer[columnName] = func() any {
-			return &sql.NullString{}
-		}
-		e.mapPointerToValue[columnName] = func(val any) any {
-			v := val.(*sql.NullString)
-			if v.Valid {
-				return v.String
-			}
-			return nil
-		}
-		e.fieldBindSetters[columnName] = createStringFieldBindSetter(columnName, stringLength, isRequired)
 		e.fieldDefinitions[columnName] = attributes
-		e.columnAttrToStringSetters[columnName] = createStringAttrToStringSetter(e.fieldBindSetters[columnName])
-		e.fieldSetters[columnName] = createStringFieldSetter(attributes, i)
-		e.fieldGetters[columnName] = createFieldGetter(attributes, false, i)
 	}
 }
 
@@ -1711,12 +1105,8 @@ func (e *entitySchema) buildBytesField(attributes schemaFieldAttributes) {
 	} else {
 		attributes.Fields.bytes = append(attributes.Fields.bytes, attributes.Index)
 	}
-	for i, columnName := range attributes.GetColumnNames() {
-		e.columnAttrToStringSetters[columnName] = createNotSupportedAttrToStringSetter(columnName)
-		e.fieldBindSetters[columnName] = createBytesFieldBindSetter(columnName)
+	for _, columnName := range attributes.GetColumnNames() {
 		e.fieldDefinitions[columnName] = attributes
-		e.fieldSetters[columnName] = createBytesFieldSetter(attributes, i)
-		e.fieldGetters[columnName] = createFieldGetter(attributes, true, i)
 	}
 }
 
@@ -1735,39 +1125,18 @@ func (e *entitySchema) buildStringSliceField(enumName string, attributes schemaF
 				attributes.Fields.sets = append(attributes.Fields.sets, def)
 			}
 		}
-		e.mapBindToScanPointer[columnName] = scanStringNullablePointer
-		e.mapPointerToValue[columnName] = pointerStringNullableScan
-		e.columnAttrToStringSetters[columnName] = createNotSupportedAttrToStringSetter(columnName)
-		stringSetter := createStringFieldBindSetter(columnName, 0, def.required)
-		enumSetter := createEnumFieldBindSetter(columnName, stringSetter, def)
-		e.fieldBindSetters[columnName] = createSetFieldBindSetter(columnName, enumSetter, def)
 		e.fieldDefinitions[columnName] = attributes
-		e.fieldSetters[columnName] = createSetFieldSetter(attributes, i)
-		e.fieldGetters[columnName] = createFieldGetter(attributes, true, i)
 	}
 }
 
 func (e *entitySchema) buildBoolField(attributes schemaFieldAttributes) {
-	isFakeDelete := e.hasFakeDelete && attributes.GetColumnNames()[0] == "FakeDelete"
 	if attributes.IsArray {
 		attributes.Fields.booleansArray = append(attributes.Fields.booleansArray, attributes.Index)
 	} else {
 		attributes.Fields.booleans = append(attributes.Fields.booleans, attributes.Index)
 	}
-	for i, columnName := range attributes.GetColumnNames() {
-		e.mapBindToScanPointer[columnName] = scanBoolPointer
-		e.mapPointerToValue[columnName] = pointerBoolScan
-		e.fieldBindSetters[columnName] = createBoolFieldBindSetter(columnName)
+	for _, columnName := range attributes.GetColumnNames() {
 		e.fieldDefinitions[columnName] = attributes
-		e.columnAttrToStringSetters[columnName] = createBoolAttrToStringSetter(e.fieldBindSetters[columnName])
-		if isFakeDelete {
-			e.fieldSetters[columnName] = func(v any, elem reflect.Value) {
-				getSetterField(elem, attributes, i).SetBool(v.(uint64) > 0)
-			}
-		} else {
-			e.fieldSetters[columnName] = createBoolFieldSetter(attributes, i)
-		}
-		e.fieldGetters[columnName] = createFieldGetter(attributes, false, i)
 	}
 }
 
@@ -1777,15 +1146,8 @@ func (e *entitySchema) buildBoolPointerField(attributes schemaFieldAttributes) {
 	} else {
 		attributes.Fields.booleansNullable = append(attributes.Fields.booleansNullable, attributes.Index)
 	}
-	for i, columnName := range attributes.GetColumnNames() {
-		e.mapBindToScanPointer[columnName] = scanBoolNullablePointer
-		e.mapPointerToValue[columnName] = pointerBoolNullableScan
-		boolSetter := createBoolFieldBindSetter(columnName)
-		e.fieldBindSetters[columnName] = createNullableFieldBindSetter(boolSetter)
+	for _, columnName := range attributes.GetColumnNames() {
 		e.fieldDefinitions[columnName] = attributes
-		e.columnAttrToStringSetters[columnName] = createBoolAttrToStringSetter(e.fieldBindSetters[columnName])
-		e.fieldSetters[columnName] = createBoolNullableFieldSetter(attributes, i)
-		e.fieldGetters[columnName] = createFieldGetter(attributes, true, i)
 	}
 }
 
@@ -1842,18 +1204,7 @@ func (e *entitySchema) buildFloatField(attributes schemaFieldAttributes) {
 				attributes.Fields.floatsUnsigned = append(attributes.Fields.floatsUnsigned, unsigned)
 			}
 		}
-		e.mapBindToScanPointer[columnName] = func() any {
-			v := float64(0)
-			return &v
-		}
-		e.mapPointerToValue[columnName] = func(val any) any {
-			return *val.(*float64)
-		}
-		e.fieldBindSetters[columnName] = createFloatFieldBindSetter(columnName, unsigned, false, precision, floatBitSize, decimalSize)
 		e.fieldDefinitions[columnName] = attributes
-		e.columnAttrToStringSetters[columnName] = createFloatAttrToStringSetter(e.fieldBindSetters[columnName])
-		e.fieldSetters[columnName] = createFloatFieldSetter(attributes, i)
-		e.fieldGetters[columnName] = createFieldGetter(attributes, false, i)
 	}
 }
 
@@ -1910,14 +1261,7 @@ func (e *entitySchema) buildFloatPointerField(attributes schemaFieldAttributes) 
 				attributes.Fields.floatsNullableUnsigned = append(attributes.Fields.floatsNullableUnsigned, unsigned)
 			}
 		}
-		e.mapBindToScanPointer[columnName] = scanFloatNullablePointer
-		e.mapPointerToValue[columnName] = pointerFloatNullableScan
-		e.columnAttrToStringSetters[columnName] = createNotSupportedAttrToStringSetter(columnName)
-		floatSetter := createFloatFieldBindSetter(columnName, unsigned, false, precision, floatBitSize, decimalSize)
-		e.fieldBindSetters[columnName] = createNullableFieldBindSetter(floatSetter)
 		e.fieldDefinitions[columnName] = attributes
-		e.fieldSetters[columnName] = createFloatNullableFieldSetter(attributes, i)
-		e.fieldGetters[columnName] = createFieldGetter(attributes, true, i)
 	}
 }
 
@@ -1936,19 +1280,8 @@ func (e *entitySchema) buildTimePointerField(attributes schemaFieldAttributes) {
 			attributes.Fields.datesNullable = append(attributes.Fields.datesNullable, attributes.Index)
 		}
 	}
-	layout := time.DateOnly
-	if hasTime {
-		layout = time.DateTime
-	}
-	for i, columnName := range attributes.GetColumnNames() {
-		e.mapBindToScanPointer[columnName] = scanStringNullablePointer
-		e.mapPointerToValue[columnName] = pointerStringNullableScan
-		timeSetter := createDateFieldBindSetter(columnName, layout, true)
-		e.fieldBindSetters[columnName] = createNullableFieldBindSetter(timeSetter)
+	for _, columnName := range attributes.GetColumnNames() {
 		e.fieldDefinitions[columnName] = attributes
-		e.columnAttrToStringSetters[columnName] = createDateTimeAttrToStringSetter(e.fieldBindSetters[columnName])
-		e.fieldSetters[columnName] = createTimeNullableFieldSetter(attributes, layout, i)
-		e.fieldGetters[columnName] = createFieldGetter(attributes, true, i)
 	}
 }
 
@@ -1967,18 +1300,8 @@ func (e *entitySchema) buildTimeField(attributes schemaFieldAttributes) {
 			attributes.Fields.dates = append(attributes.Fields.dates, attributes.Index)
 		}
 	}
-	layout := time.DateOnly
-	if hasTime {
-		layout = time.DateTime
-	}
-	for i, columnName := range attributes.GetColumnNames() {
-		e.mapBindToScanPointer[columnName] = scanStringPointer
-		e.mapPointerToValue[columnName] = pointerStringScan
-		e.fieldBindSetters[columnName] = createDateFieldBindSetter(columnName, layout, false)
+	for _, columnName := range attributes.GetColumnNames() {
 		e.fieldDefinitions[columnName] = attributes
-		e.columnAttrToStringSetters[columnName] = createDateTimeAttrToStringSetter(e.fieldBindSetters[columnName])
-		e.fieldSetters[columnName] = createTimeFieldSetter(attributes, layout, i)
-		e.fieldGetters[columnName] = createFieldGetter(attributes, false, i)
 	}
 }
 

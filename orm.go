@@ -3,7 +3,6 @@ package fluxaorm
 import (
 	"context"
 	"hash/maphash"
-	"strings"
 	"sync"
 
 	"github.com/puzpuzpuz/xsync/v2"
@@ -24,11 +23,6 @@ type Context interface {
 	Clone() Context
 	CloneWithContext(context context.Context) Context
 	Engine() Engine
-	NewEntity(entity any)
-	EditEntity(entity any) any
-	DeleteEntity(entity any)
-	ForceDeleteEntity(entity any)
-	PushDirty(entities ...any) error
 	ClearCache()
 	EnableContextCache()
 	Flush() error
@@ -44,18 +38,14 @@ type Context interface {
 	getDBLoggers() (bool, []LogHandler)
 	getLocalCacheLoggers() (bool, []LogHandler)
 	getRedisLoggers() (bool, []LogHandler)
-	trackEntity(e EntityFlush)
 	Track(f Flushable, cacheIndex uint64)
 	GetEventBroker() EventBroker
-	getEntityFromCache(schema *entitySchema, id uint64) (e any, found bool)
-	cacheEntity(schema *entitySchema, id uint64, e any)
 	getMetricsSourceTag() string
 }
 
 type ormImplementation struct {
 	context                  context.Context
 	engine                   *engineImplementation
-	trackedEntities          *xsync.MapOf[uint64, *xsync.MapOf[uint64, EntityFlush]]
 	trackedGeneratedEntities *xsync.MapOf[uint64, *xsync.MapOf[uint64, Flushable]]
 	cachedEntities           *xsync.MapOf[uint64, *xsync.MapOf[uint64, any]]
 	queryLoggersDB           []LogHandler
@@ -66,12 +56,8 @@ type ormImplementation struct {
 	hasLocalCacheLogger      bool
 	disabledContextCache     bool
 	meta                     Meta
-	stringBuilder            *strings.Builder
-	stringBuilder2           *strings.Builder
 	redisPipeLines           map[string]*RedisPipeLine
 	dbPipeLines              map[string]*DatabasePipeline
-	flushDBActions           map[string][]dbAction
-	flushPostActions         []func(ctx Context)
 	mutexFlush               sync.Mutex
 	mutexData                sync.Mutex
 	eventBroker              *eventBroker
@@ -195,75 +181,12 @@ func (orm *ormImplementation) Track(f Flushable, cacheIndex uint64) {
 	}
 }
 
-func (orm *ormImplementation) trackEntity(e EntityFlush) {
-	orm.mutexFlush.Lock()
-	defer orm.mutexFlush.Unlock()
-	if orm.trackedEntities == nil {
-		orm.trackedEntities = xsync.NewTypedMapOf[uint64, *xsync.MapOf[uint64, EntityFlush]](func(seed maphash.Seed, u uint64) uint64 {
-			return u
-		})
-	}
-	entities, loaded := orm.trackedEntities.LoadOrCompute(e.Schema().index, func() *xsync.MapOf[uint64, EntityFlush] {
-		entities := xsync.NewTypedMapOf[uint64, EntityFlush](func(seed maphash.Seed, u uint64) uint64 {
-			return u
-		})
-		entities.Store(e.ID(), e)
-		return entities
-	})
-	if loaded {
-		entities.Store(e.ID(), e)
-	}
-}
-
-func (orm *ormImplementation) cacheEntity(schema *entitySchema, id uint64, e any) {
-	if orm.disabledContextCache {
-		return
-	}
-	orm.mutexData.Lock()
-	defer orm.mutexData.Unlock()
-	if orm.cachedEntities == nil {
-		orm.cachedEntities = xsync.NewTypedMapOf[uint64, *xsync.MapOf[uint64, any]](func(seed maphash.Seed, u uint64) uint64 {
-			return u
-		})
-	}
-	entities, loaded := orm.cachedEntities.LoadOrCompute(schema.index, func() *xsync.MapOf[uint64, any] {
-		entities := xsync.NewTypedMapOf[uint64, any](func(seed maphash.Seed, u uint64) uint64 {
-			return u
-		})
-		entities.Store(id, e)
-		return entities
-	})
-	if loaded {
-		entities.Store(id, e)
-	}
-}
-
 func (orm *ormImplementation) getMetricsSourceTag() string {
 	userTag, has := orm.meta[MetricsMetaKey]
 	if has {
 		return userTag
 	}
 	return "default"
-}
-
-func (orm *ormImplementation) getEntityFromCache(schema *entitySchema, id uint64) (e any, found bool) {
-	if orm.disabledContextCache {
-		return nil, false
-	}
-	orm.mutexData.Lock()
-	defer orm.mutexData.Unlock()
-	if orm.cachedEntities == nil {
-		return nil, false
-	}
-	entities, found := orm.cachedEntities.Load(schema.index)
-	if !found {
-		return nil, false
-	}
-	e, found = entities.Load(id)
-	if e == nil {
-		return nil, false
-	}
-	return e, found
 }
 
 func (orm *ormImplementation) ClearCache() {

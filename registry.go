@@ -23,7 +23,6 @@ import (
 type Registry interface {
 	Validate() (Engine, error)
 	RegisterEntity(entity ...any)
-	RegisterPlugin(plugin ...any)
 	RegisterMySQL(dataSourceName string, poolCode string, poolOptions *MySQLOptions)
 	RegisterLocalCache(code string, limit int)
 	RegisterRedis(address string, db int, poolCode string, options *RedisOptions)
@@ -39,7 +38,6 @@ type registry struct {
 	localCaches       map[string]LocalCache
 	redisPools        map[string]RedisPoolConfig
 	entities          map[string]reflect.Type
-	plugins           []any
 	options           map[string]any
 	redisStreamGroups map[string]map[string]string
 	redisStreamPools  map[string]string
@@ -210,23 +208,6 @@ func (r *registry) Validate() (Engine, error) {
 		}
 		schema.engine = e
 	}
-	for _, plugin := range r.plugins {
-		pluginInterfaceValidateRegistry, isInterface := plugin.(PluginInterfaceValidateRegistry)
-		if isInterface {
-			err := pluginInterfaceValidateRegistry.ValidateRegistry(e, r)
-			if err != nil {
-				return nil, err
-			}
-		}
-		pluginInterfaceEntityFlush, isInterface := plugin.(PluginInterfaceEntityFlush)
-		if isInterface {
-			e.pluginFlush = append(e.pluginFlush, pluginInterfaceEntityFlush)
-		}
-		pluginInterfaceEntityInitNewEntity, isInterface := plugin.(PluginInitNewEntity)
-		if isInterface {
-			e.pluginsInitNewEntity = append(e.pluginsInitNewEntity, pluginInterfaceEntityInitNewEntity)
-		}
-	}
 	for key, value := range r.options {
 		e.registry.options[key] = value
 	}
@@ -305,10 +286,6 @@ func (r *registry) RegisterEntity(entity ...any) {
 		}
 		r.entities[name] = t
 	}
-}
-
-func (r *registry) RegisterPlugin(plugin ...any) {
-	r.plugins = append(r.plugins, plugin...)
 }
 
 type MySQLOptions struct {

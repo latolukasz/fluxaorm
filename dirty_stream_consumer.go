@@ -8,8 +8,8 @@ import (
 type DirtyStreamEvent struct {
 	EntityName string
 	ID         uint64
-	Operation  FlushType
-	Bind       Bind
+	Operation  int
+	Bind       map[string]any
 	event      Event
 	ack        bool
 }
@@ -96,16 +96,16 @@ func (r *DirtyStreamConsumer) eventsHandler(count int) func(events []Event) erro
 }
 
 func (r *DirtyStreamConsumer) handleEvent(event Event) (*DirtyStreamEvent, error) {
-	var flashType FlushType
+	var flashType int
 	switch event.Tag("action") {
 	case "add":
-		flashType = Insert
+		flashType = 0
 		break
 	case "edit":
-		flashType = Update
+		flashType = 1
 		break
 	case "delete":
-		flashType = Delete
+		flashType = 2
 		break
 	default:
 		return nil, event.Ack()
@@ -126,7 +126,7 @@ func (r *DirtyStreamConsumer) handleEvent(event Event) (*DirtyStreamEvent, error
 	if err != nil || id == 0 {
 		return nil, event.Ack()
 	}
-	var bind Bind
+	var bind map[string]any
 	err = event.Unserialize(&bind)
 	if err != nil {
 		return nil, err

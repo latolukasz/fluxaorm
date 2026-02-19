@@ -64,12 +64,6 @@ func prepareTables(t *testing.T, registry Registry, mysqlOptions *MySQLOptions, 
 			cacheLocal.Clear(orm)
 		}
 	}
-	redisSearchAlters, err := GetRedisSearchAlters(orm)
-	assert.NoError(t, err)
-	for _, alter := range redisSearchAlters {
-		err = alter.Exec(orm)
-		assert.NoError(t, err)
-	}
 	return orm
 }
 

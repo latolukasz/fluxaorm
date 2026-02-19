@@ -56,15 +56,6 @@ func (r *registry) InitByYaml(yaml any) error {
 			}
 		}
 	}
-	for _, plugin := range r.plugins {
-		pluginInterfaceValidateRegistry, isInterface := plugin.(PluginInterfaceInitRegistryFromYaml)
-		if isInterface {
-			err := pluginInterfaceValidateRegistry.InitRegistryFromYaml(r, asMap)
-			if err != nil {
-				return err
-			}
-		}
-	}
 	return nil
 }
 
