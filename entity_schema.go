@@ -21,43 +21,40 @@ type dirtyDefinition struct {
 }
 
 type entitySchema struct {
-	index                    uint64
-	cacheTTL                 int
-	tableName                string
-	mysqlPoolCode            string
-	t                        reflect.Type
-	hasFakeDelete            bool
-	fields                   *tableFields
-	engine                   Engine
-	tags                     map[string]map[string]string
-	columnNames              []string
-	fieldDefinitions         map[string]schemaFieldAttributes
-	uniqueIndexes            map[string]indexDefinition
-	uniqueIndexesMapping     map[UniqueIndexDefinition]string
-	uniqueIndexesColumns     map[string][]string
-	cachedUniqueIndexes      map[string]indexDefinition
-	references               map[string]referenceDefinition
-	structJSONs              map[string]structDefinition
-	indexes                  map[string]indexDefinition
-	indexesMapping           map[IndexDefinition]string
-	cachedIndexes            map[string]indexDefinition
-	dirtyAdded               []*dirtyDefinition
-	dirtyUpdated             []*dirtyDefinition
-	dirtyDeleted             []*dirtyDefinition
-	options                  map[string]any
-	redisSearchIndexPoolCode string
-	redisSearchIndexName     string
-	redisSearchIndexPrefix   string
-	hasLocalCache            bool
-	localCache               *localCache
-	localCacheLimit          int
-	redisCacheName           string
-	hasRedisCache            bool
-	redisCache               *redisCache
-	cacheKey                 string
-	uuidCacheKey             string
-	uuidMutex                sync.Mutex
-	structureHash            string
+	index                uint64
+	cacheTTL             int
+	tableName            string
+	mysqlPoolCode        string
+	t                    reflect.Type
+	hasFakeDelete        bool
+	fields               *tableFields
+	engine               Engine
+	tags                 map[string]map[string]string
+	columnNames          []string
+	fieldDefinitions     map[string]schemaFieldAttributes
+	uniqueIndexes        map[string]indexDefinition
+	uniqueIndexesMapping map[UniqueIndexDefinition]string
+	uniqueIndexesColumns map[string][]string
+	cachedUniqueIndexes  map[string]indexDefinition
+	references           map[string]referenceDefinition
+	structJSONs          map[string]structDefinition
+	indexes              map[string]indexDefinition
+	indexesMapping       map[IndexDefinition]string
+	cachedIndexes        map[string]indexDefinition
+	dirtyAdded           []*dirtyDefinition
+	dirtyUpdated         []*dirtyDefinition
+	dirtyDeleted         []*dirtyDefinition
+	options              map[string]any
+	hasLocalCache        bool
+	localCache           *localCache
+	localCacheLimit      int
+	redisCacheName       string
+	hasRedisCache        bool
+	redisCache           *redisCache
+	cacheKey             string
+	uuidCacheKey         string
+	uuidMutex            sync.Mutex
+	structureHash        string
 }
 
 type mapBindToScanPointer map[string]func() any
@@ -176,14 +173,6 @@ func (e *entitySchema) GetRedisCache() (cache RedisCache, has bool) {
 		return nil, false
 	}
 	return e.redisCache, true
-}
-
-func (e *entitySchema) GetRedisSearchPoolCode() string {
-	return e.redisSearchIndexPoolCode
-}
-
-func (e *entitySchema) GetRedisSearchIndexName() string {
-	return e.redisSearchIndexName
 }
 
 func (e *entitySchema) GetColumns() []string {
