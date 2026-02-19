@@ -59,7 +59,6 @@ func (r *registry) Validate() (Engine, error) {
 	e.registry.entitySchemaList = make([]*entitySchema, l)
 	e.registry.entityLogSchemas = make(map[reflect.Type]*entitySchema, l)
 	e.registry.entities = make(map[string]reflect.Type)
-	e.registry.enums = make(map[string][]string)
 	e.options = make(map[string]any)
 	if e.dbServers == nil {
 		e.dbServers = make(map[string]DB)
@@ -160,7 +159,6 @@ func (r *registry) Validate() (Engine, error) {
 			}
 			r.localCaches[schema.cacheKey] = newLocalCache(schema.cacheKey, schema.localCacheLimit, schema)
 		}
-		extractEnums(schema.fields, e.registry)
 	}
 	for k, v := range r.localCaches {
 		e.localCacheServers[k] = v
@@ -360,18 +358,4 @@ func (p *redisCacheConfig) GetAddress() string {
 
 func (p *redisCacheConfig) getClient() *redis.Client {
 	return p.client
-}
-
-func extractEnums(fields *tableFields, r *engineRegistryImplementation) {
-	for _, enum := range fields.enums {
-		if r.enums[enum.name] == nil {
-			r.enums[enum.name] = enum.fields
-		}
-	}
-	for _, s := range fields.structsFields {
-		extractEnums(s, r)
-	}
-	for _, s := range fields.structsFieldsArray {
-		extractEnums(s, r)
-	}
 }

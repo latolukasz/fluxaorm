@@ -12,8 +12,6 @@ type EngineRegistry interface {
 	LocalCachePools() map[string]LocalCache
 	RedisPools() map[string]RedisCache
 	Option(key string) any
-	Enums() map[string][]string
-	DisableLogTables()
 	getDefaultQueryLogger() LogHandler
 	getDBTables() map[string]map[string]bool
 	getMetricsRegistry() (*metricsRegistry, bool)
@@ -43,10 +41,8 @@ type engineRegistryImplementation struct {
 	defaultQueryLogger    *defaultLogLogger
 	dbTables              map[string]map[string]bool
 	options               map[string]any
-	enums                 map[string][]string
 	redisStreamGroups     map[string]map[string]string
 	redisStreamPools      map[string]string
-	disableLogTables      bool
 	hasMetrics            bool
 	metricsRegistry       *metricsRegistry
 }
@@ -123,14 +119,6 @@ func (er *engineRegistryImplementation) Option(key string) any {
 	return er.options[key]
 }
 
-func (er *engineRegistryImplementation) Enums() map[string][]string {
-	return er.enums
-}
-
 func (er *engineRegistryImplementation) getDefaultQueryLogger() LogHandler {
 	return er.defaultQueryLogger
-}
-
-func (er *engineRegistryImplementation) DisableLogTables() {
-	er.disableLogTables = true
 }
