@@ -34,28 +34,18 @@ FLUXA ORM is a Go ORM targeting MySQL + Redis 8.0 with Redis Search. The main pa
 
 ### Entity Lifecycle
 
-- **EntitySchema** (`entity_schema.go`) — the largest file (75KB); defines table structure, fields, indexes, caching strategy, references, and enums per entity type. Schema is registered on Registry, validated and stored in Engine.
-- **Flush** (`flush.go`) — batches entity inserts/updates; uses dirty tracking to detect changes. Supports sync and async modes.
-- **Bind** (`bind.go`, 43KB) — maps MySQL column values to Go struct fields; handles all type conversions.
-- **Column setters** (`column_setter.go`) and **field editors** (`edit_entity_field.go`) — typed setters for entity fields.
+- **EntitySchema** (`entity_schema.go`) — defines table structure, fields, indexes, caching strategy, references, and enums per entity type. Schema is registered on Registry, validated and stored in Engine.
+- **Flush** (`flush.go`) — batches entity inserts/updates via dirty tracking. Supports sync and async modes.
 
 ### Caching (Three Tiers)
 
 1. **Context cache** — per-request entity cache in `ormImplementation`; disabled with `DisableContextCache()`
 2. **Local cache** (`local_cache.go`) — per-process LRU cache; size configured per entity
-3. **Redis cache** (`redis_cache.go`, 51KB) — full Redis 8.0 API including Streams, Search, Sorted Sets, Hashes, etc.; pipelining via `redis_pipeline.go`
+3. **Redis cache** (`redis_cache.go`) — full Redis 8.0 API including Streams, Search, Sorted Sets, Hashes, etc.; pipelining via `redis_pipeline.go`
 
-### Search & Retrieval
+### Code Generation
 
-- `get_by_id.go`, `get_by_ids.go` — primary key lookups (cache-aware)
-- `get_by_index.go`, `get_by_unique_index.go` — index-based lookups
-- `search.go` — SQL `WHERE` clause builder using `Where` type from `where.go`
-- `search_by_redis_index.go` — Redis Search index queries
-- `pager.go` — pagination support for search results
-
-### Code Generation — New System (Active Development)
-
-`generate.go` — generates fully-typed, zero-reflection Go code for each registered entity. This is the **primary direction of the project**. The goal is to replace the existing reflection-based ORM entirely once the generated system covers all required functionality.
+`generate.go` — generates fully-typed, zero-reflection Go code for each registered entity.
 
 **Design goals:** developer-friendly API + maximum performance (minimal DB/Redis queries, minimal memory allocations, no reflection at runtime).
 
@@ -102,19 +92,11 @@ FLUXA ORM is a Go ORM targeting MySQL + Redis 8.0 with Redis Search. The main pa
 | `Search` / `SearchWithCount` / `SearchOne` | 🔲 stub — returns nil |
 | `SearchIDs` / `SearchIDsWithCount` | 🔲 stub — returns nil |
 
-#### Migration plan
-
-Once the generated system fully covers all required functionality, the legacy reflection-based ORM (`bind.go`, `column_setter.go`, `edit_entity_field.go`, `get_by_id.go`, `get_by_ids.go`, `get_by_index.go`, etc.) will be removed. **Do not invest in improving the legacy system** — new features go into `generate.go` and the generated output.
-
 See `test_generate/` for entity definitions used to test generation and `test_generate/entities/` for example generated output.
 
 ### Event System
 
-`event_broker.go` + `dirty_stream_consumer.go`/`dirty_stream_push.go` — Redis Stream-based pub/sub for entity change events. Consumers use consumer groups for reliable delivery.
-
-### Plugin System
-
-`plugin.go` defines the plugin interface for entity lifecycle hooks. See `plugins/modified/` for an example (auto-timestamps on update).
+`event_broker.go` — Redis Stream-based pub/sub for entity change events. Consumers use consumer groups for reliable delivery.
 
 ### Key Supporting Files
 
@@ -122,7 +104,6 @@ See `test_generate/` for entity definitions used to test generation and `test_ge
 - `schema.go` — DDL operations (CREATE/ALTER TABLE, index management)
 - `locker.go` — distributed locking via `bsm/redislock`
 - `metrics.go` — Prometheus metrics for queries, cache hits/misses
-- `log_table.go` — audit log table support
 - `query_logger.go` — configurable query logging with handlers
 - `test.go` — test utilities (PrepareTables, mock structures)
 
