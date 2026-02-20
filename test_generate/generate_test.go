@@ -29,20 +29,10 @@ type generateSubStruct struct {
 	Size uint8
 }
 
-var generateEntityIndexes = struct {
-	AgeBalance fluxaorm.UniqueIndexDefinition
-}{
-	AgeBalance: fluxaorm.UniqueIndexDefinition{"Age,Balance", false},
-}
-
-func (e *generateEntity) Indexes() any {
-	return generateEntityIndexes
-}
-
 type generateEntity struct {
 	ID                uint64 `orm:"redisCache"`
-	Age               uint32
-	Balance           int8
+	Age               uint32 `orm:"unique=AgeBalance"`
+	Balance           int8   `orm:"unique=AgeBalance:2"`
 	AgeNullable       *uint8
 	BalanceNullable   *int8
 	Name              string `orm:"required"`

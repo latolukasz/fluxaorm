@@ -33,9 +33,7 @@ type entitySchema struct {
 	columnNames          []string
 	fieldDefinitions     map[string]schemaFieldAttributes
 	uniqueIndexes        map[string]indexDefinition
-	uniqueIndexesMapping map[UniqueIndexDefinition]string
 	uniqueIndexesColumns map[string][]string
-	cachedUniqueIndexes  map[string]indexDefinition
 	references           map[string]referenceDefinition
 	structJSONs          map[string]structDefinition
 	dirtyAdded           []*dirtyDefinition
@@ -207,7 +205,6 @@ func (e *entitySchema) init(registry *registry, entityType reflect.Type) error {
 	e.references = make(map[string]referenceDefinition)
 	e.structJSONs = make(map[string]structDefinition)
 	e.uniqueIndexes = make(map[string]indexDefinition)
-	e.uniqueIndexesMapping = make(map[UniqueIndexDefinition]string)
 	fakeDeleteField, foundFakeDeleteField := e.t.FieldByName("FakeDelete")
 	e.hasFakeDelete = foundFakeDeleteField && fakeDeleteField.Type.Kind() == reflect.Bool
 	e.mysqlPoolCode = e.getTag("mysql", "default", DefaultPoolCode)
@@ -297,9 +294,8 @@ func (e *entitySchema) init(registry *registry, entityType reflect.Type) error {
 		e.dirtyDeleted = deleteList
 	}
 	e.fieldDefinitions = make(map[string]schemaFieldAttributes)
-	e.cachedUniqueIndexes = make(map[string]indexDefinition)
 	e.uniqueIndexesColumns = make(map[string][]string)
-	err := e.initIndexes(entityType)
+	err := e.initIndexes()
 	if err != nil {
 		return err
 	}
@@ -338,50 +334,51 @@ func (e *entitySchema) init(registry *registry, entityType reflect.Type) error {
 	return nil
 }
 
-func (e *entitySchema) initIndexes(entityType reflect.Type) error {
-	eInstance := reflect.New(entityType).Interface()
-	indexInterface, isIndexInterface := eInstance.(IndexInterface)
-	if isIndexInterface {
-		indexDefinitionSource := indexInterface.Indexes()
-		indexDefinitionSourceValue := reflect.ValueOf(indexDefinitionSource)
-		if indexDefinitionSourceValue.Kind() != reflect.Struct {
-			return fmt.Errorf("invalid index definition source '%s' for entity '%s'", indexDefinitionSourceValue.Kind(), e.t.String())
+func (e *entitySchema) initIndexes() error {
+	type pendingCol struct {
+		fieldName string
+		position  int
+	}
+	pending := make(map[string][]pendingCol)
+	for fieldName, tags := range e.tags {
+		uniqueVal, hasUnique := tags["unique"]
+		if !hasUnique {
+			continue
 		}
-		for i := 0; i < indexDefinitionSourceValue.NumField(); i++ {
-			fDef := indexDefinitionSourceValue.Type().Field(i)
-			if fDef.Anonymous {
-				return fmt.Errorf("invalid index definition source '%s' for entity '%s' - anonymous fields are not supported", indexDefinitionSourceValue.Kind(), e.t.String())
-			}
-			if fDef.Type.String() == "fluxaorm.UniqueIndexDefinition" {
-				uniqueDef := indexDefinitionSourceValue.Field(i).Interface().(UniqueIndexDefinition)
-				e.uniqueIndexesColumns[fDef.Name] = strings.Split(uniqueDef.Columns, ",")
-				definition, err := createIndexDefinition(e.uniqueIndexesColumns[fDef.Name], uniqueDef.Cached)
-				if err != nil {
-					return fmt.Errorf("invalid unique index for entity '%s': %s", e.t.String(), err.Error())
+		indexName := fieldName
+		position := 1
+		if uniqueVal != "true" {
+			parts := strings.SplitN(uniqueVal, ":", 2)
+			indexName = parts[0]
+			if len(parts) == 2 {
+				pos, err := strconv.Atoi(parts[1])
+				if err != nil || pos < 1 {
+					return fmt.Errorf("invalid unique index position '%s' for field '%s' in entity '%s'", parts[1], fieldName, e.t.String())
 				}
-				e.uniqueIndexes[fDef.Name] = *definition
-				e.uniqueIndexesMapping[uniqueDef] = fDef.Name
-				if definition.Cached {
-					e.cachedUniqueIndexes[fDef.Name] = *definition
-				}
-			} else {
-				return fmt.Errorf("invalid index definition source '%s' for entity '%s' - only fluxaorm.UniqueIndexDefinition is supported", indexDefinitionSourceValue.Kind(), e.t.String())
+				position = pos
 			}
 		}
+		pending[indexName] = append(pending[indexName], pendingCol{fieldName, position})
+	}
+	for indexName, cols := range pending {
+		posMap := make(map[int]string, len(cols))
+		for _, col := range cols {
+			if _, exists := posMap[col.position]; exists {
+				return fmt.Errorf("unique index '%s' in entity '%s' has duplicate position %d", indexName, e.t.String(), col.position)
+			}
+			posMap[col.position] = col.fieldName
+		}
+		columns := make([]string, len(posMap))
+		for pos, fieldName := range posMap {
+			if pos < 1 || pos > len(posMap) {
+				return fmt.Errorf("unique index '%s' in entity '%s' has invalid position %d (must be between 1 and %d)", indexName, e.t.String(), pos, len(posMap))
+			}
+			columns[pos-1] = fieldName
+		}
+		e.uniqueIndexes[indexName] = indexDefinition{Columns: columns}
+		e.uniqueIndexesColumns[indexName] = columns
 	}
 	return nil
-}
-
-func createIndexDefinition(columns []string, cached bool) (*indexDefinition, error) {
-	where := ""
-	for i, columnName := range columns {
-		if i > 0 {
-			where += " AND "
-		}
-		where += "`" + columnName + "`=?"
-	}
-	definition := indexDefinition{Where: where, Cached: cached, Columns: columns}
-	return &definition, nil
 }
 
 func (e *entitySchema) validateIndexes() error {
