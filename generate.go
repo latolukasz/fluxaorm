@@ -380,16 +380,6 @@ func (g *codeGenerator) generateCodeForEntity(schema *entitySchema) error {
 	g.addLine("\treturn e")
 	g.addLine("}")
 	g.addLine("")
-	for indexName, index := range schema.indexes {
-		g.body += fmt.Sprintf("func (p %s) GetByIndex%s(ctx fluxaorm.Context", providerNamePrivate, indexName)
-		for _, columnName := range index.Columns {
-			g.body += fmt.Sprintf(", %s any", g.lowerFirst(columnName))
-		}
-		g.addLine(fmt.Sprintf(") ([]*%s, error) {", entityName))
-		g.addLine("\treturn nil, nil")
-		g.addLine("}")
-		g.addLine("")
-	}
 	for indexName, index := range schema.uniqueIndexes {
 		g.body += fmt.Sprintf("func (p %s) GetByIndex%s(ctx fluxaorm.Context", providerNamePrivate, indexName)
 		for _, columnName := range index.Columns {

@@ -30,10 +30,8 @@ type generateSubStruct struct {
 }
 
 var generateEntityIndexes = struct {
-	Name       fluxaorm.IndexDefinition
 	AgeBalance fluxaorm.UniqueIndexDefinition
 }{
-	Name:       fluxaorm.IndexDefinition{"Name", false},
 	AgeBalance: fluxaorm.UniqueIndexDefinition{"Age,Balance", false},
 }
 

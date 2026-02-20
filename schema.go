@@ -537,24 +537,6 @@ func checkColumn(engine Engine, schema *entitySchema, field *reflect.StructField
 				for k, v := range indexDef.Columns {
 					current.columnsMap[k+1] = v
 				}
-				schemaDef, hasDef := schema.indexes[indexName]
-				if hasDef && schemaDef.Duplicated {
-					current.Duplicated = true
-				}
-				indexes[indexName] = current
-			}
-		}
-		for indexName, indexDef := range schema.indexes {
-			_, hasIndex := indexes[indexName]
-			if !hasIndex {
-				current := &IndexSchemaDefinition{Name: indexName, Unique: false, columnsMap: map[int]string{}}
-				for k, v := range indexDef.Columns {
-					current.columnsMap[k+1] = v
-				}
-				schemaDef, hasDef := schema.indexes[indexName]
-				if hasDef && schemaDef.Duplicated {
-					current.Duplicated = true
-				}
 				indexes[indexName] = current
 			}
 		}

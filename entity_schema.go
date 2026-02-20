@@ -38,9 +38,6 @@ type entitySchema struct {
 	cachedUniqueIndexes  map[string]indexDefinition
 	references           map[string]referenceDefinition
 	structJSONs          map[string]structDefinition
-	indexes              map[string]indexDefinition
-	indexesMapping       map[IndexDefinition]string
-	cachedIndexes        map[string]indexDefinition
 	dirtyAdded           []*dirtyDefinition
 	dirtyUpdated         []*dirtyDefinition
 	dirtyDeleted         []*dirtyDefinition
@@ -209,11 +206,8 @@ func (e *entitySchema) init(registry *registry, entityType reflect.Type) error {
 	e.options = make(map[string]any)
 	e.references = make(map[string]referenceDefinition)
 	e.structJSONs = make(map[string]structDefinition)
-	e.indexes = make(map[string]indexDefinition)
-	e.indexesMapping = make(map[IndexDefinition]string)
 	e.uniqueIndexes = make(map[string]indexDefinition)
 	e.uniqueIndexesMapping = make(map[UniqueIndexDefinition]string)
-	e.cachedIndexes = make(map[string]indexDefinition)
 	fakeDeleteField, foundFakeDeleteField := e.t.FieldByName("FakeDelete")
 	e.hasFakeDelete = foundFakeDeleteField && fakeDeleteField.Type.Kind() == reflect.Bool
 	e.mysqlPoolCode = e.getTag("mysql", "default", DefaultPoolCode)
@@ -303,7 +297,6 @@ func (e *entitySchema) init(registry *registry, entityType reflect.Type) error {
 		e.dirtyDeleted = deleteList
 	}
 	e.fieldDefinitions = make(map[string]schemaFieldAttributes)
-	e.cachedIndexes = make(map[string]indexDefinition)
 	e.cachedUniqueIndexes = make(map[string]indexDefinition)
 	e.uniqueIndexesColumns = make(map[string][]string)
 	err := e.initIndexes(entityType)
@@ -371,19 +364,8 @@ func (e *entitySchema) initIndexes(entityType reflect.Type) error {
 				if definition.Cached {
 					e.cachedUniqueIndexes[fDef.Name] = *definition
 				}
-			} else if fDef.Type.String() == "fluxaorm.IndexDefinition" {
-				def := indexDefinitionSourceValue.Field(i).Interface().(IndexDefinition)
-				definition, err := createIndexDefinition(strings.Split(def.Columns, ","), def.Cached)
-				if err != nil {
-					return fmt.Errorf("invalid index for entity '%s': %s", e.t.String(), err.Error())
-				}
-				e.indexes[fDef.Name] = *definition
-				e.indexesMapping[def] = fDef.Name
-				if definition.Cached {
-					e.cachedIndexes[fDef.Name] = *definition
-				}
 			} else {
-				return fmt.Errorf("invalid index definition source '%s' for entity '%s' - only fluxaorm.IndexDefinition and fluxaorm.UniqueIndexDefinition are supported", indexDefinitionSourceValue.Kind(), e.t.String())
+				return fmt.Errorf("invalid index definition source '%s' for entity '%s' - only fluxaorm.UniqueIndexDefinition is supported", indexDefinitionSourceValue.Kind(), e.t.String())
 			}
 		}
 	}
@@ -404,15 +386,6 @@ func createIndexDefinition(columns []string, cached bool) (*indexDefinition, err
 
 func (e *entitySchema) validateIndexes() error {
 	all := make(map[string]map[int]string)
-	for indexName, def := range e.indexes {
-		all[indexName] = make(map[int]string)
-		for i, columnName := range def.Columns {
-			if !slices.Contains(e.columnNames, columnName) {
-				return fmt.Errorf("index column '%s' not found in entity '%s'", columnName, e.t.String())
-			}
-			all[indexName][i+1] = columnName
-		}
-	}
 	for indexName, def := range e.uniqueIndexes {
 		all[indexName] = make(map[int]string)
 		for i, columnName := range def.Columns {
@@ -437,18 +410,6 @@ func (e *entitySchema) validateIndexes() error {
 				break
 			}
 			if same == len(v) {
-				def, found := e.indexes[k]
-				if found {
-					def.Duplicated = true
-					e.indexes[k] = def
-					break
-				}
-				def, found = e.indexes[k2]
-				if found {
-					def.Duplicated = true
-					e.indexes[k2] = def
-					break
-				}
 				return fmt.Errorf("duplicated index %s with %s in %s", k, k2, e.t.String())
 			}
 		}
@@ -608,16 +569,6 @@ func (e *entitySchema) buildTableFields(t reflect.Type, registry *registry,
 			}
 		}
 		if hasUnique {
-			fields.forcedOldBid[i] = true
-		}
-		hasIndex := false
-		for _, def := range e.cachedIndexes {
-			if slices.Contains(def.Columns, prefix+f.Name) {
-				hasIndex = true
-				break
-			}
-		}
-		if hasIndex {
 			fields.forcedOldBid[i] = true
 		}
 		attributes := schemaFieldAttributes{

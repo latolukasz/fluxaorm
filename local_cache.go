@@ -96,18 +96,6 @@ func newLocalCache(code string, limit int, schema *entitySchema) *localCache {
 		if limit > 0 {
 			c.cacheEntitiesLRU = list.New()
 		}
-		if len(schema.cachedIndexes) > 0 {
-			if limit > 0 {
-				c.cacheListLimit = make(map[string]*xsync.MapOf[uint64, *localCacheElement])
-				c.cacheListLRU = make(map[string]*list.List)
-				c.evictionsList = make(map[string]*uint64)
-			} else {
-				c.cacheListNoLimit = make(map[string]*xsync.MapOf[uint64, any])
-			}
-			for index := range schema.cachedIndexes {
-				initListCache(limit, c, index)
-			}
-		}
 	}
 	return c
 }
