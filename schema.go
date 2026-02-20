@@ -580,7 +580,13 @@ func checkColumn(engine Engine, schema *entitySchema, field *reflect.StructField
 		case "*bool":
 			definition, addNotNullIfNotSet, defaultValue = "tinyint(1)", false, "nil"
 		case "string":
-			definition, addNotNullIfNotSet, addDefaultNullIfNullable, defaultValue, err = handleString(schema, attributes, !isRequired)
+			if enumVals, hasEnum := attributes["enum"]; hasEnum {
+				definition, addNotNullIfNotSet, addDefaultNullIfNullable, defaultValue, err = handleSetEnum("enum", schema, strings.Split(enumVals, ","), !isRequired)
+			} else if setVals, hasSet := attributes["set"]; hasSet {
+				definition, addNotNullIfNotSet, addDefaultNullIfNullable, defaultValue, err = handleSetEnum("set", schema, strings.Split(setVals, ","), !isRequired)
+			} else {
+				definition, addNotNullIfNotSet, addDefaultNullIfNullable, defaultValue, err = handleString(schema, attributes, !isRequired)
+			}
 			if err != nil {
 				return nil, err
 			}
@@ -619,15 +625,6 @@ func checkColumn(engine Engine, schema *entitySchema, field *reflect.StructField
 			} else if fieldType.Implements(reflect.TypeOf((*referenceInterface)(nil)).Elem()) {
 				refIDType := reflect.New(reflect.New(fieldType).Interface().(referenceInterface).getType()).Elem().FieldByName("ID").Type().String()
 				definition, addNotNullIfNotSet, defaultValue = handleInt(refIDType, attributes, !isRequired)
-			} else if fieldType.Implements(reflect.TypeOf((*EnumValues)(nil)).Elem()) {
-				def := reflect.New(fieldType).Interface().(EnumValues)
-				definition, addNotNullIfNotSet, addDefaultNullIfNullable, defaultValue, err = handleSetEnum("enum", fieldType.String(), schema, def, !isRequired)
-				if err != nil {
-					return nil, err
-				}
-			} else if kind == "slice" && fieldType.Elem().Implements(reflect.TypeOf((*EnumValues)(nil)).Elem()) {
-				def := reflect.New(fieldType.Elem()).Interface().(EnumValues)
-				definition, addNotNullIfNotSet, addDefaultNullIfNullable, defaultValue, err = handleSetEnum("set", fieldType.String(), schema, def, !isRequired)
 			} else {
 				return nil, fmt.Errorf("field type %s is not supported, consider adding  tag `ignore`", field.Type.String())
 			}
@@ -718,24 +715,23 @@ func handleString(schema *entitySchema, attributes map[string]string, nullable b
 	}
 	return definition, !nullable, addDefaultNullIfNullable, defaultValue, nil
 }
-func handleSetEnum(fieldType, enumName string, schema *entitySchema, def EnumValues, nullable bool) (string, bool, bool, string, error) {
-	enumDef := initEnumDefinition(enumName, def.EnumValues(), !nullable)
-	if len(enumDef.GetFields()) == 0 {
+func handleSetEnum(sqlType string, schema *entitySchema, values []string, nullable bool) (string, bool, bool, string, error) {
+	if len(values) == 0 {
 		return "", false, false, "", errors.New("empty enum not allowed")
 	}
-	var definition = fieldType + "("
-	for key, value := range enumDef.GetFields() {
+	var definition = sqlType + "("
+	for key, value := range values {
 		if key > 0 {
 			definition += ","
 		}
-		definition += fmt.Sprintf("'%s'", value)
+		definition += fmt.Sprintf("'%s'", strings.TrimSpace(value))
 	}
 	definition += ")"
 	encoding := schema.GetDB().GetConfig().GetOptions().DefaultEncoding
 	definition += " CHARACTER SET " + encoding + " COLLATE " + encoding + "_0900_ai_ci"
 	defaultValue := "nil"
 	if !nullable {
-		defaultValue = fmt.Sprintf("'%s'", enumDef.GetFields()[0])
+		defaultValue = fmt.Sprintf("'%s'", strings.TrimSpace(values[0]))
 	}
 	return definition, !nullable, true, defaultValue, nil
 }

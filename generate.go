@@ -1849,13 +1849,14 @@ func (g *codeGenerator) generateGettersSetters(entityName, providerName string, 
 			}
 		}
 		d := fields.enums[k]
-		enumName := g.capitalizeFirst(d.name[strings.LastIndex(d.name, ".")+1:])
-		_, enumCreated := g.enums[fields.fields[i].Name]
+		enumName := d.name
+		_, enumCreated := g.enums[enumName]
 		if !enumCreated {
 			err := g.createEnumDefinition(d, enumName)
 			if err != nil {
 				return err
 			}
+			g.enums[enumName] = true
 		}
 		enumFullName := "enums." + enumName
 		fieldName := fields.prefix + fields.fields[i].Name
@@ -1882,13 +1883,14 @@ func (g *codeGenerator) generateGettersSetters(entityName, providerName string, 
 			}
 		}
 		d := fields.sets[k]
-		enumName := g.capitalizeFirst(d.name[strings.LastIndex(d.name, ".")+1:])
-		_, enumCreated := g.enums[fields.fields[i].Name]
+		enumName := d.name
+		_, enumCreated := g.enums[enumName]
 		if !enumCreated {
 			err := g.createEnumDefinition(d, enumName)
 			if err != nil {
 				return err
 			}
+			g.enums[enumName] = true
 		}
 		enumFullName := "enums." + enumName
 		fieldName := fields.prefix + fields.fields[i].Name
@@ -1944,14 +1946,12 @@ func (g *codeGenerator) createEnumDefinition(d *enumDefinition, name string) err
 	g.writeToFile(f, fmt.Sprintf("type %s string\n", name))
 	g.writeToFile(f, "")
 	g.writeToFile(f, fmt.Sprintf("var %sList = struct {\n", name))
-	for i := range d.fields {
-		tName := d.t.Field(i).Name
+	for _, tName := range d.fieldNames {
 		g.writeToFile(f, fmt.Sprintf("\t%s %s\n", tName, name))
 	}
 	g.writeToFile(f, "}{\n")
 	for i, v := range d.fields {
-		tName := d.t.Field(i).Name
-		g.writeToFile(f, fmt.Sprintf("\t%s: \"%s\",\n", tName, v))
+		g.writeToFile(f, fmt.Sprintf("\t%s: \"%s\",\n", d.fieldNames[i], v))
 	}
 	g.writeToFile(f, "}\n")
 	return nil

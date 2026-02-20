@@ -20,6 +20,62 @@ type dirtyDefinition struct {
 	Columns map[string]bool
 }
 
+type enumDefinition struct {
+	fields       []string
+	fieldNames   []string
+	mapping      map[string]int
+	required     bool
+	defaultValue string
+	name         string
+}
+
+func (d *enumDefinition) GetFields() []string {
+	return d.fields
+}
+
+func (d *enumDefinition) Has(value string) bool {
+	_, has := d.mapping[value]
+	return has
+}
+
+func (d *enumDefinition) Index(value string) int {
+	return d.mapping[value]
+}
+
+func initEnumDefinition(name string, values []string, required bool) *enumDefinition {
+	enum := &enumDefinition{
+		required:   required,
+		name:       name,
+		mapping:    make(map[string]int),
+		fields:     make([]string, 0, len(values)),
+		fieldNames: make([]string, 0, len(values)),
+	}
+	for i, v := range values {
+		v = strings.TrimSpace(v)
+		enum.fields = append(enum.fields, v)
+		enum.fieldNames = append(enum.fieldNames, enumValueToFieldName(v))
+		enum.mapping[v] = i + 1
+	}
+	if len(enum.fields) > 0 {
+		enum.defaultValue = enum.fields[0]
+	}
+	return enum
+}
+
+func enumValueToFieldName(value string) string {
+	parts := strings.Split(value, "_")
+	result := ""
+	for _, p := range parts {
+		if len(p) > 0 {
+			result += strings.ToUpper(p[:1]) + p[1:]
+		}
+	}
+	if result == "" {
+		return "V"
+	}
+	return result
+}
+
 type entitySchema struct {
 	index                uint64
 	cacheTTL             int
@@ -622,7 +678,13 @@ func (e *entitySchema) buildTableFields(t reflect.Type, registry *registry,
 		case "*int64":
 			e.buildIntPointerField(attributes, math.MinInt64, math.MaxInt64)
 		case "string":
-			e.buildStringField(attributes)
+			if enumVals, hasEnum := attributes.Tags["enum"]; hasEnum {
+				e.buildEnumField(attributes, strings.Split(enumVals, ","))
+			} else if setVals, hasSet := attributes.Tags["set"]; hasSet {
+				e.buildStringSliceField(attributes, strings.Split(setVals, ","))
+			} else {
+				e.buildStringField(attributes)
+			}
 		case "[]uint8":
 			e.buildBytesField(attributes)
 		case "bool":
@@ -649,12 +711,6 @@ func (e *entitySchema) buildTableFields(t reflect.Type, registry *registry,
 				if err != nil {
 					return nil, err
 				}
-			} else if fType.Implements(reflect.TypeOf((*EnumValues)(nil)).Elem()) {
-				definition := reflect.New(fType).Interface().(EnumValues).EnumValues()
-				e.buildEnumField(attributes, fType.String(), definition)
-			} else if k == "slice" && fType.Elem().Implements(reflect.TypeOf((*EnumValues)(nil)).Elem()) {
-				definition := reflect.New(fType.Elem()).Interface().(EnumValues).EnumValues()
-				e.buildStringSliceField(fType.String(), attributes, definition)
 			} else if fType.Implements(reflect.TypeOf((*referenceInterface)(nil)).Elem()) {
 				e.buildReferenceField(attributes)
 				if attributes.Tags["cached"] == "true" {
@@ -784,10 +840,10 @@ func (e *entitySchema) buildIntPointerField(attributes schemaFieldAttributes, mi
 	}
 }
 
-func (e *entitySchema) buildEnumField(attributes schemaFieldAttributes, enumName string, definition any) {
+func (e *entitySchema) buildEnumField(attributes schemaFieldAttributes, values []string) {
 	attributes.Fields.stringsEnums = append(attributes.Fields.stringsEnums, attributes.Index)
 	for i, columnName := range attributes.GetColumnNames() {
-		def := initEnumDefinition(enumName, definition, attributes.Tags["required"] == "true")
+		def := initEnumDefinition(attributes.Field.Name, values, attributes.Tags["required"] == "true")
 		if i == 0 {
 			attributes.Fields.enums = append(attributes.Fields.enums, def)
 		}
@@ -822,10 +878,10 @@ func (e *entitySchema) buildBytesField(attributes schemaFieldAttributes) {
 	}
 }
 
-func (e *entitySchema) buildStringSliceField(enumName string, attributes schemaFieldAttributes, definition any) {
+func (e *entitySchema) buildStringSliceField(attributes schemaFieldAttributes, values []string) {
 	attributes.Fields.sliceStringsSets = append(attributes.Fields.sliceStringsSets, attributes.Index)
 	for i, columnName := range attributes.GetColumnNames() {
-		def := initEnumDefinition(enumName, definition, attributes.Tags["required"] == "true")
+		def := initEnumDefinition(attributes.Field.Name, values, attributes.Tags["required"] == "true")
 		if i == 0 {
 			attributes.Fields.sets = append(attributes.Fields.sets, def)
 		}

@@ -9,22 +9,6 @@ import (
 	"github.com/stretchr/testify/assert"
 )
 
-type testGenerateEnum string
-
-func (s testGenerateEnum) EnumValues() any {
-	return testGenerateEnumDefinition
-}
-
-var testGenerateEnumDefinition = struct {
-	A testGenerateEnum
-	B testGenerateEnum
-	C testGenerateEnum
-}{
-	A: "a",
-	B: "b",
-	C: "c",
-}
-
 type generateSubStruct struct {
 	Size uint8
 }
@@ -37,10 +21,10 @@ type generateEntity struct {
 	BalanceNullable   *int8
 	Name              string `orm:"required"`
 	Comment           string
-	TestEnum          testGenerateEnum `orm:"required"`
-	TestEnumOptional  testGenerateEnum
-	TestSet           []testGenerateEnum `orm:"required"`
-	TestSetOptional   []testGenerateEnum
+	TestEnum          string `orm:"enum=a,b,c;required"`
+	TestEnumOptional  string `orm:"enum=a,b,c"`
+	TestSet           string `orm:"set=a,b,c;required"`
+	TestSetOptional   string `orm:"set=a,b,c"`
 	Byte              []uint8
 	Bool              bool
 	BoolNullable      *bool
@@ -64,10 +48,10 @@ type generateEntityNoRedis struct {
 	BalanceNullable   *int8
 	Name              string `orm:"required"`
 	Comment           string
-	TestEnum          testGenerateEnum `orm:"required"`
-	TestEnumOptional  testGenerateEnum
-	TestSet           []testGenerateEnum `orm:"required"`
-	TestSetOptional   []testGenerateEnum
+	TestEnum          string `orm:"enum=a,b,c;required"`
+	TestEnumOptional  string `orm:"enum=a,b,c"`
+	TestSet           string `orm:"set=a,b,c;required"`
+	TestSetOptional   string `orm:"set=a,b,c"`
 	Byte              []uint8
 	Bool              bool
 	BoolNullable      *bool
