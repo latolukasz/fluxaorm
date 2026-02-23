@@ -36,6 +36,8 @@ func (References[E]) getType() reflect.Type {
 
 func (r *References[E]) setSerialized(v string) {
 	r.serialized = v
+	r.isSerialized = true
+	r.unserialized = nil
 }
 
 func (r *References[E]) Len() int {
