@@ -4,7 +4,6 @@ import (
 	"context"
 	"database/sql"
 	"testing"
-	"time"
 
 	"github.com/stretchr/testify/assert"
 )
@@ -120,9 +119,4 @@ func (m *MockDBClient) QueryContext(context context.Context, query string, args 
 		return m.QueryContextMock(context, query, args...)
 	}
 	return m.OriginDB.QueryContext(context, query, args...)
-}
-
-func runAsyncConsumer(ctx Context) error {
-	lazyFlashConsumer := NewLazyFlashConsumer(ctx)
-	return lazyFlashConsumer.Consume(time.Millisecond)
 }

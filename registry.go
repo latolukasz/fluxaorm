@@ -177,14 +177,6 @@ func (r *registry) Validate() (Engine, error) {
 	for key, value := range r.options {
 		e.registry.options[key] = value
 	}
-	_, has := r.redisStreamPools[LazyChannelName]
-	if !has {
-		r.RegisterRedisStream(LazyChannelName, "default")
-	}
-	_, has = r.redisStreamPools[LazyErrorsChannelName]
-	if !has {
-		r.RegisterRedisStream(LazyErrorsChannelName, "default")
-	}
 	for _, schema := range e.registry.entitySchemas {
 		for _, def := range [][]*dirtyDefinition{schema.dirtyAdded, schema.dirtyUpdated, schema.dirtyDeleted} {
 			for _, dirty := range def {

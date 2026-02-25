@@ -44,12 +44,11 @@ type engineRegistryImplementation struct {
 }
 
 type engineImplementation struct {
-	registry                     *engineRegistryImplementation
-	localCacheServers            map[string]LocalCache
-	dbServers                    map[string]DB
-	redisServers                 map[string]RedisCache
-	options                      map[string]any
-	asyncTemporaryIsQueueRunning bool
+	registry          *engineRegistryImplementation
+	localCacheServers map[string]LocalCache
+	dbServers         map[string]DB
+	redisServers      map[string]RedisCache
+	options           map[string]any
 }
 
 func (e *engineImplementation) NewContext(context context.Context) Context {

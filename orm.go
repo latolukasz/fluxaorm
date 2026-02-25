@@ -25,7 +25,6 @@ type Context interface {
 	Engine() Engine
 	EnableContextCache()
 	Flush() error
-	FlushAsync() error
 	ClearFlush()
 	RedisPipeLine(pool string) *RedisPipeLine
 	DatabasePipeLine(pool string) *DatabasePipeline

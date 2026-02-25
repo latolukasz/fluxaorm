@@ -35,7 +35,7 @@ FLUXA ORM is a Go ORM targeting MySQL + Redis 8.0 with Redis Search. The main pa
 ### Entity Lifecycle
 
 - **EntitySchema** (`entity_schema.go`) — defines table structure, fields, indexes, caching strategy, references, and enums per entity type. Schema is registered on Registry, validated and stored in Engine.
-- **Flush** (`flush.go`) — batches entity inserts/updates via dirty tracking. Supports sync and async modes.
+- **Flush** (`flush.go`) — batches entity inserts/updates via dirty tracking.
 
 ### Caching (Three Tiers)
 

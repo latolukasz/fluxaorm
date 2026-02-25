@@ -5,14 +5,10 @@ import (
 )
 
 func (orm *ormImplementation) Flush() error {
-	return orm.flushGenerated(false)
+	return orm.flush()
 }
 
-func (orm *ormImplementation) FlushAsync() error {
-	return nil
-}
-
-func (orm *ormImplementation) flushGenerated(async bool) (err error) {
+func (orm *ormImplementation) flush() (err error) {
 	orm.mutexFlush.Lock()
 	defer orm.mutexFlush.Unlock()
 	if orm.trackedEntities == nil || orm.trackedEntities.Size() == 0 {
