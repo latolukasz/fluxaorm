@@ -87,7 +87,6 @@ FLUXA ORM is a Go ORM targeting MySQL + Redis 8.0 with Redis Search. The main pa
 | Typed getters & setters for all field types | ✅ implemented |
 | `Delete` / `ForceDelete` / fake-delete | ✅ implemented |
 | `GetByUniqueIndex` | 🔲 stub — returns nil |
-| `GetAll` | 🔲 stub — returns nil |
 | `Search` / `SearchWithCount` / `SearchOne` | 🔲 stub — returns nil |
 | `SearchIDs` / `SearchIDsWithCount` | 🔲 stub — returns nil |
 
