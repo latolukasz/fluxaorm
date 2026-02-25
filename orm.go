@@ -23,7 +23,6 @@ type Context interface {
 	Clone() Context
 	CloneWithContext(context context.Context) Context
 	Engine() Engine
-	ClearCache()
 	EnableContextCache()
 	Flush() error
 	FlushAsync() error
@@ -47,7 +46,6 @@ type ormImplementation struct {
 	context                context.Context
 	engine                 *engineImplementation
 	trackedEntities        *xsync.MapOf[uint64, *xsync.MapOf[uint64, Entity]]
-	cachedEntities         *xsync.MapOf[uint64, *xsync.MapOf[uint64, Entity]]
 	queryLoggersDB         []LogHandler
 	queryLoggersRedis      []LogHandler
 	queryLoggersLocalCache []LogHandler
@@ -187,12 +185,6 @@ func (orm *ormImplementation) getMetricsSourceTag() string {
 		return userTag
 	}
 	return "default"
-}
-
-func (orm *ormImplementation) ClearCache() {
-	orm.mutexData.Lock()
-	defer orm.mutexData.Unlock()
-	orm.cachedEntities = nil
 }
 
 func (orm *ormImplementation) EnableContextCache() {

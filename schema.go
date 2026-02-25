@@ -13,7 +13,6 @@ import (
 
 type Alter struct {
 	SQL  string
-	Safe bool
 	Pool string
 }
 
@@ -138,11 +137,7 @@ func getAlters(ctx Context) (preAlters, alters, postAlters []Alter, err error) {
 				if !has {
 					pool := ctx.Engine().DB(poolName)
 					dropSQL := fmt.Sprintf("DROP TABLE IF EXISTS `%s`.`%s`;", pool.GetConfig().GetDatabaseName(), tableName)
-					isEmpty, err := isTableEmptyInPool(ctx, poolName, tableName)
-					if err != nil {
-						return nil, nil, nil, err
-					}
-					alters = append(alters, Alter{SQL: dropSQL, Safe: isEmpty, Pool: poolName})
+					alters = append(alters, Alter{SQL: dropSQL, Pool: poolName})
 				}
 			}
 		}
@@ -151,10 +146,6 @@ func getAlters(ctx Context) (preAlters, alters, postAlters []Alter, err error) {
 		return len(alters[i].SQL) < len(alters[j].SQL)
 	})
 	return
-}
-
-func isTableEmptyInPool(ctx Context, poolName string, tableName string) (bool, error) {
-	return isTableEmpty(ctx.Engine().DB(poolName).GetDBClient(), tableName)
 }
 
 func getAllTables(db DBClient) ([]string, error) {
@@ -241,7 +232,6 @@ func getSchemaChanges(ctx Context, entitySchema *entitySchema) (preAlters, alter
 				alter += " DROP FOREIGN KEY " + parts[1] + ";"
 				preAlters = append(preAlters, Alter{
 					SQL:  alter,
-					Safe: true,
 					Pool: pool.GetConfig().GetCode(),
 				})
 				continue
@@ -297,7 +287,7 @@ func getSchemaChanges(ctx Context, entitySchema *entitySchema) (preAlters, alter
 		preAlters = append(preAlters, sqlSchema.PreAlters...)
 	}
 	if !hasTable {
-		alters = append(alters, Alter{SQL: sqlSchema.CreateTableSQL(), Safe: true, Pool: entitySchema.GetDB().GetConfig().GetCode()})
+		alters = append(alters, Alter{SQL: sqlSchema.CreateTableSQL(), Pool: entitySchema.GetDB().GetConfig().GetCode()})
 		if sqlSchema.PostAlters != nil {
 			postAlters = append(postAlters, sqlSchema.PostAlters...)
 		}
@@ -462,40 +452,17 @@ OUTER:
 	}
 
 	if hasAlterNormal {
-		safe := false
-		if len(droppedColumns) == 0 && len(changedColumns) == 0 {
-			safe = true
-		} else {
-			db := entitySchema.GetDB()
-			isEmpty, err := isTableEmpty(db.GetDBClient(), entitySchema.GetTableName())
-			if err != nil {
-				return nil, nil, nil, err
-			}
-			safe = isEmpty
-		}
-		alters = append(alters, Alter{SQL: alterSQL, Safe: safe, Pool: entitySchema.GetDB().GetConfig().GetCode()})
+		alters = append(alters, Alter{SQL: alterSQL, Pool: entitySchema.GetDB().GetConfig().GetCode()})
 	} else if hasAlterEngineCharset || hasAlterEngine {
 		collate := " COLLATE=" + pool.GetConfig().GetOptions().DefaultEncoding + "_" + pool.GetConfig().GetOptions().DefaultCollate
 		alterSQL += " ENGINE=InnoDB"
 		alterSQL += fmt.Sprintf(" DEFAULT CHARSET=%s%s;", pool.GetConfig().GetOptions().DefaultEncoding, collate)
-		alters = append(alters, Alter{SQL: alterSQL, Safe: true, Pool: entitySchema.GetDB().GetConfig().GetCode()})
+		alters = append(alters, Alter{SQL: alterSQL, Pool: entitySchema.GetDB().GetConfig().GetCode()})
 	}
 	if sqlSchema.PostAlters != nil {
 		postAlters = append(postAlters, sqlSchema.PostAlters...)
 	}
 	return
-}
-
-func isTableEmpty(db DBClient, tableName string) (bool, error) {
-	/* #nosec */
-	rows, err := db.Query(fmt.Sprintf("SELECT * FROM `%s` LIMIT 1", tableName))
-	if err != nil {
-		return false, err
-	}
-	defer func() {
-		_ = rows.Close()
-	}()
-	return !rows.Next(), nil
 }
 
 func checkColumn(engine Engine, schema *entitySchema, field *reflect.StructField, indexes map[string]*IndexSchemaDefinition, prefix string) ([]*ColumnSchemaDefinition, error) {

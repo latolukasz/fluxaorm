@@ -5,7 +5,6 @@ import (
 	"encoding/binary"
 	"fmt"
 	"strconv"
-	"strings"
 	"time"
 
 	"github.com/redis/go-redis/v9"
@@ -381,8 +380,3 @@ func (r *eventsConsumer) digestEvents(ctx Context, handler EventConsumerHandler,
 	return nil
 }
 
-func (r *eventsConsumer) incrementID(id string) string {
-	s := strings.Split(id, "-")
-	counter, _ := strconv.Atoi(s[1])
-	return s[0] + "-" + strconv.Itoa(counter+1)
-}
