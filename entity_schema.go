@@ -1,6 +1,7 @@
 package fluxaorm
 
 import (
+	"crypto/sha256"
 	"database/sql"
 	"fmt"
 	"hash/fnv"
@@ -107,9 +108,6 @@ type entitySchema struct {
 	uuidMutex            sync.Mutex
 	structureHash        string
 }
-
-type mapBindToScanPointer map[string]func() any
-type mapPointerToValue map[string]func(val any) any
 
 type tableFields struct {
 	t                         reflect.Type
@@ -365,7 +363,7 @@ func (e *entitySchema) init(registry *registry, entityType reflect.Type) error {
 	for i, name := range e.columnNames {
 		columnMapping[name] = i
 	}
-	cacheKey = hashString(cacheKey + strings.Join(e.columnNames, ":"))
+	cacheKey = fmt.Sprintf("%x", sha256.Sum256([]byte(cacheKey+strings.Join(e.columnNames, ":"))))
 	e.uuidCacheKey = cacheKey[0:12]
 	cacheKey = cacheKey[0:5]
 	h := fnv.New32a()
