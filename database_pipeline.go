@@ -17,6 +17,10 @@ func (dp *DatabasePipeline) Exec(ctx Context) error {
 	if len(dp.queries) == 0 {
 		return nil
 	}
+	defer func() {
+		dp.queries = dp.queries[:0]
+		dp.parameters = dp.parameters[:0]
+	}()
 	if len(dp.queries) == 1 {
 		_, err := dp.db.Exec(ctx, dp.queries[0], dp.parameters[0]...)
 		return err
@@ -25,16 +29,14 @@ func (dp *DatabasePipeline) Exec(ctx Context) error {
 	if err != nil {
 		return err
 	}
+	defer func() {
+		_ = tr.Rollback(ctx)
+	}()
 	for i, query := range dp.queries {
 		_, err = tr.Exec(ctx, query, dp.parameters[i]...)
 		if err != nil {
 			return err
 		}
 	}
-	dp.queries = dp.queries[:0]
-	dp.parameters = dp.parameters[:0]
-	defer func() {
-		_ = tr.Rollback(ctx)
-	}()
 	return tr.Commit(ctx)
 }

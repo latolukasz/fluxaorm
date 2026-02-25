@@ -438,6 +438,78 @@ func TestGenerate(t *testing.T) {
 	e2.SetReferenceOptional(ref.GetID())
 	assert.NoError(t, ctx.Flush())
 
+	// SearchIDs: generateEntityNoRedis (no FakeDelete)
+	var ids []uint64
+	var total int
+	ids, err = entities.GenerateEntityNoRedisProvider.SearchIDs(ctx, nil, nil)
+	assert.NoError(t, err)
+	assert.Equal(t, []uint64{e2.GetID()}, ids)
+
+	ids, err = entities.GenerateEntityNoRedisProvider.SearchIDs(ctx, fluxaorm.NewWhere("`Name` = ?", "Hello"), nil)
+	assert.NoError(t, err)
+	assert.Equal(t, []uint64{e2.GetID()}, ids)
+
+	ids, err = entities.GenerateEntityNoRedisProvider.SearchIDs(ctx, fluxaorm.NewWhere("`Name` = ?", "NoMatch"), nil)
+	assert.NoError(t, err)
+	assert.Nil(t, ids)
+
+	ids, err = entities.GenerateEntityNoRedisProvider.SearchIDs(ctx, nil, fluxaorm.NewPager(1, 10))
+	assert.NoError(t, err)
+	assert.Equal(t, []uint64{e2.GetID()}, ids)
+
+	// SearchIDsWithCount: generateEntityNoRedis
+	ids, total, err = entities.GenerateEntityNoRedisProvider.SearchIDsWithCount(ctx, nil, *fluxaorm.NewPager(1, 10))
+	assert.NoError(t, err)
+	assert.Equal(t, 1, total)
+	assert.Equal(t, []uint64{e2.GetID()}, ids)
+
+	ids, total, err = entities.GenerateEntityNoRedisProvider.SearchIDsWithCount(ctx, fluxaorm.NewWhere("`Name` = ?", "NoMatch"), *fluxaorm.NewPager(1, 10))
+	assert.NoError(t, err)
+	assert.Equal(t, 0, total)
+	assert.Nil(t, ids)
+
+	ids, total, err = entities.GenerateEntityNoRedisProvider.SearchIDsWithCount(ctx, nil, *fluxaorm.NewPager(2, 10))
+	assert.NoError(t, err)
+	assert.Equal(t, 1, total)
+	assert.Nil(t, ids)
+
+	// SearchIDs and SearchIDsWithCount: generateReferenceEntity (FakeDelete)
+	ref2 := entities.GenerateReferenceEntityProvider.New(ctx)
+	ref2.SetName("Test Reference 2")
+	assert.NoError(t, ctx.Flush())
+
+	ids, err = entities.GenerateReferenceEntityProvider.SearchIDs(ctx, nil, nil)
+	assert.NoError(t, err)
+	assert.Len(t, ids, 2)
+	assert.Contains(t, ids, ref.GetID())
+	assert.Contains(t, ids, ref2.GetID())
+
+	ids, total, err = entities.GenerateReferenceEntityProvider.SearchIDsWithCount(ctx, nil, *fluxaorm.NewPager(1, 10))
+	assert.NoError(t, err)
+	assert.Equal(t, 2, total)
+	assert.Len(t, ids, 2)
+
+	ref.Delete()
+	assert.NoError(t, ctx.Flush())
+
+	ids, err = entities.GenerateReferenceEntityProvider.SearchIDs(ctx, nil, nil)
+	assert.NoError(t, err)
+	assert.Equal(t, []uint64{ref2.GetID()}, ids)
+
+	ids, err = entities.GenerateReferenceEntityProvider.SearchIDs(ctx, fluxaorm.NewWhere("1 = 1").WithFakeDeletes(), nil)
+	assert.NoError(t, err)
+	assert.Len(t, ids, 2)
+
+	ids, total, err = entities.GenerateReferenceEntityProvider.SearchIDsWithCount(ctx, nil, *fluxaorm.NewPager(1, 10))
+	assert.NoError(t, err)
+	assert.Equal(t, 1, total)
+	assert.Equal(t, []uint64{ref2.GetID()}, ids)
+
+	ids, total, err = entities.GenerateReferenceEntityProvider.SearchIDsWithCount(ctx, fluxaorm.NewWhere("1 = 1").WithFakeDeletes(), *fluxaorm.NewPager(1, 10))
+	assert.NoError(t, err)
+	assert.Equal(t, 2, total)
+	assert.Len(t, ids, 2)
+
 	e.Delete()
 	e2.Delete()
 	ctx.EnableQueryDebug()
