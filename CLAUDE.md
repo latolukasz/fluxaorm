@@ -76,19 +76,20 @@ FLUXA ORM is a Go ORM targeting MySQL + Redis 8.0 with Redis Search. The main pa
 
 `uint64`, `int64`, `bool`, `float64` (with precision), `time.Time` (datetime or date-only), `string`, `[]uint8` (byte), enums (typed string aliases), sets (`[]EnumType`, stored comma-separated sorted), nullable variants of all the above, and `fluxaorm.Reference[T]` (required and optional).
 
-#### Currently implemented vs stubbed
+#### Generated provider methods
 
-| Feature | Status |
-|---|---|
-| `GetByID` (with Redis cache) | ✅ implemented |
-| `GetByIDs` (MySQL batch) | ✅ implemented |
-| `New` / `NewWithID` + UUID | ✅ implemented |
-| `PrivateFlush` (INSERT / UPDATE / DELETE) | ✅ implemented |
-| Typed getters & setters for all field types | ✅ implemented |
-| `Delete` / `ForceDelete` / fake-delete | ✅ implemented |
-| `GetByUniqueIndex` | 🔲 stub — returns nil |
-| `Search` / `SearchWithCount` / `SearchOne` | 🔲 stub — returns nil |
-| `SearchIDs` / `SearchIDsWithCount` | 🔲 stub — returns nil |
+- `GetByID` — checks Redis cache (if configured) → falls back to MySQL; marks not-found with empty marker
+- `GetByIDs` — batch MySQL `IN (...)` query; for cached entities checks Redis pipeline first
+- `New` / `NewWithID` — allocates entity and tracks it; UUID from Redis `INCR`
+- `PrivateFlush` / `PrivateFlushed` — enqueues INSERT/UPDATE/DELETE on DB pipeline; clears dirty state after commit
+- `Delete` / `ForceDelete` — soft-delete (sets `FakeDelete`) or hard-delete
+- Typed getters & setters for all field types
+- `GetByIndex<Name>` — unique index lookup (stub, returns nil)
+- `Search` — `SELECT all columns WHERE … [LIMIT …]`; FakeDelete-aware
+- `SearchWithCount` — `SELECT COUNT(*) + SELECT all columns WHERE … [LIMIT …]`; FakeDelete-aware
+- `SearchOne` — `SELECT all columns WHERE … LIMIT 1`; FakeDelete-aware
+- `SearchIDs` — `SELECT ID WHERE … [LIMIT …]`; FakeDelete-aware
+- `SearchIDsWithCount` — `SELECT COUNT(*) + SELECT ID WHERE … LIMIT …`; FakeDelete-aware
 
 See `test_generate/` for entity definitions used to test generation and `test_generate/entities/` for example generated output.
 
