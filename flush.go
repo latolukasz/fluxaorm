@@ -15,10 +15,10 @@ func (orm *ormImplementation) FlushAsync() error {
 func (orm *ormImplementation) flushGenerated(async bool) (err error) {
 	orm.mutexFlush.Lock()
 	defer orm.mutexFlush.Unlock()
-	if orm.trackedGeneratedEntities == nil || orm.trackedGeneratedEntities.Size() == 0 {
+	if orm.trackedEntities == nil || orm.trackedEntities.Size() == 0 {
 		return nil
 	}
-	orm.trackedGeneratedEntities.Range(func(_ uint64, value *xsync.MapOf[uint64, Entity]) bool {
+	orm.trackedEntities.Range(func(_ uint64, value *xsync.MapOf[uint64, Entity]) bool {
 		value.Range(func(_ uint64, e Entity) bool {
 			err = e.PrivateFlush()
 			if err != nil {
@@ -43,21 +43,21 @@ func (orm *ormImplementation) flushGenerated(async bool) (err error) {
 			return err
 		}
 	}
-	orm.trackedGeneratedEntities.Range(func(_ uint64, value *xsync.MapOf[uint64, Entity]) bool {
+	orm.trackedEntities.Range(func(_ uint64, value *xsync.MapOf[uint64, Entity]) bool {
 		value.Range(func(_ uint64, e Entity) bool {
 			e.PrivateFlushed()
 			return true
 		})
 		return true
 	})
-	orm.trackedGeneratedEntities.Clear()
+	orm.trackedEntities.Clear()
 	return nil
 }
 
 func (orm *ormImplementation) ClearFlush() {
 	orm.mutexFlush.Lock()
 	defer orm.mutexFlush.Unlock()
-	orm.trackedGeneratedEntities.Clear()
+	orm.trackedEntities.Clear()
 	orm.redisPipeLines = nil
 	orm.dbPipeLines = nil
 }

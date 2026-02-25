@@ -44,23 +44,23 @@ type Context interface {
 }
 
 type ormImplementation struct {
-	context                  context.Context
-	engine                   *engineImplementation
-	trackedGeneratedEntities *xsync.MapOf[uint64, *xsync.MapOf[uint64, Entity]]
-	cachedEntities           *xsync.MapOf[uint64, *xsync.MapOf[uint64, any]]
-	queryLoggersDB           []LogHandler
-	queryLoggersRedis        []LogHandler
-	queryLoggersLocalCache   []LogHandler
-	hasRedisLogger           bool
-	hasDBLogger              bool
-	hasLocalCacheLogger      bool
-	disabledContextCache     bool
-	meta                     Meta
-	redisPipeLines           map[string]*RedisPipeLine
-	dbPipeLines              map[string]*DatabasePipeline
-	mutexFlush               sync.Mutex
-	mutexData                sync.Mutex
-	eventBroker              *eventBroker
+	context                context.Context
+	engine                 *engineImplementation
+	trackedEntities        *xsync.MapOf[uint64, *xsync.MapOf[uint64, Entity]]
+	cachedEntities         *xsync.MapOf[uint64, *xsync.MapOf[uint64, Entity]]
+	queryLoggersDB         []LogHandler
+	queryLoggersRedis      []LogHandler
+	queryLoggersLocalCache []LogHandler
+	hasRedisLogger         bool
+	hasDBLogger            bool
+	hasLocalCacheLogger    bool
+	disabledContextCache   bool
+	meta                   Meta
+	redisPipeLines         map[string]*RedisPipeLine
+	dbPipeLines            map[string]*DatabasePipeline
+	mutexFlush             sync.Mutex
+	mutexData              sync.Mutex
+	eventBroker            *eventBroker
 }
 
 func (orm *ormImplementation) Context() context.Context {
@@ -164,12 +164,12 @@ func (orm *ormImplementation) getLocalCacheLoggers() (bool, []LogHandler) {
 func (orm *ormImplementation) Track(f Entity, cacheIndex uint64) {
 	orm.mutexFlush.Lock()
 	defer orm.mutexFlush.Unlock()
-	if orm.trackedGeneratedEntities == nil {
-		orm.trackedGeneratedEntities = xsync.NewTypedMapOf[uint64, *xsync.MapOf[uint64, Entity]](func(seed maphash.Seed, u uint64) uint64 {
+	if orm.trackedEntities == nil {
+		orm.trackedEntities = xsync.NewTypedMapOf[uint64, *xsync.MapOf[uint64, Entity]](func(seed maphash.Seed, u uint64) uint64 {
 			return u
 		})
 	}
-	entities, loaded := orm.trackedGeneratedEntities.LoadOrCompute(cacheIndex, func() *xsync.MapOf[uint64, Entity] {
+	entities, loaded := orm.trackedEntities.LoadOrCompute(cacheIndex, func() *xsync.MapOf[uint64, Entity] {
 		entities := xsync.NewTypedMapOf[uint64, Entity](func(seed maphash.Seed, u uint64) uint64 {
 			return u
 		})
