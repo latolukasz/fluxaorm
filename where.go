@@ -8,6 +8,7 @@ import (
 type Where interface {
 	String() string
 	GetParameters() []any
+	IsWithFakeDeletes() bool
 }
 
 type BaseWhere struct {
@@ -28,6 +29,10 @@ func (w *BaseWhere) SetParameter(index int, param any) *BaseWhere {
 func (w *BaseWhere) WithFakeDeletes() *BaseWhere {
 	w.withDeletes = true
 	return w
+}
+
+func (w *BaseWhere) IsWithFakeDeletes() bool {
+	return w.withDeletes
 }
 
 func (w *BaseWhere) SetParameters(params ...any) *BaseWhere {
