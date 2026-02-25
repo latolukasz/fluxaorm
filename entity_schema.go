@@ -842,8 +842,12 @@ func (e *entitySchema) buildIntPointerField(attributes schemaFieldAttributes, mi
 
 func (e *entitySchema) buildEnumField(attributes schemaFieldAttributes, values []string) {
 	attributes.Fields.stringsEnums = append(attributes.Fields.stringsEnums, attributes.Index)
+	enumName := attributes.Field.Name
+	if customName, has := attributes.Tags["enumName"]; has {
+		enumName = customName
+	}
 	for i, columnName := range attributes.GetColumnNames() {
-		def := initEnumDefinition(attributes.Field.Name, values, attributes.Tags["required"] == "true")
+		def := initEnumDefinition(enumName, values, attributes.Tags["required"] == "true")
 		if i == 0 {
 			attributes.Fields.enums = append(attributes.Fields.enums, def)
 		}
@@ -880,8 +884,12 @@ func (e *entitySchema) buildBytesField(attributes schemaFieldAttributes) {
 
 func (e *entitySchema) buildStringSliceField(attributes schemaFieldAttributes, values []string) {
 	attributes.Fields.sliceStringsSets = append(attributes.Fields.sliceStringsSets, attributes.Index)
+	enumName := attributes.Field.Name
+	if customName, has := attributes.Tags["enumName"]; has {
+		enumName = customName
+	}
 	for i, columnName := range attributes.GetColumnNames() {
-		def := initEnumDefinition(attributes.Field.Name, values, attributes.Tags["required"] == "true")
+		def := initEnumDefinition(enumName, values, attributes.Tags["required"] == "true")
 		if i == 0 {
 			attributes.Fields.sets = append(attributes.Fields.sets, def)
 		}

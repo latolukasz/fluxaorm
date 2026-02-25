@@ -24,9 +24,9 @@ type generateEntity struct {
 	Name              string `orm:"required"`
 	Comment           string
 	TestEnum          string `orm:"enum=a,b,c;required"`
-	TestEnumOptional  string `orm:"enum=a,b,c"`
-	TestSet           string `orm:"set=a,b,c;required"`
-	TestSetOptional   string `orm:"set=a,b,c"`
+	TestEnumOptional  string `orm:"enum=a,b,c;enumName=TestEnum"`
+	TestSet           string `orm:"set=a,b,c;required;enumName=TestEnum"`
+	TestSetOptional   string `orm:"set=a,b,c;enumName=TestEnum"`
 	Byte              []uint8
 	Bool              bool
 	BoolNullable      *bool
@@ -51,9 +51,9 @@ type generateEntityNoRedis struct {
 	Name              string `orm:"required"`
 	Comment           string
 	TestEnum          string `orm:"enum=a,b,c;required"`
-	TestEnumOptional  string `orm:"enum=a,b,c"`
-	TestSet           string `orm:"set=a,b,c;required"`
-	TestSetOptional   string `orm:"set=a,b,c"`
+	TestEnumOptional  string `orm:"enum=a,b,c;enumName=TestEnum"`
+	TestSet           string `orm:"set=a,b,c;required;enumName=TestEnum"`
+	TestSetOptional   string `orm:"set=a,b,c;enumName=TestEnum"`
 	Byte              []uint8
 	Bool              bool
 	BoolNullable      *bool
@@ -308,12 +308,12 @@ func TestGenerate(t *testing.T) {
 	e2.SetComment("Test comment")
 	e.SetTestEnum(enums.TestEnumList.B)
 	e2.SetTestEnum(enums.TestEnumList.B)
-	e.SetTestEnumOptional(&enums.TestEnumOptionalList.B)
-	e2.SetTestEnumOptional(&enums.TestEnumOptionalList.B)
-	e.SetTestSet(enums.TestSetList.A, enums.TestSetList.B)
-	e2.SetTestSet(enums.TestSetList.A, enums.TestSetList.B)
-	e.SetTestSetOptional(enums.TestSetOptionalList.A, enums.TestSetOptionalList.B)
-	e2.SetTestSetOptional(enums.TestSetOptionalList.A, enums.TestSetOptionalList.B)
+	e.SetTestEnumOptional(&enums.TestEnumList.B)
+	e2.SetTestEnumOptional(&enums.TestEnumList.B)
+	e.SetTestSet(enums.TestEnumList.A, enums.TestEnumList.B)
+	e2.SetTestSet(enums.TestEnumList.A, enums.TestEnumList.B)
+	e.SetTestSetOptional(enums.TestEnumList.A, enums.TestEnumList.B)
+	e2.SetTestSetOptional(enums.TestEnumList.A, enums.TestEnumList.B)
 	e.SetByte([]uint8("hello"))
 	e2.SetByte([]uint8("hello"))
 	e.SetBool(true)
@@ -407,12 +407,12 @@ func TestGenerate(t *testing.T) {
 	e2.SetComment("Test comment")
 	e.SetTestEnum(enums.TestEnumList.B)
 	e2.SetTestEnum(enums.TestEnumList.B)
-	e.SetTestEnumOptional(&enums.TestEnumOptionalList.B)
-	e2.SetTestEnumOptional(&enums.TestEnumOptionalList.B)
-	e.SetTestSet(enums.TestSetList.A, enums.TestSetList.B)
-	e2.SetTestSet(enums.TestSetList.A, enums.TestSetList.B)
-	e.SetTestSetOptional(enums.TestSetOptionalList.A, enums.TestSetOptionalList.B)
-	e2.SetTestSetOptional(enums.TestSetOptionalList.A, enums.TestSetOptionalList.B)
+	e.SetTestEnumOptional(&enums.TestEnumList.B)
+	e2.SetTestEnumOptional(&enums.TestEnumList.B)
+	e.SetTestSet(enums.TestEnumList.A, enums.TestEnumList.B)
+	e2.SetTestSet(enums.TestEnumList.A, enums.TestEnumList.B)
+	e.SetTestSetOptional(enums.TestEnumList.A, enums.TestEnumList.B)
+	e2.SetTestSetOptional(enums.TestEnumList.A, enums.TestEnumList.B)
 	e.SetByte([]uint8("hello"))
 	e2.SetByte([]uint8("hello"))
 	e.SetBool(true)
