@@ -510,6 +510,76 @@ func TestGenerate(t *testing.T) {
 	assert.Equal(t, 2, total)
 	assert.Len(t, ids, 2)
 
+	// Search: generateEntityNoRedis (no FakeDelete)
+	var list2 []*entities.GenerateEntityNoRedis
+	list2, err = entities.GenerateEntityNoRedisProvider.Search(ctx, nil, nil)
+	assert.NoError(t, err)
+	assert.Len(t, list2, 1)
+	assert.Equal(t, e2.GetID(), list2[0].GetID())
+	assert.Equal(t, "Hello", list2[0].GetName())
+
+	list2, err = entities.GenerateEntityNoRedisProvider.Search(ctx, fluxaorm.NewWhere("`Name` = ?", "Hello"), nil)
+	assert.NoError(t, err)
+	assert.Len(t, list2, 1)
+	assert.Equal(t, e2.GetID(), list2[0].GetID())
+
+	list2, err = entities.GenerateEntityNoRedisProvider.Search(ctx, fluxaorm.NewWhere("`Name` = ?", "NoMatch"), nil)
+	assert.NoError(t, err)
+	assert.Nil(t, list2)
+
+	list2, err = entities.GenerateEntityNoRedisProvider.Search(ctx, nil, fluxaorm.NewPager(1, 10))
+	assert.NoError(t, err)
+	assert.Len(t, list2, 1)
+
+	list2, err = entities.GenerateEntityNoRedisProvider.Search(ctx, nil, fluxaorm.NewPager(2, 10))
+	assert.NoError(t, err)
+	assert.Nil(t, list2)
+
+	// SearchWithCount: generateEntityNoRedis (no FakeDelete)
+	list2, total, err = entities.GenerateEntityNoRedisProvider.SearchWithCount(ctx, nil, fluxaorm.NewPager(1, 10))
+	assert.NoError(t, err)
+	assert.Equal(t, 1, total)
+	assert.Len(t, list2, 1)
+	assert.Equal(t, e2.GetID(), list2[0].GetID())
+
+	list2, total, err = entities.GenerateEntityNoRedisProvider.SearchWithCount(ctx, fluxaorm.NewWhere("`Name` = ?", "NoMatch"), fluxaorm.NewPager(1, 10))
+	assert.NoError(t, err)
+	assert.Equal(t, 0, total)
+	assert.Nil(t, list2)
+
+	list2, total, err = entities.GenerateEntityNoRedisProvider.SearchWithCount(ctx, nil, fluxaorm.NewPager(2, 10))
+	assert.NoError(t, err)
+	assert.Equal(t, 1, total)
+	assert.Nil(t, list2)
+
+	// Search: generateReferenceEntity (FakeDelete) — ref soft-deleted, ref2 active
+	var listRef []*entities.GenerateReferenceEntity
+	listRef, err = entities.GenerateReferenceEntityProvider.Search(ctx, nil, nil)
+	assert.NoError(t, err)
+	assert.Len(t, listRef, 1)
+	assert.Equal(t, ref2.GetID(), listRef[0].GetID())
+
+	listRef, err = entities.GenerateReferenceEntityProvider.Search(ctx, fluxaorm.NewWhere("1 = 1").WithFakeDeletes(), nil)
+	assert.NoError(t, err)
+	assert.Len(t, listRef, 2)
+
+	listRef, err = entities.GenerateReferenceEntityProvider.Search(ctx, fluxaorm.NewWhere("`Name` = ?", "Test Reference").WithFakeDeletes(), nil)
+	assert.NoError(t, err)
+	assert.Len(t, listRef, 1)
+	assert.Equal(t, ref.GetID(), listRef[0].GetID())
+
+	// SearchWithCount: generateReferenceEntity (FakeDelete)
+	listRef, total, err = entities.GenerateReferenceEntityProvider.SearchWithCount(ctx, nil, fluxaorm.NewPager(1, 10))
+	assert.NoError(t, err)
+	assert.Equal(t, 1, total)
+	assert.Len(t, listRef, 1)
+	assert.Equal(t, ref2.GetID(), listRef[0].GetID())
+
+	listRef, total, err = entities.GenerateReferenceEntityProvider.SearchWithCount(ctx, fluxaorm.NewWhere("1 = 1").WithFakeDeletes(), fluxaorm.NewPager(1, 10))
+	assert.NoError(t, err)
+	assert.Equal(t, 2, total)
+	assert.Len(t, listRef, 2)
+
 	// SearchOne: generateEntityNoRedis (no FakeDelete)
 	var one *entities.GenerateEntityNoRedis
 	one, found, err = entities.GenerateEntityNoRedisProvider.SearchOne(ctx, fluxaorm.NewWhere("`Name` = ?", "Hello"))
