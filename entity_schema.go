@@ -92,7 +92,6 @@ type entitySchema struct {
 	uniqueIndexes        map[string]indexDefinition
 	uniqueIndexesColumns map[string][]string
 	references           map[string]referenceDefinition
-	structJSONs          map[string]structDefinition
 	dirtyAdded           []*dirtyDefinition
 	dirtyUpdated         []*dirtyDefinition
 	dirtyDeleted         []*dirtyDefinition
@@ -118,7 +117,6 @@ type tableFields struct {
 	uIntegers                 []int
 	integers                  []int
 	references                []int
-	structJSONs               []int
 	referencesRequired        []bool
 	uIntegersNullable         []int
 	uIntegersNullableSize     []int
@@ -257,7 +255,6 @@ func (e *entitySchema) init(registry *registry, entityType reflect.Type) error {
 
 	e.options = make(map[string]any)
 	e.references = make(map[string]referenceDefinition)
-	e.structJSONs = make(map[string]structDefinition)
 	e.uniqueIndexes = make(map[string]indexDefinition)
 	fakeDeleteField, foundFakeDeleteField := e.t.FieldByName("FakeDelete")
 	e.hasFakeDelete = foundFakeDeleteField && fakeDeleteField.Type.Kind() == reflect.Bool
@@ -702,9 +699,7 @@ func (e *entitySchema) buildTableFields(t reflect.Type, registry *registry,
 		default:
 			fType := f.Type
 			k := fType.Kind().String()
-			if fType.Implements(reflect.TypeOf((*structGetter)(nil)).Elem()) {
-				e.buildStructJSONField(attributes)
-			} else if k == "struct" {
+			if k == "struct" {
 				err := e.buildStructField(attributes, registry, schemaTags)
 				if err != nil {
 					return nil, err
@@ -768,22 +763,6 @@ func (e *entitySchema) buildReferenceField(attributes schemaFieldAttributes) {
 				Type: refType,
 			}
 			e.references[columnName] = def
-		}
-		e.fieldDefinitions[columnName] = attributes
-	}
-}
-
-func (e *entitySchema) buildStructJSONField(attributes schemaFieldAttributes) {
-	attributes.Fields.structJSONs = append(attributes.Fields.structJSONs, attributes.Index)
-	fType := attributes.Field.Type
-	for i, columnName := range attributes.GetColumnNames() {
-		var refType reflect.Type
-		if i == 0 {
-			refType = reflect.New(fType).Interface().(structGetter).getType()
-			def := structDefinition{
-				Type: refType,
-			}
-			e.structJSONs[columnName] = def
 		}
 		e.fieldDefinitions[columnName] = attributes
 	}
@@ -1114,7 +1093,6 @@ func (fields *tableFields) buildColumnNames(subFieldPrefix string) []string {
 	columns := make([]string, 0)
 	ids := fields.uIntegers
 	ids = append(ids, fields.references...)
-	ids = append(ids, fields.structJSONs...)
 	ids = append(ids, fields.integers...)
 	ids = append(ids, fields.booleans...)
 	ids = append(ids, fields.floats...)

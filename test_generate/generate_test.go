@@ -621,7 +621,6 @@ func TestGenerate(t *testing.T) {
 
 	e.Delete()
 	e2.Delete()
-	ctx.EnableQueryDebug()
 	assert.NoError(t, ctx.Flush())
 	e, found, err = entities.GenerateEntityProvider.GetByID(ctx, e.GetID())
 	assert.NoError(t, err)
