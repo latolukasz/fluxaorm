@@ -510,6 +510,45 @@ func TestGenerate(t *testing.T) {
 	assert.Equal(t, 2, total)
 	assert.Len(t, ids, 2)
 
+	// SearchOne: generateEntityNoRedis (no FakeDelete)
+	var one *entities.GenerateEntityNoRedis
+	one, found, err = entities.GenerateEntityNoRedisProvider.SearchOne(ctx, fluxaorm.NewWhere("`Name` = ?", "Hello"))
+	assert.NoError(t, err)
+	assert.True(t, found)
+	assert.Equal(t, e2.GetID(), one.GetID())
+
+	one, found, err = entities.GenerateEntityNoRedisProvider.SearchOne(ctx, fluxaorm.NewWhere("`Name` = ?", "NoMatch"))
+	assert.NoError(t, err)
+	assert.False(t, found)
+	assert.Nil(t, one)
+
+	one, found, err = entities.GenerateEntityNoRedisProvider.SearchOne(ctx, nil)
+	assert.NoError(t, err)
+	assert.True(t, found)
+	assert.NotNil(t, one)
+
+	// SearchOne: generateReferenceEntity (FakeDelete) — ref is soft-deleted, ref2 is active
+	var oneRef *entities.GenerateReferenceEntity
+	oneRef, found, err = entities.GenerateReferenceEntityProvider.SearchOne(ctx, fluxaorm.NewWhere("`Name` = ?", "Test Reference"))
+	assert.NoError(t, err)
+	assert.False(t, found) // soft-deleted, filtered out
+	assert.Nil(t, oneRef)
+
+	oneRef, found, err = entities.GenerateReferenceEntityProvider.SearchOne(ctx, fluxaorm.NewWhere("`Name` = ?", "Test Reference").WithFakeDeletes())
+	assert.NoError(t, err)
+	assert.True(t, found) // WithFakeDeletes bypasses filter
+	assert.Equal(t, ref.GetID(), oneRef.GetID())
+
+	oneRef, found, err = entities.GenerateReferenceEntityProvider.SearchOne(ctx, fluxaorm.NewWhere("`Name` = ?", "Test Reference 2"))
+	assert.NoError(t, err)
+	assert.True(t, found)
+	assert.Equal(t, ref2.GetID(), oneRef.GetID())
+
+	oneRef, found, err = entities.GenerateReferenceEntityProvider.SearchOne(ctx, nil)
+	assert.NoError(t, err)
+	assert.True(t, found) // returns one active row
+	assert.Equal(t, ref2.GetID(), oneRef.GetID())
+
 	e.Delete()
 	e2.Delete()
 	ctx.EnableQueryDebug()

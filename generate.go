@@ -492,7 +492,55 @@ func (g *codeGenerator) generateCodeForEntity(schema *entitySchema) error {
 	g.addLine("}")
 	g.addLine("")
 	g.addLine(fmt.Sprintf("func (p %s) SearchOne(ctx fluxaorm.Context, where fluxaorm.Where) (entity *%s, found bool, err error) {", providerNamePrivate, entityName))
-	g.addLine("\treturn nil, false, nil")
+	g.addImport("strings")
+	g.addLine("\tvar b strings.Builder")
+	selectPrefixSearchOne := "\"SELECT `ID`"
+	for _, columnName := range schema.GetColumns()[1:] {
+		selectPrefixSearchOne += ",`" + columnName + "`"
+	}
+	selectPrefixSearchOne += fmt.Sprintf(" FROM `%s`\"", schema.tableName)
+	g.addLine(fmt.Sprintf("\tb.WriteString(%s)", selectPrefixSearchOne))
+	g.addLine("\tvar params []any")
+	if schema.hasFakeDelete {
+		g.addLine("\tvar whereStr string")
+		g.addLine("\tif where != nil {")
+		g.addLine("\t\twhereStr = where.String()")
+		g.addLine("\t\tparams = where.GetParameters()")
+		g.addLine("\t}")
+		g.addLine("\tif whereStr != \"\" {")
+		g.addLine("\t\tb.WriteString(\" WHERE \")")
+		g.addLine("\t\tb.WriteString(whereStr)")
+		g.addLine("\t}")
+		g.addLine("\tif where == nil || !where.IsWithFakeDeletes() {")
+		g.addLine("\t\tif whereStr != \"\" {")
+		g.addLine("\t\t\tb.WriteString(\" AND `FakeDelete` = 0\")")
+		g.addLine("\t\t} else {")
+		g.addLine("\t\t\tb.WriteString(\" WHERE `FakeDelete` = 0\")")
+		g.addLine("\t\t}")
+		g.addLine("\t}")
+	} else {
+		g.addLine("\tif where != nil {")
+		g.addLine("\t\tif w := where.String(); w != \"\" {")
+		g.addLine("\t\t\tb.WriteString(\" WHERE \")")
+		g.addLine("\t\t\tb.WriteString(w)")
+		g.addLine("\t\t}")
+		g.addLine("\t\tparams = where.GetParameters()")
+		g.addLine("\t}")
+	}
+	g.addLine("\tb.WriteString(\" LIMIT 1\")")
+	g.addLine(fmt.Sprintf("\tsqlRow := &%s{}", sqlRowName))
+	g.appendToLine(fmt.Sprintf("\tfound, err = ctx.Engine().DB(%s.dbCode).QueryRow(ctx, fluxaorm.NewWhere(b.String(), params...), &sqlRow.F0", providerName))
+	for i := 1; i < len(schema.columnNames); i++ {
+		g.appendToLine(fmt.Sprintf(", &sqlRow.F%d", i))
+	}
+	g.addLine(")")
+	g.addLine("\tif err != nil {")
+	g.addLine("\t\treturn nil, false, err")
+	g.addLine("\t}")
+	g.addLine("\tif !found {")
+	g.addLine("\t\treturn nil, false, nil")
+	g.addLine("\t}")
+	g.addLine(fmt.Sprintf("\treturn &%s{ctx: ctx, id: sqlRow.F0, originDatabaseValues: sqlRow}, true, nil", entityName))
 	g.addLine("}")
 	g.addLine("")
 
