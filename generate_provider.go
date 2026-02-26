@@ -19,6 +19,11 @@ func (g *codeGenerator) generateProviderAndSQLRow(schema *entitySchema, names *e
 		g.addLine("\tredisCacheStamp string")
 		g.addLine("\tredisCacheTTL int")
 	}
+	if schema.hasRedisSearch {
+		g.addLine("\tredisSearchCode   string")
+		g.addLine("\tredisSearchIndex  string")
+		g.addLine("\tredisSearchPrefix string")
+	}
 	g.addLine("}")
 	g.addLine("")
 
@@ -31,6 +36,11 @@ func (g *codeGenerator) generateProviderAndSQLRow(schema *entitySchema, names *e
 		g.addLine(fmt.Sprintf("\tredisCachePrefix: \"%s\",", schema.cacheKey+":"))
 		g.addLine(fmt.Sprintf("\tredisCacheStamp: \"%s\",", schema.structureHash))
 		g.addLine(fmt.Sprintf("\tredisCacheTTL: %d,", schema.cacheTTL))
+	}
+	if schema.hasRedisSearch {
+		g.addLine(fmt.Sprintf("\tredisSearchCode:   \"%s\",", schema.redisSearchPoolCode))
+		g.addLine(fmt.Sprintf("\tredisSearchIndex:  \"%s\",", schema.redisSearchIndex))
+		g.addLine(fmt.Sprintf("\tredisSearchPrefix: \"%s\",", schema.redisSearchPrefix))
 	}
 	g.cacheIndex++
 	g.addLine(fmt.Sprintf("\tuuidRedisKeyMutex: &sync.Mutex{},"))

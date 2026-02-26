@@ -43,6 +43,9 @@ Key struct tags:
 - `orm:"enum=a,b,c"` / `orm:"set=a,b,c"` — MySQL ENUM/SET column
 - `orm:"enumName=TypeName"` — share an enum type across fields
 - `orm:"time"` — store as DATETIME (default is DATE for `time.Time` fields)
+- `orm:"redisSearch=poolName"` — enable Redis Search indexing for this entity (on ID field only; uses `DefaultPoolCode` if omitted)
+- `orm:"searchable"` — include field in Redis Search index
+- `orm:"sortable"` — add SORTABLE flag to Redis Search index field (requires `searchable`)
 
 Entity registration: `registry.RegisterEntity(&MyEntity{})`, then call `registry.Validate()`.
 
@@ -79,6 +82,17 @@ Entity registration: `registry.RegisterEntity(&MyEntity{})`, then call `registry
 ### UUID Generation
 
 Uses Redis `INCR` on a per-entity key. On first use (counter == 1), acquires a distributed lock and initialises the counter from `MAX(ID)` in MySQL (`initUUID`).
+
+### Redis Search
+
+Entities opt in to Redis Search (FT.SEARCH) indexing via struct tags on the ID field and individual fields. The ORM manages index lifecycle and hash document writes automatically.
+
+- `redis_search.go` — `RedisSearchWhere` query builder, `RedisSearchAlter`, `GetRedisSearchAlters(ctx)` (returns pending FT.CREATE operations, similar to `GetAlters`)
+- Index name = `<tableName>_<8-char FNV hash of field definitions>` — index is recreated when schema changes
+- Hash key prefix = `<5-char FNV hash of "<tableName>:search">:h:` + entity ID
+- `PrivateFlush()` maintains Redis hashes: Del+HSet on INSERT/UPDATE, Del on DELETE; soft-deleted entities are removed from the index
+- Generated query methods: `SearchInRedis`, `SearchOneInRedis`, `SearchInRedisWithCount`, `SearchIDsInRedis`, `SearchIDsInRedisWithCount`
+- Type mapping: numeric types + bool + time.Time + Reference → NUMERIC; string → TEXT; enum/set → TAG
 
 ### Key Supporting Files
 

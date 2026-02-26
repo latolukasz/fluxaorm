@@ -26,7 +26,6 @@ func (pager *Pager) IncrementPage() {
 	pager.CurrentPage++
 }
 
-
 func (pager *Pager) String() string {
 	return "LIMIT " + strconv.Itoa((pager.CurrentPage-1)*pager.PageSize) + "," + strconv.Itoa(pager.PageSize)
 }

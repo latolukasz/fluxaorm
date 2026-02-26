@@ -135,7 +135,7 @@ func (g *codeGenerator) generateGetByIDs(schema *entitySchema, names *entityName
 		g.addLine("\t\t\tcachePipeline := ctx.RedisPipeLine(p.redisCode)")
 		g.addLine("\t\t\tfor rows.Next() {")
 		g.addLine(fmt.Sprintf("\t\t\t\tsqlRow := &%s{}", names.sqlRowName))
-		g.appendToLine("\t\t\t\terr = rows.Scan(ctx, &sqlRow.F0")
+		g.appendToLine("\t\t\t\terr = rows.Scan(&sqlRow.F0")
 		for i := 1; i < len(schema.columnNames); i++ {
 			g.appendToLine(fmt.Sprintf(", &sqlRow.F%d", i))
 		}
@@ -178,7 +178,7 @@ func (g *codeGenerator) generateGetByIDs(schema *entitySchema, names *entityName
 		g.addLine("\t\tdefer cl()")
 		g.addLine("\t\tfor rows.Next() {")
 		g.addLine(fmt.Sprintf("\t\t\tsqlRow := &%s{}", names.sqlRowName))
-		g.appendToLine("\t\t\terr = rows.Scan(ctx, &sqlRow.F0")
+		g.appendToLine("\t\t\terr = rows.Scan(&sqlRow.F0")
 		for i := 1; i < len(schema.columnNames); i++ {
 			g.appendToLine(fmt.Sprintf(", &sqlRow.F%d", i))
 		}
@@ -458,6 +458,266 @@ func (g *codeGenerator) generateSearchIDs(schema *entitySchema, names *entityNam
 	g.addLine("\t\tresults = append(results, id)")
 	g.addLine("\t}")
 	g.addLine("\treturn results, nil")
+	g.addLine("}")
+	g.addLine("")
+}
+
+func (g *codeGenerator) generateSearchInRedis(schema *entitySchema, names *entityNames) {
+	g.addImport("strings")
+	g.addImport("strconv")
+	g.addLine(fmt.Sprintf("func (p %s) SearchInRedis(ctx fluxaorm.Context, where *fluxaorm.RedisSearchWhere, pager *fluxaorm.Pager) ([]*%s, error) {", names.providerNamePrivate, names.entityName))
+	g.addLine("\toffset, count := 0, 10000")
+	g.addLine("\tif pager != nil {")
+	g.addLine("\t\toffset = (pager.CurrentPage - 1) * pager.PageSize")
+	g.addLine("\t\tcount = pager.PageSize")
+	g.addLine("\t}")
+	g.addLine("\tresult, err := ctx.Engine().Redis(p.redisSearchCode).FTSearch(ctx, p.redisSearchIndex, where.String(), where.GetSearchOptions(offset, count))")
+	g.addLine("\tif err != nil {")
+	g.addLine("\t\treturn nil, err")
+	g.addLine("\t}")
+	g.addLine("\tif len(result.Docs) == 0 {")
+	g.addLine("\t\treturn nil, nil")
+	g.addLine("\t}")
+	g.addLine("\tids := make([]uint64, 0, len(result.Docs))")
+	g.addLine("\tfor _, doc := range result.Docs {")
+	g.addLine("\t\tid, err := strconv.ParseUint(strings.TrimPrefix(doc.ID, p.redisSearchPrefix), 10, 64)")
+	g.addLine("\t\tif err != nil {")
+	g.addLine("\t\t\treturn nil, err")
+	g.addLine("\t\t}")
+	g.addLine("\t\tids = append(ids, id)")
+	g.addLine("\t}")
+	g.addLine("\treturn p.GetByIDs(ctx, ids...)")
+	g.addLine("}")
+	g.addLine("")
+}
+
+func (g *codeGenerator) generateSearchOneInRedis(schema *entitySchema, names *entityNames) {
+	g.addImport("strings")
+	g.addImport("strconv")
+	g.addLine(fmt.Sprintf("func (p %s) SearchOneInRedis(ctx fluxaorm.Context, where *fluxaorm.RedisSearchWhere) (*%s, bool, error) {", names.providerNamePrivate, names.entityName))
+	g.addLine("\tresult, err := ctx.Engine().Redis(p.redisSearchCode).FTSearch(ctx, p.redisSearchIndex, where.String(), where.GetSearchOptions(0, 1))")
+	g.addLine("\tif err != nil {")
+	g.addLine("\t\treturn nil, false, err")
+	g.addLine("\t}")
+	g.addLine("\tif len(result.Docs) == 0 {")
+	g.addLine("\t\treturn nil, false, nil")
+	g.addLine("\t}")
+	g.addLine("\tid, err := strconv.ParseUint(strings.TrimPrefix(result.Docs[0].ID, p.redisSearchPrefix), 10, 64)")
+	g.addLine("\tif err != nil {")
+	g.addLine("\t\treturn nil, false, err")
+	g.addLine("\t}")
+	g.addLine(fmt.Sprintf("\tentities, err := p.GetByIDs(ctx, id)"))
+	g.addLine("\tif err != nil {")
+	g.addLine("\t\treturn nil, false, err")
+	g.addLine("\t}")
+	g.addLine("\tif len(entities) == 0 {")
+	g.addLine("\t\treturn nil, false, nil")
+	g.addLine("\t}")
+	g.addLine("\treturn entities[0], true, nil")
+	g.addLine("}")
+	g.addLine("")
+}
+
+func (g *codeGenerator) generateSearchInRedisWithCount(schema *entitySchema, names *entityNames) {
+	g.addImport("strings")
+	g.addImport("strconv")
+	g.addLine(fmt.Sprintf("func (p %s) SearchInRedisWithCount(ctx fluxaorm.Context, where *fluxaorm.RedisSearchWhere, pager *fluxaorm.Pager) ([]*%s, int, error) {", names.providerNamePrivate, names.entityName))
+	g.addLine("\tcountResult, err := ctx.Engine().Redis(p.redisSearchCode).FTSearch(ctx, p.redisSearchIndex, where.String(), where.GetSearchOptions(0, 0))")
+	g.addLine("\tif err != nil {")
+	g.addLine("\t\treturn nil, 0, err")
+	g.addLine("\t}")
+	g.addLine("\ttotal := countResult.Total")
+	g.addLine("\tif total == 0 {")
+	g.addLine("\t\treturn nil, 0, nil")
+	g.addLine("\t}")
+	g.addLine("\toffset, count := 0, 10000")
+	g.addLine("\tif pager != nil {")
+	g.addLine("\t\toffset = (pager.CurrentPage - 1) * pager.PageSize")
+	g.addLine("\t\tcount = pager.PageSize")
+	g.addLine("\t}")
+	g.addLine("\tresult, err := ctx.Engine().Redis(p.redisSearchCode).FTSearch(ctx, p.redisSearchIndex, where.String(), where.GetSearchOptions(offset, count))")
+	g.addLine("\tif err != nil {")
+	g.addLine("\t\treturn nil, total, err")
+	g.addLine("\t}")
+	g.addLine("\tif len(result.Docs) == 0 {")
+	g.addLine("\t\treturn nil, total, nil")
+	g.addLine("\t}")
+	g.addLine("\tids := make([]uint64, 0, len(result.Docs))")
+	g.addLine("\tfor _, doc := range result.Docs {")
+	g.addLine("\t\tid, err := strconv.ParseUint(strings.TrimPrefix(doc.ID, p.redisSearchPrefix), 10, 64)")
+	g.addLine("\t\tif err != nil {")
+	g.addLine("\t\t\treturn nil, total, err")
+	g.addLine("\t\t}")
+	g.addLine("\t\tids = append(ids, id)")
+	g.addLine("\t}")
+	g.addLine("\tentities, err := p.GetByIDs(ctx, ids...)")
+	g.addLine("\tif err != nil {")
+	g.addLine("\t\treturn nil, total, err")
+	g.addLine("\t}")
+	g.addLine("\treturn entities, total, nil")
+	g.addLine("}")
+	g.addLine("")
+}
+
+func (g *codeGenerator) generateSearchIDsInRedis(schema *entitySchema, names *entityNames) {
+	g.addImport("strings")
+	g.addImport("strconv")
+	g.addLine(fmt.Sprintf("func (p %s) SearchIDsInRedis(ctx fluxaorm.Context, where *fluxaorm.RedisSearchWhere, pager *fluxaorm.Pager) ([]uint64, error) {", names.providerNamePrivate))
+	g.addLine("\toffset, count := 0, 10000")
+	g.addLine("\tif pager != nil {")
+	g.addLine("\t\toffset = (pager.CurrentPage - 1) * pager.PageSize")
+	g.addLine("\t\tcount = pager.PageSize")
+	g.addLine("\t}")
+	g.addLine("\tresult, err := ctx.Engine().Redis(p.redisSearchCode).FTSearch(ctx, p.redisSearchIndex, where.String(), where.GetSearchOptions(offset, count))")
+	g.addLine("\tif err != nil {")
+	g.addLine("\t\treturn nil, err")
+	g.addLine("\t}")
+	g.addLine("\tif len(result.Docs) == 0 {")
+	g.addLine("\t\treturn nil, nil")
+	g.addLine("\t}")
+	g.addLine("\tids := make([]uint64, 0, len(result.Docs))")
+	g.addLine("\tfor _, doc := range result.Docs {")
+	g.addLine("\t\tid, err := strconv.ParseUint(strings.TrimPrefix(doc.ID, p.redisSearchPrefix), 10, 64)")
+	g.addLine("\t\tif err != nil {")
+	g.addLine("\t\t\treturn nil, err")
+	g.addLine("\t\t}")
+	g.addLine("\t\tids = append(ids, id)")
+	g.addLine("\t}")
+	g.addLine("\treturn ids, nil")
+	g.addLine("}")
+	g.addLine("")
+}
+
+func (g *codeGenerator) generateSearchIDsInRedisWithCount(schema *entitySchema, names *entityNames) {
+	g.addImport("strings")
+	g.addImport("strconv")
+	g.addLine(fmt.Sprintf("func (p %s) SearchIDsInRedisWithCount(ctx fluxaorm.Context, where *fluxaorm.RedisSearchWhere, pager *fluxaorm.Pager) ([]uint64, int, error) {", names.providerNamePrivate))
+	g.addLine("\tcountResult, err := ctx.Engine().Redis(p.redisSearchCode).FTSearch(ctx, p.redisSearchIndex, where.String(), where.GetSearchOptions(0, 0))")
+	g.addLine("\tif err != nil {")
+	g.addLine("\t\treturn nil, 0, err")
+	g.addLine("\t}")
+	g.addLine("\ttotal := countResult.Total")
+	g.addLine("\tif total == 0 {")
+	g.addLine("\t\treturn nil, 0, nil")
+	g.addLine("\t}")
+	g.addLine("\toffset, count := 0, 10000")
+	g.addLine("\tif pager != nil {")
+	g.addLine("\t\toffset = (pager.CurrentPage - 1) * pager.PageSize")
+	g.addLine("\t\tcount = pager.PageSize")
+	g.addLine("\t}")
+	g.addLine("\tresult, err := ctx.Engine().Redis(p.redisSearchCode).FTSearch(ctx, p.redisSearchIndex, where.String(), where.GetSearchOptions(offset, count))")
+	g.addLine("\tif err != nil {")
+	g.addLine("\t\treturn nil, total, err")
+	g.addLine("\t}")
+	g.addLine("\tif len(result.Docs) == 0 {")
+	g.addLine("\t\treturn nil, total, nil")
+	g.addLine("\t}")
+	g.addLine("\tids := make([]uint64, 0, len(result.Docs))")
+	g.addLine("\tfor _, doc := range result.Docs {")
+	g.addLine("\t\tid, err := strconv.ParseUint(strings.TrimPrefix(doc.ID, p.redisSearchPrefix), 10, 64)")
+	g.addLine("\t\tif err != nil {")
+	g.addLine("\t\t\treturn nil, total, err")
+	g.addLine("\t\t}")
+	g.addLine("\t\tids = append(ids, id)")
+	g.addLine("\t}")
+	g.addLine("\treturn ids, total, nil")
+	g.addLine("}")
+	g.addLine("")
+}
+
+func (g *codeGenerator) generateReindexRedisSearch(schema *entitySchema, names *entityNames) {
+	g.addImport("strconv")
+	g.addLine(fmt.Sprintf("func (p %s) ReindexRedisSearch(ctx fluxaorm.Context) error {", names.providerNamePrivate))
+
+	// Step 1: delete all existing search hashes for this entity via Lua SCAN+UNLINK
+	g.body += "\t_luaScript := `\n"
+	g.body += "local cursor = '0'\n"
+	g.body += "local deleted = 0\n"
+	g.body += "repeat\n"
+	g.body += "  local result = redis.call('SCAN', cursor, 'MATCH', KEYS[1], 'COUNT', 1000)\n"
+	g.body += "  cursor = result[1]\n"
+	g.body += "  local keys = result[2]\n"
+	g.body += "  if #keys > 0 then\n"
+	g.body += "    deleted = deleted + redis.call('UNLINK', unpack(keys))\n"
+	g.body += "  end\n"
+	g.body += "until cursor == '0'\n"
+	g.body += "return deleted\n"
+	g.body += "`\n"
+	g.addLine("\t_, _err := ctx.Engine().Redis(p.redisSearchCode).Eval(ctx, _luaScript, []string{p.redisSearchPrefix + \"*\"})")
+	g.addLine("\tif _err != nil {")
+	g.addLine("\t\treturn _err")
+	g.addLine("\t}")
+
+	// Step 2: SELECT all columns from MySQL
+	selectQuery := "\"SELECT `ID`"
+	for _, columnName := range schema.GetColumns()[1:] {
+		selectQuery += ",`" + columnName + "`"
+	}
+	selectQuery += fmt.Sprintf(" FROM `%s`\"", schema.tableName)
+	g.addLine(fmt.Sprintf("\t_rows, _cl, _err := ctx.Engine().DB(p.dbCode).Query(ctx, %s)", selectQuery))
+	g.addLine("\tif _err != nil {")
+	g.addLine("\t\treturn _err")
+	g.addLine("\t}")
+	g.addLine("\tdefer _cl()")
+
+	// Step 3: pipeline and row loop
+	g.addLine(fmt.Sprintf("\t_pipeline := ctx.RedisPipeLine(p.redisSearchCode)"))
+	g.addLine("\t_batchSize := 0")
+
+	// Find FakeDelete field index if applicable
+	fdIndex := -1
+	if schema.hasFakeDelete {
+		for i, cn := range schema.columnNames {
+			if cn == "FakeDelete" {
+				fdIndex = i
+				break
+			}
+		}
+	}
+
+	searchFieldCap := len(schema.searchableFields) * 2
+
+	g.addLine("\tfor _rows.Next() {")
+	g.addLine(fmt.Sprintf("\t\t_sqlRow := &%s{}", names.sqlRowName))
+	g.appendToLine(fmt.Sprintf("\t\tif _err = _rows.Scan(&_sqlRow.F0"))
+	for i := 1; i < len(schema.columnNames); i++ {
+		g.appendToLine(fmt.Sprintf(", &_sqlRow.F%d", i))
+	}
+	g.addLine("); _err != nil {")
+	g.addLine("\t\t\treturn _err")
+	g.addLine("\t\t}")
+
+	if fdIndex >= 0 {
+		g.addLine(fmt.Sprintf("\t\tif _sqlRow.F%d {", fdIndex))
+		g.addLine("\t\t\tcontinue")
+		g.addLine("\t\t}")
+	}
+
+	g.addLine("\t\t_key := p.redisSearchPrefix + strconv.FormatUint(_sqlRow.F0, 10)")
+	g.addLine("\t\t_pipeline.Del(_key)")
+	g.addLine(fmt.Sprintf("\t\t_sa := make([]any, 0, %d)", searchFieldCap))
+	for _, f := range schema.searchableFields {
+		g.body += g.searchHSetAppendFromVar(f, "\t\t", "_sa", "_sqlRow")
+	}
+	g.addLine("\t\tif len(_sa) > 0 {")
+	g.addLine("\t\t\t_pipeline.HSet(_key, _sa...)")
+	g.addLine("\t\t}")
+	g.addLine("\t\t_batchSize++")
+	g.addLine("\t\tif _batchSize >= 1000 {")
+	g.addLine(fmt.Sprintf("\t\t\tif _, _err = _pipeline.Exec(ctx); _err != nil {"))
+	g.addLine("\t\t\t\treturn _err")
+	g.addLine("\t\t\t}")
+	g.addLine(fmt.Sprintf("\t\t\t_pipeline = ctx.RedisPipeLine(p.redisSearchCode)"))
+	g.addLine("\t\t\t_batchSize = 0")
+	g.addLine("\t\t}")
+	g.addLine("\t}")
+
+	g.addLine("\tif _batchSize > 0 {")
+	g.addLine(fmt.Sprintf("\t\tif _, _err = _pipeline.Exec(ctx); _err != nil {"))
+	g.addLine("\t\t\treturn _err")
+	g.addLine("\t\t}")
+	g.addLine("\t}")
+	g.addLine("\treturn nil")
 	g.addLine("}")
 	g.addLine("")
 }

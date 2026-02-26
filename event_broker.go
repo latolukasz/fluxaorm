@@ -379,4 +379,3 @@ func (r *eventsConsumer) digestEvents(ctx Context, handler EventConsumerHandler,
 	}
 	return nil
 }
-

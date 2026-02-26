@@ -40,6 +40,14 @@ func (g *codeGenerator) generateCodeForEntity(schema *entitySchema) error {
 	g.generateSearchIDsWithCount(schema, names)
 	g.generateSearchIDs(schema, names)
 	g.generateSearchOne(schema, names)
+	if schema.hasRedisSearch {
+		g.generateSearchInRedis(schema, names)
+		g.generateSearchOneInRedis(schema, names)
+		g.generateSearchInRedisWithCount(schema, names)
+		g.generateSearchIDsInRedis(schema, names)
+		g.generateSearchIDsInRedisWithCount(schema, names)
+		g.generateReindexRedisSearch(schema, names)
+	}
 	g.generateUUID(schema, names)
 	g.generateEntityStruct(schema, names)
 
