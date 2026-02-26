@@ -6,7 +6,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ```bash
 make test          # Run all tests (go test -race -p 1 ./...)
-make check         # Run linting (revive, gocyclo, format check)
+make check         # Run linting (revive, gocyclo, format check, no fmt.Print*/spew.Dump)
 make format        # Format code with goimports
 make cover         # Run tests with coverage → resources/cover/cover.out
 make cover-html    # Generate and open HTML coverage report
@@ -18,94 +18,87 @@ To run a single test:
 go test -race -p 1 -run TestName ./...
 ```
 
-Tests require running MySQL and Redis services. See `docker/` for setup.
+Tests require running MySQL and Redis services. Use `docker/docker-compose.yml` for setup (requires `LOCAL_IP`, `MYSQL_PORT`, `REDIS_PORT` env vars). MySQL 8.0 on port 3306 and Redis 8.2.2 on port 6379.
 
-Linting is configured in `revive.toml`. Cyclomatic complexity threshold is 100.
+Linting is configured in `revive.toml`. Cyclomatic complexity threshold is 100. `fmt.Print*` and `spew.Dump` calls are banned by `make check`.
 
 ## Architecture
 
-FLUXA ORM is a Go ORM targeting MySQL + Redis 8.0 with Redis Search. The main package is everything at the root level.
+FLUXA ORM is a **code-generation-based** Go ORM targeting MySQL + Redis 8.0. The main package is everything at the root level (`github.com/latolukasz/fluxaorm/v2`).
 
 ### Core Flow
 
-1. **Registry** (`registry.go`) — configure entity types, connection pools (MySQL, Redis, Local Cache), and plugins
-2. **Engine** (`engine.go`) — runtime object created from Registry; holds connection pools
-3. **Context** (`orm.go`) — created from Engine per-request; the main API surface for all ORM operations
+1. **Registry** (`registry.go`) — configure entity types, connection pools (MySQL, Redis, Local Cache), and plugins via `NewRegistry()`
+2. **Engine** (`engine.go`) — immutable runtime object created via `registry.Validate()`; holds connection pools and all entity schemas
+3. **Context** (`orm.go`) — created from Engine per-request (`Context` interface / `ormImplementation`); the main API surface for ORM operations
 
-### Entity Lifecycle
+### Entity Definition
 
-- **EntitySchema** (`entity_schema.go`) — defines table structure, fields, indexes, caching strategy, references, and enums per entity type. Schema is registered on Registry, validated and stored in Engine.
-- **Flush** (`flush.go`) — batches entity inserts/updates via dirty tracking.
+Entities are plain Go structs with an `ID` field and optional `orm:` struct tags. Field types and caching are declared on the struct; schema metadata is extracted at `Validate()` time via reflection.
 
-### Caching (Three Tiers)
+Key struct tags:
+- `orm:"redisCache"` — enable Redis List cache for this entity
+- `orm:"required"` — NOT NULL / required field
+- `orm:"unique=IndexName"` / `orm:"unique=IndexName:2"` — composite unique index (colon suffix = column order)
+- `orm:"enum=a,b,c"` / `orm:"set=a,b,c"` — MySQL ENUM/SET column
+- `orm:"enumName=TypeName"` — share an enum type across fields
+- `orm:"time"` — store as DATETIME (default is DATE for `time.Time` fields)
 
-1. **Context cache** — per-request entity cache in `ormImplementation`; disabled with `DisableContextCache()`
-2. **Local cache** (`local_cache.go`) — per-process LRU cache; size configured per entity
-3. **Redis cache** (`redis_cache.go`) — full Redis 8.0 API including Streams, Search, Sorted Sets, Hashes, etc.; pipelining via `redis_pipeline.go`
+Entity registration: `registry.RegisterEntity(&MyEntity{})`, then call `registry.Validate()`.
 
 ### Code Generation
 
-`generate.go` — generates fully-typed, zero-reflection Go code for each registered entity.
+`Generate(engine Engine, outputDirectory string)` produces one `.go` file per entity in the given directory. The generator is split across:
 
-**Design goals:** developer-friendly API + maximum performance (minimal DB/Redis queries, minimal memory allocations, no reflection at runtime).
+- `generate.go` — entry point, file I/O, `codeGenerator` struct
+- `generate_entity.go` — `XxxEntity` struct body
+- `generate_entity_struct.go` — entity struct scaffolding
+- `generate_fields.go` — per-field SQL row and Redis serialisation helpers
+- `generate_getters.go` / `generate_getters_nullable.go` — typed getters & setters with dirty tracking
+- `generate_provider.go` — `XxxProvider` singleton, `XxxSQLRow`, `redisValues()`
+- `generate_query.go` — `GetByID`, `GetByIDs`, `Search*`, `SearchIDs*`, `New`, `Delete`, etc.
 
-#### Generated output structure (per entity)
+**Generated output structure (per entity):**
 
-- **`XxxSQLRow` struct** — flat struct with fields `F0`, `F1`, `F2`... mapped 1:1 to DB columns; used for direct `Scan()` without reflection.
-- **`xxxProvider` / `XxxProvider` singleton** — holds static metadata (tableName, dbCode, redisCode, cacheIndex, redisCachePrefix, stamp, TTL). Exposes all query methods.
-- **`XxxEntity` struct** — the user-facing entity; holds `ctx`, `id`, `new`, `deleted`, `originDatabaseValues` (SQLRow), `databaseBind` (lazy map of changed columns), and optionally `redisBind` + `originRedisValues` for entities with Redis cache.
+- **`XxxSQLRow` struct** — flat struct with fields `F0`, `F1`, `F2`... for reflection-free `Scan()`
+- **`XxxProvider` singleton** — holds static metadata (tableName, dbCode, redisCode, cacheIndex, redisCachePrefix, stamp, TTL) and exposes all query methods
+- **`XxxEntity` struct** — user-facing entity; holds `ctx`, `id`, `new`, `deleted`, `originDatabaseValues` (SQLRow), lazy `databaseBind` / `redisBind` maps for dirty tracking
 
-#### Caching strategy in generated code
+### Caching (Three Tiers)
 
-- Redis cache stores entity as a **Redis List** (`RPush`). Index 0 = struct hash stamp; indices 1..N = field values serialised to strings (ints as decimal, floats as `f8`, booleans as `"1"`/`"0"`, times as Unix seconds, NULL as `""`).
-- `GetByID`: checks Redis List first → validates stamp → returns entity backed by `originRedisValues`; on cache miss queries MySQL and caches result; marks not-found with empty marker list `[""]`.
-- `GetByIDs`: batch MySQL `IN (...)` query, no Redis cache.
+1. **Context cache** — per-request in-memory map inside `ormImplementation`; **enabled by default** with a 1-second TTL. Populated only by `GetByID` and `GetByIDs` (not by `Search*`). Disable with `ctx.DisableContextCache()`; change TTL with `ctx.SetContextCacheTTL(d time.Duration)`. When the TTL expires, the entire map is cleared on the next cache read. Low-level hooks `GetFromContextCache` / `SetInContextCache` are exported on the `Context` interface so generated code can use them across packages.
+2. **Local cache** (`local_cache.go`) — per-process LRU; size configured per entity via `registry.RegisterLocalCache(code, limit)`
+3. **Redis cache** (`redis_cache.go`) — entity stored as a Redis List; index 0 = struct hash stamp, indices 1..N = serialised field values
 
-#### Dirty tracking in generated code
+### Dirty Tracking in Generated Code
 
-- Getters read from (in priority order): `databaseBind` (pending change) → `originRedisValues` (Redis cache) → `originDatabaseValues` (MySQL row).
-- Setters compare new value against current origin; if unchanged they `delete()` from the bind maps (idempotent/no-op); if changed they call `addToDatabaseBind` + `addToRedisBind`.
-- `PrivateFlush()` builds and enqueues INSERT/UPDATE/DELETE on the DB pipeline and LSet changes on the Redis pipeline — both via pipelining to minimise round-trips.
+- Getters read from (priority): `databaseBind` → `originRedisValues` → `originDatabaseValues`
+- Setters compare new value against current origin; no-op if unchanged; otherwise update bind maps
+- `PrivateFlush()` enqueues INSERT/UPDATE/DELETE on the DB pipeline and `LSet` on the Redis pipeline
 
-#### UUID generation in generated code
+### UUID Generation
 
-- Uses a Redis counter (`INCR` on a per-entity key).
-- On first use (counter == 1) acquires a distributed lock and initialises the counter from `MAX(ID)` in MySQL (`initUUID`).
-
-#### Field types supported by the generator
-
-`uint64`, `int64`, `bool`, `float64` (with precision), `time.Time` (datetime or date-only), `string`, `[]uint8` (byte), enums (typed string aliases), sets (`[]EnumType`, stored comma-separated sorted), nullable variants of all the above, and `fluxaorm.Reference[T]` (required and optional).
-
-#### Generated provider methods
-
-- `GetByID` — checks Redis cache (if configured) → falls back to MySQL; marks not-found with empty marker
-- `GetByIDs` — batch MySQL `IN (...)` query; for cached entities checks Redis pipeline first
-- `New` / `NewWithID` — allocates entity and tracks it; UUID from Redis `INCR`
-- `PrivateFlush` / `PrivateFlushed` — enqueues INSERT/UPDATE/DELETE on DB pipeline; clears dirty state after commit
-- `Delete` / `ForceDelete` — soft-delete (sets `FakeDelete`) or hard-delete
-- Typed getters & setters for all field types
-- `GetByIndex<Name>` — unique index lookup (stub, returns nil)
-- `Search` — `SELECT all columns WHERE … [LIMIT …]`; FakeDelete-aware
-- `SearchWithCount` — `SELECT COUNT(*) + SELECT all columns WHERE … [LIMIT …]`; FakeDelete-aware
-- `SearchOne` — `SELECT all columns WHERE … LIMIT 1`; FakeDelete-aware
-- `SearchIDs` — `SELECT ID WHERE … [LIMIT …]`; FakeDelete-aware
-- `SearchIDsWithCount` — `SELECT COUNT(*) + SELECT ID WHERE … LIMIT …`; FakeDelete-aware
-
-See `test_generate/` for entity definitions used to test generation and `test_generate/entities/` for example generated output.
-
-### Event System
-
-`event_broker.go` — Redis Stream-based pub/sub for entity change events. Consumers use consumer groups for reliable delivery.
+Uses Redis `INCR` on a per-entity key. On first use (counter == 1), acquires a distributed lock and initialises the counter from `MAX(ID)` in MySQL (`initUUID`).
 
 ### Key Supporting Files
 
+- `entity_schema.go` — `entitySchema` struct; all per-entity metadata (columns, indexes, caching, enums, references, struct hash)
+- `flush.go` — batches entity inserts/updates via dirty tracking; `ctx.Flush()`
 - `db.go` — MySQL abstraction (`DB` interface, `DBTransaction`, metrics)
 - `schema.go` — DDL operations (CREATE/ALTER TABLE, index management)
+- `event_broker.go` — Redis Stream-based pub/sub for entity change events
 - `locker.go` — distributed locking via `bsm/redislock`
 - `metrics.go` — Prometheus metrics for queries, cache hits/misses
-- `query_logger.go` — configurable query logging with handlers
-- `test.go` — test utilities (PrepareTables, mock structures)
+- `where.go` — typed WHERE clause builder
+- `test.go` — test utilities (`PrepareTablesBeta`, mock structures)
+
+### Test Fixtures
+
+`test_generate/` contains:
+- `generate_test.go` — entity struct definitions used as generator input + `TestGenerate` which calls `Generate()` and then exercises the output
+- `entities/` — committed generated output (must be kept up-to-date by re-running `TestGenerate`)
+- `entities/enums/` — generated enum types
 
 ### Concurrency
 
-Uses `puzpuzpuz/xsync/v2` concurrent maps for thread-safe metadata storage in Engine and EntitySchema. Tests run with `-race` flag.
+Uses `puzpuzpuz/xsync/v2` concurrent maps for thread-safe metadata in Engine and EntitySchema. All tests run with `-race`.

@@ -52,7 +52,7 @@ type engineImplementation struct {
 }
 
 func (e *engineImplementation) NewContext(context context.Context) Context {
-	return &ormImplementation{context: context, engine: e, disabledContextCache: true}
+	return &ormImplementation{context: context, engine: e, contextCacheTTL: defaultContextCacheTTL}
 }
 
 func (e *engineImplementation) Registry() EngineRegistry {

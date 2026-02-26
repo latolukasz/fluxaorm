@@ -4,9 +4,12 @@ import (
 	"context"
 	"hash/maphash"
 	"sync"
+	"time"
 
 	"github.com/puzpuzpuz/xsync/v2"
 )
+
+const defaultContextCacheTTL int64 = 1000 // milliseconds
 
 type ID interface {
 	int | uint | uint8 | uint16 | uint32 | uint64 | int8 | int16 | int32 | int64
@@ -23,7 +26,8 @@ type Context interface {
 	Clone() Context
 	CloneWithContext(context context.Context) Context
 	Engine() Engine
-	EnableContextCache()
+	DisableContextCache()
+	SetContextCacheTTL(ttl time.Duration)
 	Flush() error
 	ClearFlush()
 	RedisPipeLine(pool string) *RedisPipeLine
@@ -39,25 +43,30 @@ type Context interface {
 	Track(e Entity, cacheIndex uint64)
 	GetEventBroker() EventBroker
 	getMetricsSourceTag() string
+	GetFromContextCache(cacheIndex uint64, id uint64) Entity
+	SetInContextCache(cacheIndex uint64, id uint64, entity Entity)
 }
 
 type ormImplementation struct {
-	context                context.Context
-	engine                 *engineImplementation
-	trackedEntities        *xsync.MapOf[uint64, *xsync.MapOf[uint64, Entity]]
-	queryLoggersDB         []LogHandler
-	queryLoggersRedis      []LogHandler
-	queryLoggersLocalCache []LogHandler
-	hasRedisLogger         bool
-	hasDBLogger            bool
-	hasLocalCacheLogger    bool
-	disabledContextCache   bool
-	meta                   Meta
-	redisPipeLines         map[string]*RedisPipeLine
-	dbPipeLines            map[string]*DatabasePipeline
-	mutexFlush             sync.Mutex
-	mutexData              sync.Mutex
-	eventBroker            *eventBroker
+	context                  context.Context
+	engine                   *engineImplementation
+	trackedEntities          *xsync.MapOf[uint64, *xsync.MapOf[uint64, Entity]]
+	cachedEntities           *xsync.MapOf[uint64, *xsync.MapOf[uint64, Entity]]
+	cachedEntitiesFirstAdded int64
+	contextCacheTTL          int64
+	queryLoggersDB           []LogHandler
+	queryLoggersRedis        []LogHandler
+	queryLoggersLocalCache   []LogHandler
+	hasRedisLogger           bool
+	hasDBLogger              bool
+	hasLocalCacheLogger      bool
+	disabledContextCache     bool
+	meta                     Meta
+	redisPipeLines           map[string]*RedisPipeLine
+	dbPipeLines              map[string]*DatabasePipeline
+	mutexFlush               sync.Mutex
+	mutexData                sync.Mutex
+	eventBroker              *eventBroker
 }
 
 func (orm *ormImplementation) Context() context.Context {
@@ -76,6 +85,7 @@ func (orm *ormImplementation) CloneWithContext(context context.Context) Context 
 		hasLocalCacheLogger:    orm.hasLocalCacheLogger,
 		meta:                   orm.meta,
 		disabledContextCache:   orm.disabledContextCache,
+		contextCacheTTL:        orm.contextCacheTTL,
 	}
 }
 
@@ -176,6 +186,11 @@ func (orm *ormImplementation) Track(f Entity, cacheIndex uint64) {
 	if loaded {
 		entities.Store(f.GetID(), f)
 	}
+	if orm.cachedEntities != nil {
+		if cached, ok := orm.cachedEntities.Load(cacheIndex); ok {
+			cached.Delete(f.GetID())
+		}
+	}
 }
 
 func (orm *ormImplementation) getMetricsSourceTag() string {
@@ -186,6 +201,50 @@ func (orm *ormImplementation) getMetricsSourceTag() string {
 	return "default"
 }
 
-func (orm *ormImplementation) EnableContextCache() {
-	orm.disabledContextCache = false
+func (orm *ormImplementation) DisableContextCache() {
+	orm.disabledContextCache = true
+}
+
+func (orm *ormImplementation) SetContextCacheTTL(ttl time.Duration) {
+	orm.contextCacheTTL = ttl.Milliseconds()
+}
+
+func (orm *ormImplementation) GetFromContextCache(cacheIndex uint64, id uint64) Entity {
+	if orm.disabledContextCache || orm.cachedEntities == nil {
+		return nil
+	}
+	if orm.cachedEntitiesFirstAdded > 0 && time.Now().UnixMilli()-orm.cachedEntitiesFirstAdded > orm.contextCacheTTL {
+		orm.cachedEntities.Clear()
+		orm.cachedEntitiesFirstAdded = 0
+		return nil
+	}
+	entities, ok := orm.cachedEntities.Load(cacheIndex)
+	if !ok {
+		return nil
+	}
+	entity, ok := entities.Load(id)
+	if !ok {
+		return nil
+	}
+	return entity
+}
+
+func (orm *ormImplementation) SetInContextCache(cacheIndex uint64, id uint64, entity Entity) {
+	if orm.disabledContextCache {
+		return
+	}
+	if orm.cachedEntities == nil {
+		orm.cachedEntities = xsync.NewTypedMapOf[uint64, *xsync.MapOf[uint64, Entity]](func(seed maphash.Seed, u uint64) uint64 {
+			return u
+		})
+	}
+	entities, _ := orm.cachedEntities.LoadOrCompute(cacheIndex, func() *xsync.MapOf[uint64, Entity] {
+		return xsync.NewTypedMapOf[uint64, Entity](func(seed maphash.Seed, u uint64) uint64 {
+			return u
+		})
+	})
+	entities.Store(id, entity)
+	if orm.cachedEntitiesFirstAdded == 0 {
+		orm.cachedEntitiesFirstAdded = time.Now().UnixMilli()
+	}
 }
