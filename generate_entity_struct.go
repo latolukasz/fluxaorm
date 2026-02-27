@@ -5,6 +5,203 @@ import (
 	"strings"
 )
 
+type uniqueIndexColInfo struct {
+	colName        string
+	fIndex         int
+	nullable       bool
+	bindNullType   string // e.g. "sql.NullInt64" — only for nullable
+	bindInnerField string // e.g. ".Int64" — only for nullable
+}
+
+func (g *codeGenerator) getUniqueIndexColInfo(schema *entitySchema, colName string, fIndex int) uniqueIndexColInfo {
+	info := uniqueIndexColInfo{colName: colName, fIndex: fIndex}
+	attr, ok := schema.fieldDefinitions[colName]
+	if !ok {
+		return info
+	}
+	_, isRef := schema.references[colName]
+	tn := attr.TypeName
+	_, hasEnum := attr.Tags["enum"]
+	_, hasSet := attr.Tags["set"]
+	isRequired := attr.Tags["required"] == "true"
+
+	if strings.HasPrefix(tn, "*") {
+		// Pointer types are always nullable
+		info.nullable = true
+	} else if isRef {
+		info.nullable = !isRequired
+	} else if tn == "string" || hasEnum || hasSet {
+		// Non-pointer strings/enums/sets are nullable unless required
+		info.nullable = !isRequired
+	}
+	// Numeric types, bool, time.Time without pointer are always non-nullable
+
+	if !info.nullable {
+		return info
+	}
+	if isRef || strings.Contains(tn, "uint") || strings.Contains(tn, "int") {
+		info.bindNullType = "sql.NullInt64"
+		info.bindInnerField = ".Int64"
+	} else if strings.Contains(tn, "float") {
+		info.bindNullType = "sql.NullFloat64"
+		info.bindInnerField = ".Float64"
+	} else if strings.Contains(tn, "bool") {
+		info.bindNullType = "sql.NullBool"
+		info.bindInnerField = ".Bool"
+	} else if strings.Contains(tn, "time.Time") {
+		info.bindNullType = "sql.NullTime"
+		info.bindInnerField = ".Time"
+	} else {
+		// string, enum, set
+		info.bindNullType = "sql.NullString"
+		info.bindInnerField = ".String"
+	}
+	return info
+}
+
+func (g *codeGenerator) generateUniqueIndexKeyFromOrigin(schema *entitySchema, names *entityNames, indexName string, cols []uniqueIndexColInfo, indent string, keyVar string, operation string, isInsert bool) {
+	g.addImport("hash/fnv")
+	g.addImport("fmt")
+	g.addImport("strconv")
+
+	hasNullable := false
+	for _, c := range cols {
+		if c.nullable {
+			hasNullable = true
+			break
+		}
+	}
+
+	// For INSERT, originDatabaseValues is always available
+	// For DELETE/UPDATE, entity might be loaded from Redis, so handle both sources
+	if !isInsert && schema.hasRedisCache {
+		if hasNullable {
+			g.addLine(fmt.Sprintf("%s%s_valid := true", indent, keyVar))
+			g.addLine(fmt.Sprintf("%sif e.originRedisValues != nil {", indent))
+			// Nullable check from Redis
+			for _, c := range cols {
+				if c.nullable {
+					g.addLine(fmt.Sprintf("%s\tif e.originRedisValues[%d] == \"\" { %s_valid = false }", indent, c.fIndex, keyVar))
+				}
+			}
+			g.addLine(fmt.Sprintf("%s} else {", indent))
+			for _, c := range cols {
+				if c.nullable {
+					g.addLine(fmt.Sprintf("%s\tif !e.originDatabaseValues.F%d.Valid { %s_valid = false }", indent, c.fIndex, keyVar))
+				}
+			}
+			g.addLine(fmt.Sprintf("%s}", indent))
+			g.addLine(fmt.Sprintf("%sif %s_valid {", indent, keyVar))
+			g.generateUniqueIndexHashDualSource(cols, indent+"\t", keyVar, names, indexName)
+			if operation == "set" {
+				g.addLine(fmt.Sprintf("%s\te.ctx.RedisPipeLine(%s.redisCode).Set(%s, strconv.FormatUint(e.GetID(), 10), 0)", indent, names.providerName, keyVar))
+			} else {
+				g.addLine(fmt.Sprintf("%s\te.ctx.RedisPipeLine(%s.redisCode).Del(%s)", indent, names.providerName, keyVar))
+			}
+			g.addLine(fmt.Sprintf("%s}", indent))
+		} else {
+			g.generateUniqueIndexHashDualSource(cols, indent, keyVar, names, indexName)
+			if operation == "set" {
+				g.addLine(fmt.Sprintf("%se.ctx.RedisPipeLine(%s.redisCode).Set(%s, strconv.FormatUint(e.GetID(), 10), 0)", indent, names.providerName, keyVar))
+			} else {
+				g.addLine(fmt.Sprintf("%se.ctx.RedisPipeLine(%s.redisCode).Del(%s)", indent, names.providerName, keyVar))
+			}
+		}
+	} else {
+		// INSERT path or no Redis cache — originDatabaseValues is always available
+		if hasNullable {
+			validChecks := ""
+			for _, c := range cols {
+				if c.nullable {
+					if validChecks != "" {
+						validChecks += " && "
+					}
+					validChecks += fmt.Sprintf("e.originDatabaseValues.F%d.Valid", c.fIndex)
+				}
+			}
+			g.addLine(fmt.Sprintf("%sif %s {", indent, validChecks))
+			g.generateUniqueIndexHashFromDB(cols, indent+"\t", keyVar, names, indexName)
+			if operation == "set" {
+				g.addLine(fmt.Sprintf("%s\te.ctx.RedisPipeLine(%s.redisCode).Set(%s, strconv.FormatUint(e.GetID(), 10), 0)", indent, names.providerName, keyVar))
+			} else {
+				g.addLine(fmt.Sprintf("%s\te.ctx.RedisPipeLine(%s.redisCode).Del(%s)", indent, names.providerName, keyVar))
+			}
+			g.addLine(fmt.Sprintf("%s}", indent))
+		} else {
+			g.generateUniqueIndexHashFromDB(cols, indent, keyVar, names, indexName)
+			if operation == "set" {
+				g.addLine(fmt.Sprintf("%se.ctx.RedisPipeLine(%s.redisCode).Set(%s, strconv.FormatUint(e.GetID(), 10), 0)", indent, names.providerName, keyVar))
+			} else {
+				g.addLine(fmt.Sprintf("%se.ctx.RedisPipeLine(%s.redisCode).Del(%s)", indent, names.providerName, keyVar))
+			}
+		}
+	}
+}
+
+func (g *codeGenerator) generateUniqueIndexHashDualSource(cols []uniqueIndexColInfo, indent string, keyVar string, names *entityNames, indexName string) {
+	g.addLine(fmt.Sprintf("%s%s_h := fnv.New32a()", indent, keyVar))
+	// Build fmt args from both sources
+	fmtStr := ""
+	redisArgs := ""
+	dbArgs := ""
+	for i, c := range cols {
+		if i > 0 {
+			fmtStr += "\\x00"
+			redisArgs += ", "
+			dbArgs += ", "
+		}
+		fmtStr += "%v"
+		redisArgs += fmt.Sprintf("e.originRedisValues[%d]", c.fIndex)
+		if c.nullable {
+			dbArgs += fmt.Sprintf("e.originDatabaseValues.F%d%s", c.fIndex, c.bindInnerField)
+		} else {
+			dbArgs += fmt.Sprintf("e.originDatabaseValues.F%d", c.fIndex)
+		}
+	}
+	g.addLine(fmt.Sprintf("%sif e.originRedisValues != nil {", indent))
+	g.addLine(fmt.Sprintf("%s\t%s_h.Write([]byte(fmt.Sprintf(\"%s\", %s)))", indent, keyVar, fmtStr, redisArgs))
+	g.addLine(fmt.Sprintf("%s} else {", indent))
+	g.addLine(fmt.Sprintf("%s\t%s_h.Write([]byte(fmt.Sprintf(\"%s\", %s)))", indent, keyVar, fmtStr, dbArgs))
+	g.addLine(fmt.Sprintf("%s}", indent))
+	g.addLine(fmt.Sprintf("%s%s := %s.redisCachePrefix + \"u:%s:\" + strconv.FormatUint(uint64(%s_h.Sum32()), 10)", indent, keyVar, names.providerName, indexName, keyVar))
+}
+
+func (g *codeGenerator) generateUniqueIndexHashFromDB(cols []uniqueIndexColInfo, indent string, keyVar string, names *entityNames, indexName string) {
+	g.addLine(fmt.Sprintf("%s%s_h := fnv.New32a()", indent, keyVar))
+	fmtStr := ""
+	args := ""
+	for i, c := range cols {
+		if i > 0 {
+			fmtStr += "\\x00"
+			args += ", "
+		}
+		fmtStr += "%v"
+		if c.nullable {
+			args += fmt.Sprintf("e.originDatabaseValues.F%d%s", c.fIndex, c.bindInnerField)
+		} else {
+			args += fmt.Sprintf("e.originDatabaseValues.F%d", c.fIndex)
+		}
+	}
+	g.addLine(fmt.Sprintf("%s%s_h.Write([]byte(fmt.Sprintf(\"%s\", %s)))", indent, keyVar, fmtStr, args))
+	g.addLine(fmt.Sprintf("%s%s := %s.redisCachePrefix + \"u:%s:\" + strconv.FormatUint(uint64(%s_h.Sum32()), 10)", indent, keyVar, names.providerName, indexName, keyVar))
+}
+
+func (g *codeGenerator) generateUniqueIndexHashFromVars(cols []uniqueIndexColInfo, idxNum int, indent string, keyVar string, names *entityNames, indexName string) {
+	g.addLine(fmt.Sprintf("%s%s_h := fnv.New32a()", indent, keyVar))
+	fmtStr := ""
+	args := ""
+	for i := range cols {
+		if i > 0 {
+			fmtStr += "\\x00"
+			args += ", "
+		}
+		fmtStr += "%v"
+		args += fmt.Sprintf("_uNewV%d_%d", idxNum, i)
+	}
+	g.addLine(fmt.Sprintf("%s%s_h.Write([]byte(fmt.Sprintf(\"%s\", %s)))", indent, keyVar, fmtStr, args))
+	g.addLine(fmt.Sprintf("%s%s := %s.redisCachePrefix + \"u:%s:\" + strconv.FormatUint(uint64(%s_h.Sum32()), 10)", indent, keyVar, names.providerName, indexName, keyVar))
+}
+
 func (g *codeGenerator) generateUUID(schema *entitySchema, names *entityNames) {
 	g.addLine(fmt.Sprintf("func (p %s) uuid(ctx fluxaorm.Context) uint64 {", names.providerNamePrivate))
 	g.addLine(fmt.Sprintf("\tr := ctx.Engine().Redis(p.redisCode)"))
@@ -389,6 +586,26 @@ func (g *codeGenerator) generateEntityStruct(schema *entitySchema, names *entity
 	}
 	g.addLine(insertQueryLine)
 
+	// Cached unique index INSERT
+	if schema.hasCachedUniqueIndexes {
+		g.addImport("strconv")
+		idxNum := 0
+		for idxName, isCached := range schema.cachedUniqueIndexes {
+			if !isCached {
+				continue
+			}
+			fIndexes := schema.uniqueIndexFIndexes[idxName]
+			index := schema.uniqueIndexes[idxName]
+			cols := make([]uniqueIndexColInfo, len(index.Columns))
+			for i, colName := range index.Columns {
+				cols[i] = g.getUniqueIndexColInfo(schema, colName, fIndexes[i])
+			}
+			keyVar := fmt.Sprintf("_uKey%d", idxNum)
+			g.generateUniqueIndexKeyFromOrigin(schema, names, idxName, cols, "\t\t", keyVar, "set", true)
+			idxNum++
+		}
+	}
+
 	// Redis Search INSERT
 	if schema.hasRedisSearch {
 		g.addImport("strconv")
@@ -439,6 +656,25 @@ func (g *codeGenerator) generateEntityStruct(schema *entitySchema, names *entity
 	}
 	if schema.hasRedisSearch {
 		g.addLine(fmt.Sprintf("\t\te.ctx.RedisPipeLine(%s.redisSearchCode).Del(%s.redisSearchPrefix + strconv.FormatUint(e.GetID(), 10))", names.providerName, names.providerName))
+	}
+	// Cached unique index DELETE
+	if schema.hasCachedUniqueIndexes {
+		g.addImport("strconv")
+		idxNum := 0
+		for idxName, isCached := range schema.cachedUniqueIndexes {
+			if !isCached {
+				continue
+			}
+			fIndexes := schema.uniqueIndexFIndexes[idxName]
+			index := schema.uniqueIndexes[idxName]
+			cols := make([]uniqueIndexColInfo, len(index.Columns))
+			for i, colName := range index.Columns {
+				cols[i] = g.getUniqueIndexColInfo(schema, colName, fIndexes[i])
+			}
+			keyVar := fmt.Sprintf("_udKey%d", idxNum)
+			g.generateUniqueIndexKeyFromOrigin(schema, names, idxName, cols, "\t\t", keyVar, "del", false)
+			idxNum++
+		}
 	}
 	g.addLine("\t\treturn nil")
 	g.addLine("\t}")
@@ -528,6 +764,152 @@ func (g *codeGenerator) generateEntityStruct(schema *entitySchema, names *entity
 			g.addLine("\t\t\tif len(_sa2) > 0 {")
 			g.addLine("\t\t\t\t_sp2.HSet(_searchKey2, _sa2...)")
 			g.addLine("\t\t\t}")
+			g.addLine("\t\t}")
+		}
+	}
+
+	// Cached unique index UPDATE
+	if schema.hasCachedUniqueIndexes {
+		g.addImport("strconv")
+		g.addImport("hash/fnv")
+		g.addImport("fmt")
+
+		// FakeDelete handling: if entity has FakeDelete and it's set to true, delete all cached index keys
+		if schema.hasFakeDelete {
+			g.addLine("\t\tif _fdv, _fdok := e.databaseBind[\"FakeDelete\"]; _fdok && _fdv.(bool) {")
+			idxNum := 0
+			for idxName, isCached := range schema.cachedUniqueIndexes {
+				if !isCached {
+					continue
+				}
+				fIndexes := schema.uniqueIndexFIndexes[idxName]
+				index := schema.uniqueIndexes[idxName]
+				cols := make([]uniqueIndexColInfo, len(index.Columns))
+				for i, colName := range index.Columns {
+					cols[i] = g.getUniqueIndexColInfo(schema, colName, fIndexes[i])
+				}
+				keyVar := fmt.Sprintf("_ufKey%d", idxNum)
+				g.generateUniqueIndexKeyFromOrigin(schema, names, idxName, cols, "\t\t\t", keyVar, "del", false)
+				idxNum++
+			}
+			g.addLine("\t\t} else {")
+		}
+
+		updateIndent := "\t\t"
+		if schema.hasFakeDelete {
+			updateIndent = "\t\t\t"
+		}
+
+		idxNum := 0
+		for idxName, isCached := range schema.cachedUniqueIndexes {
+			if !isCached {
+				continue
+			}
+			fIndexes := schema.uniqueIndexFIndexes[idxName]
+			index := schema.uniqueIndexes[idxName]
+			cols := make([]uniqueIndexColInfo, len(index.Columns))
+			for i, colName := range index.Columns {
+				cols[i] = g.getUniqueIndexColInfo(schema, colName, fIndexes[i])
+			}
+
+			// Check if any column changed
+			changedCheck := ""
+			for _, c := range cols {
+				if changedCheck != "" {
+					changedCheck += " || "
+				}
+				changedCheck += fmt.Sprintf("_uChk%d_%s", idxNum, c.colName)
+			}
+			for _, c := range cols {
+				g.addLine(fmt.Sprintf("%s_, _uChk%d_%s := e.databaseBind[%q]", updateIndent, idxNum, c.colName, c.colName))
+			}
+			g.addLine(fmt.Sprintf("%sif %s {", updateIndent, changedCheck))
+
+			innerIndent := updateIndent + "\t"
+
+			// Old key (from origin)
+			oldKeyVar := fmt.Sprintf("_uOldKey%d", idxNum)
+			g.generateUniqueIndexKeyFromOrigin(schema, names, idxName, cols, innerIndent, oldKeyVar, "del", false)
+
+			// New key (from bind with fallback to origin)
+			hasNullableCol := false
+			for _, c := range cols {
+				if c.nullable {
+					hasNullableCol = true
+					break
+				}
+			}
+
+			// Build new value variables (handle dual source: Redis or DB origin)
+			for vi, c := range cols {
+				if !c.nullable {
+					if schema.hasRedisCache {
+						g.addLine(fmt.Sprintf("%svar _uNewV%d_%d any", innerIndent, idxNum, vi))
+						g.addLine(fmt.Sprintf("%sif _bv, _ok := e.databaseBind[%q]; _ok {", innerIndent, c.colName))
+						g.addLine(fmt.Sprintf("%s\t_uNewV%d_%d = _bv", innerIndent, idxNum, vi))
+						g.addLine(fmt.Sprintf("%s} else if e.originRedisValues != nil {", innerIndent))
+						g.addLine(fmt.Sprintf("%s\t_uNewV%d_%d = e.originRedisValues[%d]", innerIndent, idxNum, vi, c.fIndex))
+						g.addLine(fmt.Sprintf("%s} else {", innerIndent))
+						g.addLine(fmt.Sprintf("%s\t_uNewV%d_%d = e.originDatabaseValues.F%d", innerIndent, idxNum, vi, c.fIndex))
+						g.addLine(fmt.Sprintf("%s}", innerIndent))
+					} else {
+						g.addLine(fmt.Sprintf("%s_uNewV%d_%d := any(e.originDatabaseValues.F%d)", innerIndent, idxNum, vi, c.fIndex))
+						g.addLine(fmt.Sprintf("%sif _bv, _ok := e.databaseBind[%q]; _ok { _uNewV%d_%d = _bv }", innerIndent, c.colName, idxNum, vi))
+					}
+				} else {
+					g.addImport("database/sql")
+					if schema.hasRedisCache {
+						g.addLine(fmt.Sprintf("%svar _uNewValid%d_%d bool", innerIndent, idxNum, vi))
+						g.addLine(fmt.Sprintf("%svar _uNewV%d_%d any", innerIndent, idxNum, vi))
+						g.addLine(fmt.Sprintf("%sif _bv, _ok := e.databaseBind[%q]; _ok {", innerIndent, c.colName))
+						g.addLine(fmt.Sprintf("%s\t_bnv := _bv.(%s)", innerIndent, c.bindNullType))
+						g.addLine(fmt.Sprintf("%s\t_uNewValid%d_%d = _bnv.Valid", innerIndent, idxNum, vi))
+						g.addLine(fmt.Sprintf("%s\t_uNewV%d_%d = _bnv%s", innerIndent, idxNum, vi, c.bindInnerField))
+						g.addLine(fmt.Sprintf("%s} else if e.originRedisValues != nil {", innerIndent))
+						g.addLine(fmt.Sprintf("%s\t_uNewValid%d_%d = e.originRedisValues[%d] != \"\"", innerIndent, idxNum, vi, c.fIndex))
+						g.addLine(fmt.Sprintf("%s\t_uNewV%d_%d = e.originRedisValues[%d]", innerIndent, idxNum, vi, c.fIndex))
+						g.addLine(fmt.Sprintf("%s} else {", innerIndent))
+						g.addLine(fmt.Sprintf("%s\t_uNewValid%d_%d = e.originDatabaseValues.F%d.Valid", innerIndent, idxNum, vi, c.fIndex))
+						g.addLine(fmt.Sprintf("%s\t_uNewV%d_%d = e.originDatabaseValues.F%d%s", innerIndent, idxNum, vi, c.fIndex, c.bindInnerField))
+						g.addLine(fmt.Sprintf("%s}", innerIndent))
+					} else {
+						g.addLine(fmt.Sprintf("%s_uNewValid%d_%d := e.originDatabaseValues.F%d.Valid", innerIndent, idxNum, vi, c.fIndex))
+						g.addLine(fmt.Sprintf("%s_uNewV%d_%d := e.originDatabaseValues.F%d%s", innerIndent, idxNum, vi, c.fIndex, c.bindInnerField))
+						g.addLine(fmt.Sprintf("%sif _bv, _ok := e.databaseBind[%q]; _ok {", innerIndent, c.colName))
+						g.addLine(fmt.Sprintf("%s\t_bnv := _bv.(%s)", innerIndent, c.bindNullType))
+						g.addLine(fmt.Sprintf("%s\t_uNewValid%d_%d = _bnv.Valid", innerIndent, idxNum, vi))
+						g.addLine(fmt.Sprintf("%s\t_uNewV%d_%d = _bnv%s", innerIndent, idxNum, vi, c.bindInnerField))
+						g.addLine(fmt.Sprintf("%s}", innerIndent))
+					}
+				}
+			}
+
+			// Compute new key hash
+			newKeyVar := fmt.Sprintf("_uNewKey%d", idxNum)
+			if hasNullableCol {
+				validChecks := ""
+				for vi, c := range cols {
+					if c.nullable {
+						if validChecks != "" {
+							validChecks += " && "
+						}
+						validChecks += fmt.Sprintf("_uNewValid%d_%d", idxNum, vi)
+					}
+				}
+				g.addLine(fmt.Sprintf("%sif %s {", innerIndent, validChecks))
+				g.generateUniqueIndexHashFromVars(cols, idxNum, innerIndent+"\t", newKeyVar, names, idxName)
+				g.addLine(fmt.Sprintf("%s\te.ctx.RedisPipeLine(%s.redisCode).Set(%s, strconv.FormatUint(e.GetID(), 10), 0)", innerIndent, names.providerName, newKeyVar))
+				g.addLine(fmt.Sprintf("%s}", innerIndent))
+			} else {
+				g.generateUniqueIndexHashFromVars(cols, idxNum, innerIndent, newKeyVar, names, idxName)
+				g.addLine(fmt.Sprintf("%se.ctx.RedisPipeLine(%s.redisCode).Set(%s, strconv.FormatUint(e.GetID(), 10), 0)", innerIndent, names.providerName, newKeyVar))
+			}
+
+			g.addLine(fmt.Sprintf("%s}", updateIndent))
+			idxNum++
+		}
+
+		if schema.hasFakeDelete {
 			g.addLine("\t\t}")
 		}
 	}

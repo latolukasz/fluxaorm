@@ -1,6 +1,9 @@
 package fluxaorm
 
-import "fmt"
+import (
+	"fmt"
+	"strings"
+)
 
 func (g *codeGenerator) generateGetByID(schema *entitySchema, names *entityNames) {
 	g.addLine(fmt.Sprintf("func (p %s) GetByID(ctx fluxaorm.Context, id uint64) (entity *%s, found bool, err error) {", names.providerNamePrivate, names.entityName))
@@ -219,17 +222,300 @@ func (g *codeGenerator) generateNewMethods(schema *entitySchema, names *entityNa
 	g.addLine("")
 }
 
-func (g *codeGenerator) generateUniqueIndexStubs(schema *entitySchema, names *entityNames) {
-	for indexName, index := range schema.uniqueIndexes {
-		g.body += fmt.Sprintf("func (p %s) GetByIndex%s(ctx fluxaorm.Context", names.providerNamePrivate, indexName)
-		for _, columnName := range index.Columns {
-			g.body += fmt.Sprintf(", %s any", g.lowerFirst(columnName))
-		}
-		g.addLine(fmt.Sprintf(") (entity *%s, found bool, err error) {", names.entityName))
-		g.addLine("\treturn nil, false, nil")
-		g.addLine("}")
-		g.addLine("")
+func (g *codeGenerator) uniqueIndexGoType(schema *entitySchema, columnName string) string {
+	attr, ok := schema.fieldDefinitions[columnName]
+	if !ok {
+		return "any"
 	}
+	// Check for reference
+	if _, isRef := schema.references[columnName]; isRef {
+		if attr.Tags["required"] == "true" {
+			return "uint64"
+		}
+		return "*uint64"
+	}
+	// Check for enum or set
+	if enumVal, hasEnum := attr.Tags["enum"]; hasEnum {
+		enumName := attr.Tags["enumName"]
+		if enumName == "" {
+			enumName = columnName
+		}
+		_ = enumVal
+		g.addImport(g.enumsImport)
+		return "enums." + enumName
+	}
+	if setVal, hasSet := attr.Tags["set"]; hasSet {
+		enumName := attr.Tags["enumName"]
+		if enumName == "" {
+			enumName = columnName
+		}
+		_ = setVal
+		g.addImport(g.enumsImport)
+		return "enums." + enumName
+	}
+	tn := attr.TypeName
+	switch tn {
+	case "uint", "uint8", "uint16", "uint32", "uint64":
+		return "uint64"
+	case "int", "int8", "int16", "int32", "int64":
+		return "int64"
+	case "float32", "float64":
+		return "float64"
+	case "string":
+		return "string"
+	case "bool":
+		return "bool"
+	case "time.Time":
+		return "time.Time"
+	case "*uint", "*uint8", "*uint16", "*uint32", "*uint64":
+		return "*uint64"
+	case "*int", "*int8", "*int16", "*int32", "*int64":
+		return "*int64"
+	case "*float32", "*float64":
+		return "*float64"
+	case "*string":
+		return "*string"
+	case "*bool":
+		return "*bool"
+	case "*time.Time":
+		return "*time.Time"
+	}
+	return "any"
+}
+
+func (g *codeGenerator) uniqueIndexParamToSQL(goType, paramName string) string {
+	switch goType {
+	case "uint64":
+		return paramName
+	case "int64":
+		return paramName
+	case "float64":
+		return paramName
+	case "string":
+		return paramName
+	case "bool":
+		return paramName
+	case "time.Time":
+		return paramName
+	case "*uint64", "*int64", "*float64", "*string", "*bool", "*time.Time":
+		return paramName
+	default:
+		if strings.HasPrefix(goType, "enums.") {
+			return "string(" + paramName + ")"
+		}
+		return paramName
+	}
+}
+
+func (g *codeGenerator) generateUniqueIndexGetters(schema *entitySchema, names *entityNames) {
+	for indexName, index := range schema.uniqueIndexes {
+		isCached := schema.cachedUniqueIndexes[indexName]
+		if isCached {
+			g.generateCachedUniqueIndexGetter(schema, names, indexName, index)
+		} else {
+			g.generateNonCachedUniqueIndexGetter(schema, names, indexName, index)
+		}
+	}
+}
+
+func (g *codeGenerator) generateNonCachedUniqueIndexGetter(schema *entitySchema, names *entityNames, indexName string, index indexDefinition) {
+	g.addImport("strconv")
+	// Build function signature
+	g.body += fmt.Sprintf("func (p %s) GetByIndex%s(ctx fluxaorm.Context", names.providerNamePrivate, indexName)
+	goTypes := make([]string, len(index.Columns))
+	for i, columnName := range index.Columns {
+		goType := g.uniqueIndexGoType(schema, columnName)
+		goTypes[i] = goType
+		if goType == "time.Time" || goType == "*time.Time" {
+			g.addImport("time")
+		}
+		g.body += fmt.Sprintf(", %s %s", g.lowerFirst(columnName), goType)
+	}
+	g.addLine(fmt.Sprintf(") (entity *%s, found bool, err error) {", names.entityName))
+
+	// Build SELECT query
+	g.appendToLine("\tquery := \"SELECT `ID`")
+	for _, columnName := range schema.GetColumns()[1:] {
+		g.appendToLine(",`" + columnName + "`")
+	}
+	g.appendToLine(fmt.Sprintf(" FROM `%s` WHERE ", schema.tableName))
+	for i, columnName := range index.Columns {
+		if i > 0 {
+			g.appendToLine(" AND ")
+		}
+		g.appendToLine(fmt.Sprintf("`%s` = ?", columnName))
+	}
+	if schema.hasFakeDelete {
+		g.appendToLine(" AND `FakeDelete` = 0")
+	}
+	g.addLine(" LIMIT 1\"")
+
+	// Execute query
+	g.addLine(fmt.Sprintf("\tsqlRow := &%s{}", names.sqlRowName))
+	g.appendToLine(fmt.Sprintf("\tfound, err = ctx.Engine().DB(%s.dbCode).QueryRow(ctx, fluxaorm.NewWhere(query", names.providerName))
+	for i, columnName := range index.Columns {
+		paramName := g.lowerFirst(columnName)
+		g.appendToLine(", " + g.uniqueIndexParamToSQL(goTypes[i], paramName))
+	}
+	g.appendToLine("), &sqlRow.F0")
+	for i := 1; i < len(schema.columnNames); i++ {
+		g.appendToLine(fmt.Sprintf(", &sqlRow.F%d", i))
+	}
+	g.addLine(")")
+	g.addLine("\tif err != nil {")
+	g.addLine("\t\treturn nil, false, err")
+	g.addLine("\t}")
+	g.addLine("\tif !found {")
+	g.addLine("\t\treturn nil, false, nil")
+	g.addLine("\t}")
+
+	// Populate Redis entity cache if applicable
+	if schema.hasRedisCache {
+		g.addLine("\t_, err = ctx.Engine().Redis(p.redisCode).RPush(ctx, p.redisCachePrefix+strconv.FormatUint(sqlRow.F0, 10), sqlRow.redisValues()...)")
+		g.addLine("\tif err != nil {")
+		g.addLine("\t\treturn nil, false, err")
+		g.addLine("\t}")
+	}
+
+	g.addLine(fmt.Sprintf("\te := &%s{ctx: ctx, id: sqlRow.F0, originDatabaseValues: sqlRow}", names.entityName))
+	g.addLine("\tctx.SetInContextCache(p.cacheIndex, sqlRow.F0, e)")
+	g.addLine("\treturn e, true, nil")
+	g.addLine("}")
+	g.addLine("")
+}
+
+func (g *codeGenerator) generateCachedUniqueIndexGetter(schema *entitySchema, names *entityNames, indexName string, index indexDefinition) {
+	g.addImport("strconv")
+	g.addImport("fmt")
+	g.addImport("hash/fnv")
+
+	// Build function signature
+	g.body += fmt.Sprintf("func (p %s) GetByIndex%s(ctx fluxaorm.Context", names.providerNamePrivate, indexName)
+	goTypes := make([]string, len(index.Columns))
+	hasNullable := false
+	for i, columnName := range index.Columns {
+		goType := g.uniqueIndexGoType(schema, columnName)
+		goTypes[i] = goType
+		if goType == "time.Time" || goType == "*time.Time" {
+			g.addImport("time")
+		}
+		if strings.HasPrefix(goType, "*") {
+			hasNullable = true
+		}
+		g.body += fmt.Sprintf(", %s %s", g.lowerFirst(columnName), goType)
+	}
+	g.addLine(fmt.Sprintf(") (entity *%s, found bool, err error) {", names.entityName))
+
+	// If any param is nullable, check for nil and skip Redis cache
+	if hasNullable {
+		nilChecks := ""
+		for i, columnName := range index.Columns {
+			if strings.HasPrefix(goTypes[i], "*") {
+				if nilChecks != "" {
+					nilChecks += " || "
+				}
+				nilChecks += g.lowerFirst(columnName) + " == nil"
+			}
+		}
+		g.addLine(fmt.Sprintf("\tif %s {", nilChecks))
+		// Fall back to MySQL-only path for nil params
+		g.appendToLine(fmt.Sprintf("\t\tquery := \"SELECT `ID` FROM `%s` WHERE ", schema.tableName))
+		for i, columnName := range index.Columns {
+			if i > 0 {
+				g.appendToLine(" AND ")
+			}
+			g.appendToLine(fmt.Sprintf("`%s` = ?", columnName))
+		}
+		if schema.hasFakeDelete {
+			g.appendToLine(" AND `FakeDelete` = 0")
+		}
+		g.addLine(" LIMIT 1\"")
+		g.addLine("\t\tvar _id uint64")
+		g.appendToLine(fmt.Sprintf("\t\tfound, err = ctx.Engine().DB(%s.dbCode).QueryRow(ctx, fluxaorm.NewWhere(query", names.providerName))
+		for i, columnName := range index.Columns {
+			paramName := g.lowerFirst(columnName)
+			g.appendToLine(", " + g.uniqueIndexParamToSQL(goTypes[i], paramName))
+		}
+		g.addLine("), &_id)")
+		g.addLine("\t\tif err != nil {")
+		g.addLine("\t\t\treturn nil, false, err")
+		g.addLine("\t\t}")
+		g.addLine("\t\tif !found {")
+		g.addLine("\t\t\treturn nil, false, nil")
+		g.addLine("\t\t}")
+		g.addLine("\t\treturn p.GetByID(ctx, _id)")
+		g.addLine("\t}")
+	}
+
+	// Build Redis key: hash params
+	g.addLine("\t_h := fnv.New32a()")
+	if len(index.Columns) == 1 {
+		paramName := g.lowerFirst(index.Columns[0])
+		g.addLine(fmt.Sprintf("\t_h.Write([]byte(fmt.Sprintf(\"%%v\", %s)))", g.uniqueIndexParamToSQL(goTypes[0], paramName)))
+	} else {
+		fmtStr := ""
+		args := ""
+		for i, columnName := range index.Columns {
+			if i > 0 {
+				fmtStr += "\\x00"
+				args += ", "
+			}
+			fmtStr += "%v"
+			args += g.uniqueIndexParamToSQL(goTypes[i], g.lowerFirst(columnName))
+		}
+		g.addLine(fmt.Sprintf("\t_h.Write([]byte(fmt.Sprintf(\"%s\", %s)))", fmtStr, args))
+	}
+	g.addLine(fmt.Sprintf("\t_redisKey := p.redisCachePrefix + \"u:%s:\" + strconv.FormatUint(uint64(_h.Sum32()), 10)", indexName))
+
+	// Step 1: Try Redis GET
+	g.addLine("\t_val, _has, _err := ctx.Engine().Redis(p.redisCode).Get(ctx, _redisKey)")
+	g.addLine("\tif _err != nil {")
+	g.addLine("\t\treturn nil, false, _err")
+	g.addLine("\t}")
+	g.addLine("\tif _has {")
+	g.addLine("\t\t_cachedID, _parseErr := strconv.ParseUint(_val, 10, 64)")
+	g.addLine("\t\tif _parseErr != nil {")
+	g.addLine("\t\t\treturn nil, false, _parseErr")
+	g.addLine("\t\t}")
+	g.addLine("\t\treturn p.GetByID(ctx, _cachedID)")
+	g.addLine("\t}")
+
+	// Step 2: MySQL SELECT ID
+	g.appendToLine(fmt.Sprintf("\t_query := \"SELECT `ID` FROM `%s` WHERE ", schema.tableName))
+	for i, columnName := range index.Columns {
+		if i > 0 {
+			g.appendToLine(" AND ")
+		}
+		g.appendToLine(fmt.Sprintf("`%s` = ?", columnName))
+	}
+	if schema.hasFakeDelete {
+		g.appendToLine(" AND `FakeDelete` = 0")
+	}
+	g.addLine(" LIMIT 1\"")
+	g.addLine("\tvar _foundID uint64")
+	g.appendToLine(fmt.Sprintf("\tfound, err = ctx.Engine().DB(%s.dbCode).QueryRow(ctx, fluxaorm.NewWhere(_query", names.providerName))
+	for i, columnName := range index.Columns {
+		paramName := g.lowerFirst(columnName)
+		g.appendToLine(", " + g.uniqueIndexParamToSQL(goTypes[i], paramName))
+	}
+	g.addLine("), &_foundID)")
+	g.addLine("\tif err != nil {")
+	g.addLine("\t\treturn nil, false, err")
+	g.addLine("\t}")
+	g.addLine("\tif !found {")
+	g.addLine("\t\treturn nil, false, nil")
+	g.addLine("\t}")
+
+	// Step 3: Cache the ID in Redis and return via GetByID
+	g.addLine("\t_redisPipeline := ctx.RedisPipeLine(p.redisCode)")
+	g.addLine("\t_redisPipeline.Set(_redisKey, strconv.FormatUint(_foundID, 10), 0)")
+	g.addLine("\t_, err = _redisPipeline.Exec(ctx)")
+	g.addLine("\tif err != nil {")
+	g.addLine("\t\treturn nil, false, err")
+	g.addLine("\t}")
+	g.addLine("\treturn p.GetByID(ctx, _foundID)")
+	g.addLine("}")
+	g.addLine("")
 }
 
 func (g *codeGenerator) generateSearchWithCount(schema *entitySchema, names *entityNames) {

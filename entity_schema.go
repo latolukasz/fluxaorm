@@ -134,6 +134,9 @@ type entitySchema struct {
 	redisSearchPrefix       string
 	searchableFields        []searchableFieldDef
 	pendingSearchableFields map[string]pendingSearchableField
+	cachedUniqueIndexes     map[string]bool
+	hasCachedUniqueIndexes  bool
+	uniqueIndexFIndexes     map[string][]int
 }
 
 type tableFields struct {
@@ -297,6 +300,7 @@ func (e *entitySchema) init(registry *registry, entityType reflect.Type) error {
 	e.options = make(map[string]any)
 	e.references = make(map[string]referenceDefinition)
 	e.uniqueIndexes = make(map[string]indexDefinition)
+	e.cachedUniqueIndexes = make(map[string]bool)
 	fakeDeleteField, foundFakeDeleteField := e.t.FieldByName("FakeDelete")
 	e.hasFakeDelete = foundFakeDeleteField && fakeDeleteField.Type.Kind() == reflect.Bool
 	createdAtField, foundCreatedAt := e.t.FieldByName("CreatedAt")
@@ -423,6 +427,14 @@ func (e *entitySchema) init(registry *registry, entityType reflect.Type) error {
 	if e.hasUpdatedAt {
 		e.updatedAtFIndex = columnMapping["UpdatedAt"]
 	}
+	e.uniqueIndexFIndexes = make(map[string][]int)
+	for indexName, def := range e.uniqueIndexes {
+		fIndexes := make([]int, len(def.Columns))
+		for i, colName := range def.Columns {
+			fIndexes[i] = columnMapping[colName]
+		}
+		e.uniqueIndexFIndexes[indexName] = fIndexes
+	}
 	if len(e.pendingSearchableFields) > 0 && e.redisSearchPoolCode != "" {
 		for i, colName := range e.columnNames {
 			if pending, ok := e.pendingSearchableFields[colName]; ok {
@@ -528,6 +540,13 @@ func (e *entitySchema) initIndexes() error {
 		}
 		e.uniqueIndexes[indexName] = indexDefinition{Columns: columns}
 		e.uniqueIndexesColumns[indexName] = columns
+		firstCol := columns[0]
+		if tags, ok := e.tags[firstCol]; ok {
+			if _, hasCached := tags["cached"]; hasCached {
+				e.cachedUniqueIndexes[indexName] = true
+				e.hasCachedUniqueIndexes = true
+			}
+		}
 	}
 	return nil
 }

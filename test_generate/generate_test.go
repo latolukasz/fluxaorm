@@ -96,6 +96,25 @@ type generateEntityWithTimestampsRedis struct {
 	UpdatedAt time.Time
 }
 
+type generateEntityCachedUnique struct {
+	ID    uint64 `orm:"redisCache"`
+	Name  string `orm:"unique=NameAge;cached"`
+	Age   uint8  `orm:"unique=NameAge:2"`
+	Email string `orm:"unique=Email;cached"`
+}
+
+type generateEntityCachedUniqueNoRedis struct {
+	ID    uint64
+	Code  string `orm:"unique=Code;cached"`
+	Value int32  `orm:"unique=Code:2"`
+}
+
+type generateEntityCachedUniqueFakeDelete struct {
+	ID         uint64 `orm:"redisCache"`
+	FakeDelete bool
+	Name       string `orm:"unique=Name;cached"`
+}
+
 //func BenchmarkGenerate(b *testing.B) {
 //	b.ReportAllocs()
 //	v := struct {
@@ -107,7 +126,7 @@ type generateEntityWithTimestampsRedis struct {
 //}
 
 func TestGenerate(t *testing.T) {
-	ctx := fluxaorm.PrepareTablesBeta(t, fluxaorm.NewRegistry(), generateEntity{}, generateEntityNoRedis{}, generateReferenceEntity{}, generateEntityWithSearch{}, generateEntityWithTimestamps{}, generateEntityWithTimestampsRedis{})
+	ctx := fluxaorm.PrepareTablesBeta(t, fluxaorm.NewRegistry(), generateEntity{}, generateEntityNoRedis{}, generateReferenceEntity{}, generateEntityWithSearch{}, generateEntityWithTimestamps{}, generateEntityWithTimestampsRedis{}, generateEntityCachedUnique{}, generateEntityCachedUniqueNoRedis{}, generateEntityCachedUniqueFakeDelete{})
 	_ = os.MkdirAll("entities", 0755)
 
 	err := fluxaorm.Generate(ctx.Engine(), "entities")
@@ -840,4 +859,111 @@ func TestGenerate(t *testing.T) {
 	assert.True(t, found)
 	assert.Equal(t, origCreatedAtR, tsr1.GetCreatedAt())
 	assert.True(t, tsr1.GetUpdatedAt().After(origUpdatedAtR))
+
+	// Test non-cached unique index getter (AgeBalance on generateEntity)
+	ctx.DisableContextCache()
+	eIdx := entities.GenerateEntityProvider.New(ctx)
+	eIdx.SetAge(25)
+	eIdx.SetBalance(10)
+	eIdx.SetTime(now)
+	eIdx.SetDate(now)
+	eIdx.SetTestEnum(enums.TestEnumList.A)
+	assert.NoError(t, ctx.Flush())
+	eByIdx, found, err := entities.GenerateEntityProvider.GetByIndexAgeBalance(ctx, 25, 10)
+	assert.NoError(t, err)
+	assert.True(t, found)
+	assert.Equal(t, eIdx.GetID(), eByIdx.GetID())
+	assert.Equal(t, uint64(25), eByIdx.GetAge())
+	assert.Equal(t, int64(10), eByIdx.GetBalance())
+	// Not found case
+	eByIdx, found, err = entities.GenerateEntityProvider.GetByIndexAgeBalance(ctx, 999, 999)
+	assert.NoError(t, err)
+	assert.False(t, found)
+	assert.Nil(t, eByIdx)
+
+	// Test cached unique index getter (generateEntityCachedUnique)
+	cu := entities.GenerateEntityCachedUniqueProvider.New(ctx)
+	cu.SetName("Alice")
+	cu.SetAge(30)
+	cu.SetEmail("alice@example.com")
+	assert.NoError(t, ctx.Flush())
+
+	// First call: should go to MySQL, cache in Redis, then GetByID
+	cuByName, found, err := entities.GenerateEntityCachedUniqueProvider.GetByIndexNameAge(ctx, "Alice", 30)
+	assert.NoError(t, err)
+	assert.True(t, found)
+	assert.Equal(t, cu.GetID(), cuByName.GetID())
+	// Second call: should hit Redis cache
+	cuByName2, found, err := entities.GenerateEntityCachedUniqueProvider.GetByIndexNameAge(ctx, "Alice", 30)
+	assert.NoError(t, err)
+	assert.True(t, found)
+	assert.Equal(t, cu.GetID(), cuByName2.GetID())
+	// Not found case
+	cuByName3, found, err := entities.GenerateEntityCachedUniqueProvider.GetByIndexNameAge(ctx, "Nobody", 0)
+	assert.NoError(t, err)
+	assert.False(t, found)
+	assert.Nil(t, cuByName3)
+
+	// Email single-column cached index
+	cuByEmail, found, err := entities.GenerateEntityCachedUniqueProvider.GetByIndexEmail(ctx, "alice@example.com")
+	assert.NoError(t, err)
+	assert.True(t, found)
+	assert.Equal(t, cu.GetID(), cuByEmail.GetID())
+
+	// Test INSERT populates cached unique index key (already tested above via getter)
+	// Test UPDATE with changed index column: change Name and verify new lookup works
+	cuByName, found, err = entities.GenerateEntityCachedUniqueProvider.GetByIndexNameAge(ctx, "Alice", 30)
+	assert.NoError(t, err)
+	assert.True(t, found)
+	cuByName.SetName("Bob")
+	assert.NoError(t, ctx.Flush())
+	// Old key should no longer work
+	cuOld, found, err := entities.GenerateEntityCachedUniqueProvider.GetByIndexNameAge(ctx, "Alice", 30)
+	assert.NoError(t, err)
+	assert.False(t, found)
+	assert.Nil(t, cuOld)
+	// New key should work
+	cuNew, found, err := entities.GenerateEntityCachedUniqueProvider.GetByIndexNameAge(ctx, "Bob", 30)
+	assert.NoError(t, err)
+	assert.True(t, found)
+	assert.Equal(t, cu.GetID(), cuNew.GetID())
+
+	// Test DELETE removes cached unique index key
+	cuNew.Delete()
+	assert.NoError(t, ctx.Flush())
+	cuDel, found, err := entities.GenerateEntityCachedUniqueProvider.GetByIndexNameAge(ctx, "Bob", 30)
+	assert.NoError(t, err)
+	assert.False(t, found)
+	assert.Nil(t, cuDel)
+	cuDelEmail, found, err := entities.GenerateEntityCachedUniqueProvider.GetByIndexEmail(ctx, "alice@example.com")
+	assert.NoError(t, err)
+	assert.False(t, found)
+	assert.Nil(t, cuDelEmail)
+
+	// Test cached unique index without Redis entity cache (generateEntityCachedUniqueNoRedis)
+	cunr := entities.GenerateEntityCachedUniqueNoRedisProvider.New(ctx)
+	cunr.SetCode("test123")
+	cunr.SetValue(42)
+	assert.NoError(t, ctx.Flush())
+	cunrByCode, found, err := entities.GenerateEntityCachedUniqueNoRedisProvider.GetByIndexCode(ctx, "test123", 42)
+	assert.NoError(t, err)
+	assert.True(t, found)
+	assert.Equal(t, cunr.GetID(), cunrByCode.GetID())
+
+	// Test FakeDelete removes cached unique index key
+	cufd := entities.GenerateEntityCachedUniqueFakeDeleteProvider.New(ctx)
+	cufd.SetName("FakeDeleteTest")
+	assert.NoError(t, ctx.Flush())
+	cufdByName, found, err := entities.GenerateEntityCachedUniqueFakeDeleteProvider.GetByIndexName(ctx, "FakeDeleteTest")
+	assert.NoError(t, err)
+	assert.True(t, found)
+	assert.Equal(t, cufd.GetID(), cufdByName.GetID())
+	// Soft delete
+	cufdByName.Delete()
+	assert.NoError(t, ctx.Flush())
+	// Cached key should be removed, MySQL query filters by FakeDelete=0
+	cufdAfterDelete, found, err := entities.GenerateEntityCachedUniqueFakeDeleteProvider.GetByIndexName(ctx, "FakeDeleteTest")
+	assert.NoError(t, err)
+	assert.False(t, found)
+	assert.Nil(t, cufdAfterDelete)
 }
