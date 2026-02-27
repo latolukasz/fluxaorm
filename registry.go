@@ -29,6 +29,7 @@ type Registry interface {
 	InitByConfig(config *Config) error
 	SetOption(key string, value any)
 	RegisterRedisStream(name string, redisPool string)
+	RegisterAsyncSQLStream(redisPool string)
 	EnableMetrics(factory promauto.Factory)
 }
 
@@ -188,6 +189,13 @@ func (r *registry) Validate() (Engine, error) {
 			}
 		}
 	}
+	// Auto-register async SQL streams on the default Redis pool if not already configured.
+	if _, hasAsyncSQL := r.redisStreamPools[AsyncSQLStreamName]; !hasAsyncSQL {
+		if _, hasDefault := r.redisPools[DefaultPoolCode]; hasDefault {
+			r.RegisterRedisStream(AsyncSQLStreamName, DefaultPoolCode)
+			r.RegisterRedisStream(AsyncSQLDeadLetterStreamName, DefaultPoolCode)
+		}
+	}
 	e.registry.redisStreamGroups = r.redisStreamGroups
 	e.registry.redisStreamPools = r.redisStreamPools
 	if e.registry.hasMetrics {
@@ -206,6 +214,11 @@ func (r *registry) RegisterRedisStream(name string, redisPool string) {
 		r.redisStreamGroups[redisPool] = make(map[string]string)
 	}
 	r.redisStreamGroups[redisPool][name] = consumerGroupName
+}
+
+func (r *registry) RegisterAsyncSQLStream(redisPool string) {
+	r.RegisterRedisStream(AsyncSQLStreamName, redisPool)
+	r.RegisterRedisStream(AsyncSQLDeadLetterStreamName, redisPool)
 }
 
 func (r *registry) EnableMetrics(factory promauto.Factory) {

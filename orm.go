@@ -29,6 +29,8 @@ type Context interface {
 	DisableContextCache()
 	SetContextCacheTTL(ttl time.Duration)
 	Flush() error
+	FlushAsync() error
+	GetAsyncSQLConsumer() (AsyncSQLConsumer, error)
 	ClearFlush()
 	RedisPipeLine(pool string) *RedisPipeLine
 	DatabasePipeLine(pool string) *DatabasePipeline
