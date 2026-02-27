@@ -362,6 +362,18 @@ func (g *codeGenerator) generateEntityStruct(schema *entitySchema, names *entity
 
 	// INSERT block
 	g.addLine("\tif e.new {")
+	if schema.hasCreatedAt {
+		g.addImport("time")
+		g.addLine(fmt.Sprintf("\t\tif e.originDatabaseValues.F%d.IsZero() {", schema.createdAtFIndex))
+		g.addLine(fmt.Sprintf("\t\t\te.originDatabaseValues.F%d = time.Now().UTC().Truncate(time.Second)", schema.createdAtFIndex))
+		g.addLine("\t\t}")
+	}
+	if schema.hasUpdatedAt {
+		g.addImport("time")
+		g.addLine(fmt.Sprintf("\t\tif e.originDatabaseValues.F%d.IsZero() {", schema.updatedAtFIndex))
+		g.addLine(fmt.Sprintf("\t\t\te.originDatabaseValues.F%d = time.Now().UTC().Truncate(time.Second)", schema.updatedAtFIndex))
+		g.addLine("\t\t}")
+	}
 	insertQueryLine := "\t\tsqlQuery := \"INSERT INTO `" + schema.tableName + "` (`ID`"
 	for _, columnName := range schema.GetColumns()[1:] {
 		insertQueryLine += ",`" + columnName + "`"
@@ -433,6 +445,14 @@ func (g *codeGenerator) generateEntityStruct(schema *entitySchema, names *entity
 
 	// UPDATE block
 	g.addLine("\tif len(e.databaseBind) > 0 {")
+	if schema.hasUpdatedAt {
+		g.addImport("time")
+		g.addLine("\t\te.databaseBind[\"UpdatedAt\"] = time.Now().UTC().Truncate(time.Second)")
+		if schema.hasRedisCache {
+			g.addLine("\t\tif e.redisBind == nil { e.redisBind = make(map[int64]any) }")
+			g.addLine(fmt.Sprintf("\t\te.redisBind[%d] = e.databaseBind[\"UpdatedAt\"].(time.Time).Unix()", schema.updatedAtFIndex+1))
+		}
+	}
 	g.addLine(fmt.Sprintf("\t\tsqlQuery := \"UPDATE `%s` SET\" ", schema.tableName))
 	g.addLine("\t\ti := 0")
 	g.addLine("\t\tupdateParams := make([]any, len(e.databaseBind))")

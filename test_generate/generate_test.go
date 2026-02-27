@@ -82,6 +82,20 @@ type generateEntityWithSearch struct {
 	Score float64 `orm:"searchable"`
 }
 
+type generateEntityWithTimestamps struct {
+	ID        uint64
+	Name      string `orm:"required"`
+	CreatedAt time.Time
+	UpdatedAt time.Time
+}
+
+type generateEntityWithTimestampsRedis struct {
+	ID        uint64 `orm:"redisCache"`
+	Name      string `orm:"required"`
+	CreatedAt time.Time
+	UpdatedAt time.Time
+}
+
 //func BenchmarkGenerate(b *testing.B) {
 //	b.ReportAllocs()
 //	v := struct {
@@ -93,7 +107,7 @@ type generateEntityWithSearch struct {
 //}
 
 func TestGenerate(t *testing.T) {
-	ctx := fluxaorm.PrepareTablesBeta(t, fluxaorm.NewRegistry(), generateEntity{}, generateEntityNoRedis{}, generateReferenceEntity{}, generateEntityWithSearch{})
+	ctx := fluxaorm.PrepareTablesBeta(t, fluxaorm.NewRegistry(), generateEntity{}, generateEntityNoRedis{}, generateReferenceEntity{}, generateEntityWithSearch{}, generateEntityWithTimestamps{}, generateEntityWithTimestampsRedis{})
 	_ = os.MkdirAll("entities", 0755)
 
 	err := fluxaorm.Generate(ctx.Engine(), "entities")
@@ -752,4 +766,78 @@ func TestGenerate(t *testing.T) {
 	searchIDs, err = entities.GenerateEntityWithSearchProvider.SearchIDsInRedis(ctx, fluxaorm.NewRedisSearchWhere().NumericEqual("Age", 15), nil)
 	assert.NoError(t, err)
 	assert.Equal(t, []uint64{es1.GetID()}, searchIDs)
+
+	// ---- Timestamp auto-set tests (no Redis cache) ----
+	beforeInsert := time.Now().UTC().Truncate(time.Second)
+	ts1 := entities.GenerateEntityWithTimestampsProvider.New(ctx)
+	ts1.SetName("TimestampTest")
+	assert.NoError(t, ctx.Flush())
+	afterInsert := time.Now().UTC().Truncate(time.Second).Add(time.Second)
+
+	ts1, found, err = entities.GenerateEntityWithTimestampsProvider.GetByID(ctx, ts1.GetID())
+	assert.NoError(t, err)
+	assert.True(t, found)
+	// CreatedAt auto-set on INSERT
+	assert.False(t, ts1.GetCreatedAt().IsZero())
+	assert.True(t, !ts1.GetCreatedAt().Before(beforeInsert))
+	assert.True(t, ts1.GetCreatedAt().Before(afterInsert))
+	// UpdatedAt auto-set on INSERT
+	assert.False(t, ts1.GetUpdatedAt().IsZero())
+	assert.True(t, !ts1.GetUpdatedAt().Before(beforeInsert))
+	assert.True(t, ts1.GetUpdatedAt().Before(afterInsert))
+
+	origCreatedAt := ts1.GetCreatedAt()
+	origUpdatedAt := ts1.GetUpdatedAt()
+
+	// UPDATE: change Name, UpdatedAt should auto-set, CreatedAt unchanged
+	time.Sleep(time.Second)
+	ts1.SetName("TimestampTestUpdated")
+	assert.NoError(t, ctx.Flush())
+
+	ts1, found, err = entities.GenerateEntityWithTimestampsProvider.GetByID(ctx, ts1.GetID())
+	assert.NoError(t, err)
+	assert.True(t, found)
+	assert.Equal(t, origCreatedAt, ts1.GetCreatedAt())
+	assert.True(t, ts1.GetUpdatedAt().After(origUpdatedAt))
+
+	// INSERT with explicit CreatedAt: should preserve user value
+	customTime := time.Date(2020, 1, 1, 12, 0, 0, 0, time.UTC)
+	ts2 := entities.GenerateEntityWithTimestampsProvider.New(ctx)
+	ts2.SetName("CustomCreatedAt")
+	ts2.SetCreatedAt(customTime)
+	assert.NoError(t, ctx.Flush())
+
+	ts2, found, err = entities.GenerateEntityWithTimestampsProvider.GetByID(ctx, ts2.GetID())
+	assert.NoError(t, err)
+	assert.True(t, found)
+	assert.Equal(t, customTime, ts2.GetCreatedAt())
+	assert.False(t, ts2.GetUpdatedAt().IsZero()) // auto-set
+
+	// ---- Timestamp auto-set tests (with Redis cache) ----
+	beforeInsertR := time.Now().UTC().Truncate(time.Second)
+	tsr1 := entities.GenerateEntityWithTimestampsRedisProvider.New(ctx)
+	tsr1.SetName("TimestampRedisTest")
+	assert.NoError(t, ctx.Flush())
+	afterInsertR := time.Now().UTC().Truncate(time.Second).Add(time.Second)
+
+	tsr1, found, err = entities.GenerateEntityWithTimestampsRedisProvider.GetByID(ctx, tsr1.GetID())
+	assert.NoError(t, err)
+	assert.True(t, found)
+	assert.False(t, tsr1.GetCreatedAt().IsZero())
+	assert.True(t, !tsr1.GetCreatedAt().Before(beforeInsertR))
+	assert.True(t, tsr1.GetCreatedAt().Before(afterInsertR))
+	assert.False(t, tsr1.GetUpdatedAt().IsZero())
+
+	origCreatedAtR := tsr1.GetCreatedAt()
+	origUpdatedAtR := tsr1.GetUpdatedAt()
+
+	time.Sleep(time.Second)
+	tsr1.SetName("TimestampRedisTestUpdated")
+	assert.NoError(t, ctx.Flush())
+
+	tsr1, found, err = entities.GenerateEntityWithTimestampsRedisProvider.GetByID(ctx, tsr1.GetID())
+	assert.NoError(t, err)
+	assert.True(t, found)
+	assert.Equal(t, origCreatedAtR, tsr1.GetCreatedAt())
+	assert.True(t, tsr1.GetUpdatedAt().After(origUpdatedAtR))
 }

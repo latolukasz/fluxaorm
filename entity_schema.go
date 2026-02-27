@@ -124,6 +124,10 @@ type entitySchema struct {
 	uuidCacheKey            string
 	uuidMutex               sync.Mutex
 	structureHash           string
+	hasCreatedAt            bool
+	createdAtFIndex         int
+	hasUpdatedAt            bool
+	updatedAtFIndex         int
 	hasRedisSearch          bool
 	redisSearchPoolCode     string
 	redisSearchIndex        string
@@ -295,6 +299,14 @@ func (e *entitySchema) init(registry *registry, entityType reflect.Type) error {
 	e.uniqueIndexes = make(map[string]indexDefinition)
 	fakeDeleteField, foundFakeDeleteField := e.t.FieldByName("FakeDelete")
 	e.hasFakeDelete = foundFakeDeleteField && fakeDeleteField.Type.Kind() == reflect.Bool
+	createdAtField, foundCreatedAt := e.t.FieldByName("CreatedAt")
+	if foundCreatedAt && createdAtField.Type.String() == "time.Time" {
+		e.hasCreatedAt = true
+	}
+	updatedAtField, foundUpdatedAt := e.t.FieldByName("UpdatedAt")
+	if foundUpdatedAt && updatedAtField.Type.String() == "time.Time" {
+		e.hasUpdatedAt = true
+	}
 	e.mysqlPoolCode = e.getTag("mysql", "default", DefaultPoolCode)
 	_, has := registry.mysqlPools[e.mysqlPoolCode]
 	if !has {
@@ -404,6 +416,12 @@ func (e *entitySchema) init(registry *registry, entityType reflect.Type) error {
 	columnMapping := make(map[string]int)
 	for i, name := range e.columnNames {
 		columnMapping[name] = i
+	}
+	if e.hasCreatedAt {
+		e.createdAtFIndex = columnMapping["CreatedAt"]
+	}
+	if e.hasUpdatedAt {
+		e.updatedAtFIndex = columnMapping["UpdatedAt"]
 	}
 	if len(e.pendingSearchableFields) > 0 && e.redisSearchPoolCode != "" {
 		for i, colName := range e.columnNames {
@@ -1087,13 +1105,15 @@ func (e *entitySchema) buildFloatPointerField(attributes schemaFieldAttributes) 
 
 func (e *entitySchema) buildTimePointerField(attributes schemaFieldAttributes) {
 	_, hasTime := attributes.Tags["time"]
-	if hasTime {
+	fieldName := attributes.Prefix + attributes.Field.Name
+	forceTime := fieldName == "CreatedAt" || fieldName == "UpdatedAt"
+	if hasTime || forceTime {
 		attributes.Fields.timesNullable = append(attributes.Fields.timesNullable, attributes.Index)
 	} else {
 		attributes.Fields.datesNullable = append(attributes.Fields.datesNullable, attributes.Index)
 	}
 	goKind := "date"
-	if hasTime {
+	if hasTime || forceTime {
 		goKind = "time"
 	}
 	for _, columnName := range attributes.GetColumnNames() {
@@ -1106,13 +1126,15 @@ func (e *entitySchema) buildTimePointerField(attributes schemaFieldAttributes) {
 
 func (e *entitySchema) buildTimeField(attributes schemaFieldAttributes) {
 	_, hasTime := attributes.Tags["time"]
-	if hasTime {
+	fieldName := attributes.Prefix + attributes.Field.Name
+	forceTime := fieldName == "CreatedAt" || fieldName == "UpdatedAt"
+	if hasTime || forceTime {
 		attributes.Fields.times = append(attributes.Fields.times, attributes.Index)
 	} else {
 		attributes.Fields.dates = append(attributes.Fields.dates, attributes.Index)
 	}
 	goKind := "date"
-	if hasTime {
+	if hasTime || forceTime {
 		goKind = "time"
 	}
 	for _, columnName := range attributes.GetColumnNames() {

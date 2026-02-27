@@ -566,8 +566,20 @@ func checkColumn(engine Engine, schema *entitySchema, field *reflect.StructField
 		case "*float64":
 			definition, addNotNullIfNotSet, defaultValue = handleFloat("double", attributes, true)
 		case "time.Time":
+			if columnName == "CreatedAt" || columnName == "UpdatedAt" {
+				if attributes == nil {
+					attributes = make(map[string]string)
+				}
+				attributes["time"] = "true"
+			}
 			definition, addNotNullIfNotSet, addDefaultNullIfNullable, defaultValue = handleTime(attributes, false)
 		case "*time.Time":
+			if columnName == "CreatedAt" || columnName == "UpdatedAt" {
+				if attributes == nil {
+					attributes = make(map[string]string)
+				}
+				attributes["time"] = "true"
+			}
 			definition, addNotNullIfNotSet, addDefaultNullIfNullable, defaultValue = handleTime(attributes, true)
 		case "[]uint8":
 			definition, addDefaultNullIfNullable = handleBlob(attributes)
