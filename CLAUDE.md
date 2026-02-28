@@ -2,6 +2,10 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
+## Documentation Sync
+
+Every change to the ORM code must be accompanied by a corresponding update to the documentation in `documentation/`. This includes API changes, new features, removed features, behavior changes, and bug fixes that affect documented behavior.
+
 ## Commands
 
 ```bash

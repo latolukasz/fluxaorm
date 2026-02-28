@@ -966,4 +966,132 @@ func TestGenerate(t *testing.T) {
 	assert.NoError(t, err)
 	assert.False(t, found)
 	assert.Nil(t, cufdAfterDelete)
+
+	// ---- NewWithFields tests ----
+
+	// Clear any pending tracked entities from earlier tests
+	ctx.ClearFlush()
+
+	// NewWithFields with nil fields (same as New)
+	nwfNil := entities.GenerateEntityProvider.NewWithFields(ctx, nil)
+	assert.NotEmpty(t, nwfNil.GetID())
+	assert.Equal(t, uint64(0), nwfNil.GetAge())
+	assert.Equal(t, "", nwfNil.GetName())
+
+	// NewWithFields with partial fields (others remain default)
+	nwfPartialName := "PartialTest"
+	nwfPartial := entities.GenerateEntityProvider.NewWithFields(ctx, &entities.GenerateEntityFields{
+		Name: &nwfPartialName,
+	})
+	assert.NotEmpty(t, nwfPartial.GetID())
+	assert.Equal(t, nwfPartialName, nwfPartial.GetName())
+	assert.Equal(t, uint64(0), nwfPartial.GetAge())
+	assert.Equal(t, int64(0), nwfPartial.GetBalance())
+	assert.Nil(t, nwfPartial.GetAgeNullable())
+	assert.Nil(t, nwfPartial.GetBalanceNullable())
+	assert.Nil(t, nwfPartial.GetComment())
+	assert.False(t, nwfPartial.GetBool())
+	assert.Nil(t, nwfPartial.GetBoolNullable())
+	assert.Equal(t, float64(0), nwfPartial.GetFloat())
+	assert.Nil(t, nwfPartial.GetFloatNullable())
+	assert.Nil(t, nwfPartial.GetTimeNullable())
+	assert.Nil(t, nwfPartial.GetDateNullable())
+
+	// NewWithFields with empty struct (no fields set, same as nil)
+	nwfEmpty := entities.GenerateEntityProvider.NewWithFields(ctx, &entities.GenerateEntityFields{})
+	assert.NotEmpty(t, nwfEmpty.GetID())
+	assert.Equal(t, uint64(0), nwfEmpty.GetAge())
+	assert.Equal(t, "", nwfEmpty.GetName())
+
+	// NewWithFields on entity without Redis cache (in-memory only)
+	nwfNoRedisName := "NoRedisTest"
+	nwfNoRedisAge := uint64(99)
+	nwfNoRedis := entities.GenerateEntityNoRedisProvider.NewWithFields(ctx, &entities.GenerateEntityNoRedisFields{
+		Name: &nwfNoRedisName,
+		Age:  &nwfNoRedisAge,
+	})
+	assert.NotEmpty(t, nwfNoRedis.GetID())
+	assert.Equal(t, nwfNoRedisName, nwfNoRedis.GetName())
+	assert.Equal(t, nwfNoRedisAge, nwfNoRedis.GetAge())
+
+	// Clear in-memory-only entities before persistence test
+	ctx.ClearFlush()
+
+	// NewWithFields with all fields set — flush and verify from DB
+	nwfName := "NewWithFieldsTest"
+	nwfComment := "A comment"
+	nwfAge := uint64(42)
+	nwfBalance := int64(100)
+	nwfAgeNullable := uint64(7)
+	nwfBalanceNullable := int64(3)
+	nwfBool := true
+	nwfBoolNullable := false
+	nwfFloat := 12.5
+	nwfFloatNullable := 99.9
+	nwfTime := time.Now().UTC()
+	nwfDate := time.Now().UTC()
+	nwfTimeNullable := time.Now().UTC()
+	nwfDateNullable := time.Now().UTC()
+	nwfTestEnum := enums.TestEnumList.B
+	nwfTestEnumOptional := enums.TestEnumList.C
+	nwfSize := uint64(5)
+	nwfTestSubSize := uint64(10)
+
+	nwfAll := entities.GenerateEntityProvider.NewWithFields(ctx, &entities.GenerateEntityFields{
+		Age:               &nwfAge,
+		Balance:           &nwfBalance,
+		AgeNullable:       &nwfAgeNullable,
+		BalanceNullable:   &nwfBalanceNullable,
+		Name:              &nwfName,
+		Comment:           &nwfComment,
+		TestEnum:          &nwfTestEnum,
+		TestEnumOptional:  &nwfTestEnumOptional,
+		TestSet:           []enums.TestEnum{enums.TestEnumList.A, enums.TestEnumList.B},
+		TestSetOptional:   []enums.TestEnum{enums.TestEnumList.C},
+		Byte:              []uint8("hello"),
+		Bool:              &nwfBool,
+		BoolNullable:      &nwfBoolNullable,
+		Float:             &nwfFloat,
+		FloatNullable:     &nwfFloatNullable,
+		Time:              &nwfTime,
+		Date:              &nwfDate,
+		TimeNullable:      &nwfTimeNullable,
+		DateNullable:      &nwfDateNullable,
+		Size:              &nwfSize,
+		TestSubSize:       &nwfTestSubSize,
+	})
+	assert.NotEmpty(t, nwfAll.GetID())
+	assert.Equal(t, nwfAge, nwfAll.GetAge())
+	assert.Equal(t, nwfBalance, nwfAll.GetBalance())
+	assert.Equal(t, nwfAgeNullable, *nwfAll.GetAgeNullable())
+	assert.Equal(t, nwfBalanceNullable, *nwfAll.GetBalanceNullable())
+	assert.Equal(t, nwfName, nwfAll.GetName())
+	assert.Equal(t, nwfComment, *nwfAll.GetComment())
+	assert.Equal(t, nwfTestEnum, nwfAll.GetTestEnum())
+	assert.Equal(t, nwfTestEnumOptional, *nwfAll.GetTestEnumOptional())
+	assert.Equal(t, []enums.TestEnum{enums.TestEnumList.A, enums.TestEnumList.B}, nwfAll.GetTestSet())
+	assert.Equal(t, []enums.TestEnum{enums.TestEnumList.C}, nwfAll.GetTestSetOptional())
+	assert.Equal(t, []uint8("hello"), nwfAll.GetByte())
+	assert.True(t, nwfAll.GetBool())
+	assert.Equal(t, nwfBoolNullable, *nwfAll.GetBoolNullable())
+	assert.Equal(t, nwfFloat, nwfAll.GetFloat())
+	assert.Equal(t, nwfFloatNullable, *nwfAll.GetFloatNullable())
+	assert.Equal(t, nwfTime.Truncate(time.Second), nwfAll.GetTime())
+	assert.Equal(t, nwfDate.Truncate(time.Hour*24), nwfAll.GetDate())
+	assert.Equal(t, nwfTimeNullable.Truncate(time.Second), *nwfAll.GetTimeNullable())
+	assert.Equal(t, nwfDateNullable.Truncate(time.Hour*24), *nwfAll.GetDateNullable())
+	assert.Equal(t, nwfSize, nwfAll.GetSize())
+	assert.Equal(t, nwfTestSubSize, nwfAll.GetTestSubSize())
+
+	// Flush and verify persisted values
+	assert.NoError(t, ctx.Flush())
+
+	nwfLoaded, found, err := entities.GenerateEntityProvider.GetByID(ctx, nwfAll.GetID())
+	assert.NoError(t, err)
+	assert.True(t, found)
+	assert.Equal(t, nwfAge, nwfLoaded.GetAge())
+	assert.Equal(t, nwfBalance, nwfLoaded.GetBalance())
+	assert.Equal(t, nwfName, nwfLoaded.GetName())
+	assert.Equal(t, nwfComment, *nwfLoaded.GetComment())
+	assert.Equal(t, nwfTestEnum, nwfLoaded.GetTestEnum())
 }
