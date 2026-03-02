@@ -1,6 +1,7 @@
 package test_generate
 
 import (
+	"fmt"
 	"testing"
 	"time"
 
@@ -17,9 +18,10 @@ func TestAfterInsertCallback(t *testing.T) {
 
 	var callbackEntity *entities.GenerateEntityWithTimestamps
 	var callbackCtx fluxaorm.Context
-	entities.GenerateEntityWithTimestampsProvider.OnAfterInsert(ctx.Engine(), func(c fluxaorm.Context, entity *entities.GenerateEntityWithTimestamps) {
+	entities.GenerateEntityWithTimestampsProvider.OnAfterInsert(ctx.Engine(), func(c fluxaorm.Context, entity *entities.GenerateEntityWithTimestamps) error {
 		callbackCtx = c
 		callbackEntity = entity
+		return nil
 	})
 
 	e := entities.GenerateEntityWithTimestampsProvider.New(ctx)
@@ -40,11 +42,12 @@ func TestAfterUpdateCallback(t *testing.T) {
 	var callbackNameDuringCallback string
 	var callbackChanges map[string]any
 	var updateCalled bool
-	entities.GenerateEntityWithTimestampsProvider.OnAfterUpdate(ctx.Engine(), func(c fluxaorm.Context, entity *entities.GenerateEntityWithTimestamps, changes map[string]any) {
+	entities.GenerateEntityWithTimestampsProvider.OnAfterUpdate(ctx.Engine(), func(c fluxaorm.Context, entity *entities.GenerateEntityWithTimestamps, changes map[string]any) error {
 		updateCalled = true
 		callbackEntityID = entity.GetID()
 		callbackNameDuringCallback = entity.GetName() // capture NEW value during callback
 		callbackChanges = changes
+		return nil
 	})
 
 	e := entities.GenerateEntityWithTimestampsProvider.New(ctx)
@@ -71,8 +74,9 @@ func TestAfterDeleteCallback(t *testing.T) {
 	ctx := fluxaorm.PrepareTablesBeta(t, fluxaorm.NewRegistry(), generateEntityWithTimestamps{})
 
 	var callbackEntity *entities.GenerateEntityWithTimestamps
-	entities.GenerateEntityWithTimestampsProvider.OnAfterDelete(ctx.Engine(), func(c fluxaorm.Context, entity *entities.GenerateEntityWithTimestamps) {
+	entities.GenerateEntityWithTimestampsProvider.OnAfterDelete(ctx.Engine(), func(c fluxaorm.Context, entity *entities.GenerateEntityWithTimestamps) error {
 		callbackEntity = entity
+		return nil
 	})
 
 	e := entities.GenerateEntityWithTimestampsProvider.New(ctx)
@@ -92,11 +96,13 @@ func TestAfterDeleteCallbackFakeDelete(t *testing.T) {
 
 	var deleteCallbackEntity *entities.GenerateReferenceEntity
 	var updateCalled bool
-	entities.GenerateReferenceEntityProvider.OnAfterDelete(ctx.Engine(), func(c fluxaorm.Context, entity *entities.GenerateReferenceEntity) {
+	entities.GenerateReferenceEntityProvider.OnAfterDelete(ctx.Engine(), func(c fluxaorm.Context, entity *entities.GenerateReferenceEntity) error {
 		deleteCallbackEntity = entity
+		return nil
 	})
-	entities.GenerateReferenceEntityProvider.OnAfterUpdate(ctx.Engine(), func(c fluxaorm.Context, entity *entities.GenerateReferenceEntity, changes map[string]any) {
+	entities.GenerateReferenceEntityProvider.OnAfterUpdate(ctx.Engine(), func(c fluxaorm.Context, entity *entities.GenerateReferenceEntity, changes map[string]any) error {
 		updateCalled = true
+		return nil
 	})
 
 	e := entities.GenerateReferenceEntityProvider.New(ctx)
@@ -117,8 +123,9 @@ func TestAfterFlushCallbacksNotFiredForFlushAsync(t *testing.T) {
 	ctx := fluxaorm.PrepareTablesBeta(t, fluxaorm.NewRegistry(), generateEntityWithTimestampsRedis{})
 
 	var insertCalled bool
-	entities.GenerateEntityWithTimestampsRedisProvider.OnAfterInsert(ctx.Engine(), func(c fluxaorm.Context, entity *entities.GenerateEntityWithTimestampsRedis) {
+	entities.GenerateEntityWithTimestampsRedisProvider.OnAfterInsert(ctx.Engine(), func(c fluxaorm.Context, entity *entities.GenerateEntityWithTimestampsRedis) error {
 		insertCalled = true
+		return nil
 	})
 
 	e := entities.GenerateEntityWithTimestampsRedisProvider.New(ctx)
@@ -146,8 +153,9 @@ func TestAfterUpdateExcludesUpdatedAt(t *testing.T) {
 	ctx := fluxaorm.PrepareTablesBeta(t, fluxaorm.NewRegistry(), generateEntityWithTimestamps{})
 
 	var callbackChanges map[string]any
-	entities.GenerateEntityWithTimestampsProvider.OnAfterUpdate(ctx.Engine(), func(c fluxaorm.Context, entity *entities.GenerateEntityWithTimestamps, changes map[string]any) {
+	entities.GenerateEntityWithTimestampsProvider.OnAfterUpdate(ctx.Engine(), func(c fluxaorm.Context, entity *entities.GenerateEntityWithTimestamps, changes map[string]any) error {
 		callbackChanges = changes
+		return nil
 	})
 
 	e := entities.GenerateEntityWithTimestampsProvider.New(ctx)
@@ -175,11 +183,13 @@ func TestMultipleEntitiesInSingleFlush(t *testing.T) {
 
 	var insertedTimestamps []*entities.GenerateEntityWithTimestamps
 	var insertedRefs []*entities.GenerateReferenceEntity
-	entities.GenerateEntityWithTimestampsProvider.OnAfterInsert(ctx.Engine(), func(c fluxaorm.Context, entity *entities.GenerateEntityWithTimestamps) {
+	entities.GenerateEntityWithTimestampsProvider.OnAfterInsert(ctx.Engine(), func(c fluxaorm.Context, entity *entities.GenerateEntityWithTimestamps) error {
 		insertedTimestamps = append(insertedTimestamps, entity)
+		return nil
 	})
-	entities.GenerateReferenceEntityProvider.OnAfterInsert(ctx.Engine(), func(c fluxaorm.Context, entity *entities.GenerateReferenceEntity) {
+	entities.GenerateReferenceEntityProvider.OnAfterInsert(ctx.Engine(), func(c fluxaorm.Context, entity *entities.GenerateReferenceEntity) error {
 		insertedRefs = append(insertedRefs, entity)
+		return nil
 	})
 
 	ts1 := entities.GenerateEntityWithTimestampsProvider.New(ctx)
@@ -199,4 +209,25 @@ func TestMultipleEntitiesInSingleFlush(t *testing.T) {
 	assert.Contains(t, names, "Second")
 	assert.NotNil(t, insertedRefs[0].GetName())
 	assert.Equal(t, "Ref", *insertedRefs[0].GetName())
+}
+
+func TestAfterCallbackErrorPropagation(t *testing.T) {
+	ctx := fluxaorm.PrepareTablesBeta(t, fluxaorm.NewRegistry(), generateEntityWithTimestamps{})
+
+	expectedErr := fmt.Errorf("callback error")
+	entities.GenerateEntityWithTimestampsProvider.OnAfterInsert(ctx.Engine(), func(c fluxaorm.Context, entity *entities.GenerateEntityWithTimestamps) error {
+		return expectedErr
+	})
+
+	e := entities.GenerateEntityWithTimestampsProvider.New(ctx)
+	e.SetName("ErrorTest")
+	err := ctx.Flush()
+
+	assert.Equal(t, expectedErr, err)
+
+	// Entity was still persisted to DB (callback runs after DB+Redis writes)
+	e2, found, err := entities.GenerateEntityWithTimestampsProvider.GetByID(ctx, e.GetID())
+	assert.NoError(t, err)
+	assert.True(t, found)
+	assert.Equal(t, "ErrorTest", e2.GetName())
 }

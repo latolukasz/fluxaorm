@@ -46,21 +46,24 @@ func (orm *ormImplementation) flush() (err error) {
 				switch eventType {
 				case 1:
 					if handler, ok := orm.engine.afterInsertHandlers[cacheIndex]; ok {
-						handler(orm, e)
+						err = handler(orm, e)
 					}
 				case 2:
 					if handler, ok := orm.engine.afterUpdateHandlers[cacheIndex]; ok {
-						handler(orm, e, changes)
+						err = handler(orm, e, changes)
 					}
 				case 3:
 					if handler, ok := orm.engine.afterDeleteHandlers[cacheIndex]; ok {
-						handler(orm, e)
+						err = handler(orm, e)
 					}
 				}
-				return true
+				return err == nil
 			})
-			return true
+			return err == nil
 		})
+		if err != nil {
+			return err
+		}
 	}
 	orm.trackedEntities.Range(func(_ uint64, value *xsync.MapOf[uint64, Entity]) bool {
 		value.Range(func(_ uint64, e Entity) bool {

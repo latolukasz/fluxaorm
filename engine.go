@@ -49,9 +49,9 @@ type engineImplementation struct {
 	dbServers           map[string]DB
 	redisServers        map[string]RedisCache
 	options             map[string]any
-	afterInsertHandlers map[uint64]func(Context, Entity)
-	afterUpdateHandlers map[uint64]func(Context, Entity, map[string]any)
-	afterDeleteHandlers map[uint64]func(Context, Entity)
+	afterInsertHandlers map[uint64]func(Context, Entity) error
+	afterUpdateHandlers map[uint64]func(Context, Entity, map[string]any) error
+	afterDeleteHandlers map[uint64]func(Context, Entity) error
 }
 
 func (e *engineImplementation) NewContext(context context.Context) Context {
@@ -121,26 +121,26 @@ func (er *engineRegistryImplementation) getDefaultQueryLogger() LogHandler {
 	return er.defaultQueryLogger
 }
 
-func RegisterAfterInsertHandler(engine Engine, cacheIndex uint64, handler func(Context, Entity)) {
+func RegisterAfterInsertHandler(engine Engine, cacheIndex uint64, handler func(Context, Entity) error) {
 	e := engine.(*engineImplementation)
 	if e.afterInsertHandlers == nil {
-		e.afterInsertHandlers = make(map[uint64]func(Context, Entity))
+		e.afterInsertHandlers = make(map[uint64]func(Context, Entity) error)
 	}
 	e.afterInsertHandlers[cacheIndex] = handler
 }
 
-func RegisterAfterUpdateHandler(engine Engine, cacheIndex uint64, handler func(Context, Entity, map[string]any)) {
+func RegisterAfterUpdateHandler(engine Engine, cacheIndex uint64, handler func(Context, Entity, map[string]any) error) {
 	e := engine.(*engineImplementation)
 	if e.afterUpdateHandlers == nil {
-		e.afterUpdateHandlers = make(map[uint64]func(Context, Entity, map[string]any))
+		e.afterUpdateHandlers = make(map[uint64]func(Context, Entity, map[string]any) error)
 	}
 	e.afterUpdateHandlers[cacheIndex] = handler
 }
 
-func RegisterAfterDeleteHandler(engine Engine, cacheIndex uint64, handler func(Context, Entity)) {
+func RegisterAfterDeleteHandler(engine Engine, cacheIndex uint64, handler func(Context, Entity) error) {
 	e := engine.(*engineImplementation)
 	if e.afterDeleteHandlers == nil {
-		e.afterDeleteHandlers = make(map[uint64]func(Context, Entity))
+		e.afterDeleteHandlers = make(map[uint64]func(Context, Entity) error)
 	}
 	e.afterDeleteHandlers[cacheIndex] = handler
 }
