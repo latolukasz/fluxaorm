@@ -52,6 +52,8 @@ type engineImplementation struct {
 	afterInsertHandlers map[uint64]func(Context, Entity) error
 	afterUpdateHandlers map[uint64]func(Context, Entity, map[string]any) error
 	afterDeleteHandlers map[uint64]func(Context, Entity) error
+	entityLoaders       map[uint64]func(Context, uint64) (Entity, bool, error)
+	entityDBPools       map[uint64]string
 }
 
 func (e *engineImplementation) NewContext(context context.Context) Context {
@@ -119,6 +121,16 @@ func (er *engineRegistryImplementation) Option(key string) any {
 
 func (er *engineRegistryImplementation) getDefaultQueryLogger() LogHandler {
 	return er.defaultQueryLogger
+}
+
+func RegisterEntityLoader(engine Engine, cacheIndex uint64, dbPool string, loader func(Context, uint64) (Entity, bool, error)) {
+	e := engine.(*engineImplementation)
+	if e.entityLoaders == nil {
+		e.entityLoaders = make(map[uint64]func(Context, uint64) (Entity, bool, error))
+		e.entityDBPools = make(map[uint64]string)
+	}
+	e.entityLoaders[cacheIndex] = loader
+	e.entityDBPools[cacheIndex] = dbPool
 }
 
 func RegisterAfterInsertHandler(engine Engine, cacheIndex uint64, handler func(Context, Entity) error) {

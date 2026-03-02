@@ -29,13 +29,22 @@ type AsyncSQLQuery struct {
 	P []AsyncSQLParam `msgpack:"p"`
 }
 
+// AsyncEntityEvent holds metadata about an entity change for firing hooks in the async consumer.
+type AsyncEntityEvent struct {
+	CacheIndex uint64                   `msgpack:"ci"`
+	EntityID   uint64                   `msgpack:"id"`
+	FlushType  uint8                    `msgpack:"ft"` // 1=insert, 2=update, 3=delete
+	Changes    map[string]AsyncSQLParam `msgpack:"ch,omitempty"`
+}
+
 // AsyncSQLOperation holds one or more SQL queries for a single DB pool.
 // Multiple queries are executed in a transaction.
 // This type is also used in the dead-letter stream so consumers can inspect
 // and replay failed operations.
 type AsyncSQLOperation struct {
-	Pool    string          `msgpack:"pool"`
-	Queries []AsyncSQLQuery `msgpack:"queries"`
+	Pool    string             `msgpack:"pool"`
+	Queries []AsyncSQLQuery    `msgpack:"queries"`
+	Events  []AsyncEntityEvent `msgpack:"events,omitempty"`
 }
 
 // convertParam converts a Go SQL parameter value to a typed AsyncSQLParam.
@@ -117,6 +126,95 @@ func deconvertParam(p AsyncSQLParam) any {
 	return p.Val
 }
 
+// convertChangeValue converts a Go value from the changes map to an AsyncSQLParam.
+// Unlike convertParam, this handles the unwrapped types returned by privateGetOriginalColumnValue
+// (e.g. uint32, int8) rather than sql.Null* types.
+func convertChangeValue(v any) AsyncSQLParam {
+	if v == nil {
+		return AsyncSQLParam{Null: true}
+	}
+	switch val := v.(type) {
+	case string:
+		return AsyncSQLParam{Type: "s", Val: val}
+	case uint64:
+		return AsyncSQLParam{Type: "u", Val: strconv.FormatUint(val, 10)}
+	case uint32:
+		return AsyncSQLParam{Type: "u", Val: strconv.FormatUint(uint64(val), 10)}
+	case uint16:
+		return AsyncSQLParam{Type: "u", Val: strconv.FormatUint(uint64(val), 10)}
+	case uint8:
+		return AsyncSQLParam{Type: "u", Val: strconv.FormatUint(uint64(val), 10)}
+	case int64:
+		return AsyncSQLParam{Type: "i", Val: strconv.FormatInt(val, 10)}
+	case int32:
+		return AsyncSQLParam{Type: "i", Val: strconv.FormatInt(int64(val), 10)}
+	case int16:
+		return AsyncSQLParam{Type: "i", Val: strconv.FormatInt(int64(val), 10)}
+	case int8:
+		return AsyncSQLParam{Type: "i", Val: strconv.FormatInt(int64(val), 10)}
+	case float64:
+		return AsyncSQLParam{Type: "f", Val: strconv.FormatFloat(val, 'g', -1, 64)}
+	case float32:
+		return AsyncSQLParam{Type: "f", Val: strconv.FormatFloat(float64(val), 'g', -1, 64)}
+	case bool:
+		if val {
+			return AsyncSQLParam{Type: "b", Val: "1"}
+		}
+		return AsyncSQLParam{Type: "b", Val: "0"}
+	case time.Time:
+		return AsyncSQLParam{Type: "t", Val: val.UTC().Format(time.RFC3339)}
+	}
+	return AsyncSQLParam{Type: "s", Val: fmt.Sprintf("%v", v)}
+}
+
+// deconvertChangeValue converts an AsyncSQLParam back to a simple Go type for the changes map.
+func deconvertChangeValue(p AsyncSQLParam) any {
+	if p.Null {
+		return nil
+	}
+	switch p.Type {
+	case "s":
+		return p.Val
+	case "u":
+		v, _ := strconv.ParseUint(p.Val, 10, 64)
+		return v
+	case "i":
+		v, _ := strconv.ParseInt(p.Val, 10, 64)
+		return v
+	case "f":
+		v, _ := strconv.ParseFloat(p.Val, 64)
+		return v
+	case "b":
+		return p.Val == "1"
+	case "t":
+		v, _ := time.Parse(time.RFC3339, p.Val)
+		return v
+	}
+	return p.Val
+}
+
+func convertChanges(m map[string]any) map[string]AsyncSQLParam {
+	if len(m) == 0 {
+		return nil
+	}
+	result := make(map[string]AsyncSQLParam, len(m))
+	for k, v := range m {
+		result[k] = convertChangeValue(v)
+	}
+	return result
+}
+
+func deconvertChanges(m map[string]AsyncSQLParam) map[string]any {
+	if len(m) == 0 {
+		return nil
+	}
+	result := make(map[string]any, len(m))
+	for k, v := range m {
+		result[k] = deconvertChangeValue(v)
+	}
+	return result
+}
+
 // AsyncSQLConsumer reads async SQL events from the stream and executes them against MySQL.
 type AsyncSQLConsumer interface {
 	Consume(count int, blockTime time.Duration) error
@@ -147,7 +245,41 @@ func (orm *ormImplementation) FlushAsync() error {
 		return flushErr
 	}
 
-	// Step 2: serialize each non-empty DatabasePipeline into AsyncSQLOperation events
+	// Step 2: collect entity events for async hook firing (if any handlers are registered)
+	var entityEventsByPool map[string][]AsyncEntityEvent
+	if orm.engine.entityLoaders != nil {
+		entityEventsByPool = make(map[string][]AsyncEntityEvent)
+		orm.trackedEntities.Range(func(cacheIndex uint64, value *xsync.MapOf[uint64, Entity]) bool {
+			pool, hasPool := orm.engine.entityDBPools[cacheIndex]
+			if !hasPool {
+				return true
+			}
+			hasInsert := orm.engine.afterInsertHandlers != nil && orm.engine.afterInsertHandlers[cacheIndex] != nil
+			hasUpdate := orm.engine.afterUpdateHandlers != nil && orm.engine.afterUpdateHandlers[cacheIndex] != nil
+			hasDelete := orm.engine.afterDeleteHandlers != nil && orm.engine.afterDeleteHandlers[cacheIndex] != nil
+			if !hasInsert && !hasUpdate && !hasDelete {
+				return true
+			}
+			value.Range(func(_ uint64, e Entity) bool {
+				eventType, changes := e.PrivateFlushEvent()
+				if eventType == 0 {
+					return true
+				}
+				if (eventType == 1 && !hasInsert) || (eventType == 2 && !hasUpdate) || (eventType == 3 && !hasDelete) {
+					return true
+				}
+				ev := AsyncEntityEvent{CacheIndex: cacheIndex, EntityID: e.GetID(), FlushType: eventType}
+				if eventType == 2 && changes != nil {
+					ev.Changes = convertChanges(changes)
+				}
+				entityEventsByPool[pool] = append(entityEventsByPool[pool], ev)
+				return true
+			})
+			return true
+		})
+	}
+
+	// Step 3: serialize each non-empty DatabasePipeline into AsyncSQLOperation events
 	broker := orm.GetEventBroker()
 	eventFlusher := broker.NewFlusher()
 	for pool, dbPipeline := range orm.dbPipeLines {
@@ -162,28 +294,28 @@ func (orm *ormImplementation) FlushAsync() error {
 			}
 			queries[i] = AsyncSQLQuery{Q: q, P: params}
 		}
-		op := AsyncSQLOperation{Pool: pool, Queries: queries}
+		op := AsyncSQLOperation{Pool: pool, Queries: queries, Events: entityEventsByPool[pool]}
 		if err := eventFlusher.Publish(AsyncSQLStreamName, op); err != nil {
 			return err
 		}
 	}
 
-	// Step 3: clear DB pipelines — queries will go to the stream, not MySQL directly
+	// Step 4: clear DB pipelines — queries will go to the stream, not MySQL directly
 	orm.dbPipeLines = nil
 
-	// Step 4: execute Redis pipelines (cache + search indexes updated immediately)
+	// Step 5: execute Redis pipelines (cache + search indexes updated immediately)
 	for _, redisPipeline := range orm.redisPipeLines {
 		if _, err := redisPipeline.Exec(orm); err != nil {
 			return err
 		}
 	}
 
-	// Step 5: publish the serialized SQL events to the async stream
+	// Step 6: publish the serialized SQL events to the async stream
 	if err := eventFlusher.Flush(); err != nil {
 		return err
 	}
 
-	// Step 6: mark entities as flushed and clear tracked set
+	// Step 7: mark entities as flushed and clear tracked set
 	orm.trackedEntities.Range(func(_ uint64, value *xsync.MapOf[uint64, Entity]) bool {
 		value.Range(func(_ uint64, e Entity) bool {
 			e.PrivateFlushed()
@@ -230,6 +362,30 @@ func (c *asyncSQLConsumerImpl) handleEvents(events []Event) error {
 			_ = ev.Ack()
 			continue
 		}
+
+		// Pre-load entities for DELETE before SQL execution (they'll be gone after hard delete)
+		var preLoadedDeleteEntities map[uint64]Entity
+		if len(op.Events) > 0 && c.ctx.engine.entityLoaders != nil {
+			for _, entityEvent := range op.Events {
+				if entityEvent.FlushType != 3 {
+					continue
+				}
+				loader, hasLoader := c.ctx.engine.entityLoaders[entityEvent.CacheIndex]
+				if !hasLoader {
+					continue
+				}
+				loadCtx := c.ctx.engine.NewContext(c.ctx.context)
+				entity, found, err := loader(loadCtx, entityEvent.EntityID)
+				if err != nil || !found {
+					continue
+				}
+				if preLoadedDeleteEntities == nil {
+					preLoadedDeleteEntities = make(map[uint64]Entity)
+				}
+				preLoadedDeleteEntities[entityEvent.EntityID] = entity
+			}
+		}
+
 		if err := c.executeOperation(op); err != nil {
 			if isPermanentMySQLError(err) {
 				_, _ = broker.Publish(AsyncSQLDeadLetterStreamName, op, "error", err.Error())
@@ -240,6 +396,87 @@ func (c *asyncSQLConsumerImpl) handleEvents(events []Event) error {
 			return err
 		}
 		_ = ev.Ack()
+
+		// Fire hooks after SQL execution and ACK
+		if len(op.Events) > 0 {
+			if err := c.fireEntityHooks(op.Events, preLoadedDeleteEntities); err != nil {
+				return err
+			}
+		}
+	}
+	return nil
+}
+
+func (c *asyncSQLConsumerImpl) fireEntityHooks(events []AsyncEntityEvent, preLoadedDeleteEntities map[uint64]Entity) error {
+	for _, entityEvent := range events {
+		switch entityEvent.FlushType {
+		case 1: // INSERT
+			handler, ok := c.ctx.engine.afterInsertHandlers[entityEvent.CacheIndex]
+			if !ok {
+				continue
+			}
+			loader, hasLoader := c.ctx.engine.entityLoaders[entityEvent.CacheIndex]
+			if !hasLoader {
+				continue
+			}
+			loadCtx := c.ctx.engine.NewContext(c.ctx.context)
+			entity, found, err := loader(loadCtx, entityEvent.EntityID)
+			if err != nil {
+				return err
+			}
+			if !found {
+				continue
+			}
+			if err = handler(loadCtx, entity); err != nil {
+				return err
+			}
+		case 2: // UPDATE
+			handler, ok := c.ctx.engine.afterUpdateHandlers[entityEvent.CacheIndex]
+			if !ok {
+				continue
+			}
+			loader, hasLoader := c.ctx.engine.entityLoaders[entityEvent.CacheIndex]
+			if !hasLoader {
+				continue
+			}
+			loadCtx := c.ctx.engine.NewContext(c.ctx.context)
+			entity, found, err := loader(loadCtx, entityEvent.EntityID)
+			if err != nil {
+				return err
+			}
+			if !found {
+				continue
+			}
+			changes := deconvertChanges(entityEvent.Changes)
+			if err = handler(loadCtx, entity, changes); err != nil {
+				return err
+			}
+		case 3: // DELETE
+			handler, ok := c.ctx.engine.afterDeleteHandlers[entityEvent.CacheIndex]
+			if !ok {
+				continue
+			}
+			// Try loading from DB first (works for FakeDelete/soft-delete, entity still exists)
+			loader, hasLoader := c.ctx.engine.entityLoaders[entityEvent.CacheIndex]
+			if !hasLoader {
+				continue
+			}
+			loadCtx := c.ctx.engine.NewContext(c.ctx.context)
+			entity, found, err := loader(loadCtx, entityEvent.EntityID)
+			if err != nil {
+				return err
+			}
+			if !found {
+				// Hard delete: use pre-loaded entity
+				entity = preLoadedDeleteEntities[entityEvent.EntityID]
+				if entity == nil {
+					continue
+				}
+			}
+			if err = handler(loadCtx, entity); err != nil {
+				return err
+			}
+		}
 	}
 	return nil
 }

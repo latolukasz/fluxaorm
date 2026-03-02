@@ -1,6 +1,7 @@
 package test_generate
 
 import (
+	"context"
 	"fmt"
 	"testing"
 	"time"
@@ -230,4 +231,180 @@ func TestAfterCallbackErrorPropagation(t *testing.T) {
 	assert.NoError(t, err)
 	assert.True(t, found)
 	assert.Equal(t, "ErrorTest", e2.GetName())
+}
+
+func TestAfterInsertCallbackFiredByAsyncConsumer(t *testing.T) {
+	ctx := fluxaorm.PrepareTablesBeta(t, fluxaorm.NewRegistry(), generateEntityWithTimestampsRedis{})
+
+	var callbackEntity *entities.GenerateEntityWithTimestampsRedis
+	var insertCalled bool
+	entities.GenerateEntityWithTimestampsRedisProvider.OnAfterInsert(ctx.Engine(), func(c fluxaorm.Context, entity *entities.GenerateEntityWithTimestampsRedis) error {
+		insertCalled = true
+		callbackEntity = entity
+		return nil
+	})
+
+	e := entities.GenerateEntityWithTimestampsRedisProvider.New(ctx)
+	e.SetName("AsyncInsertTest")
+	assert.NoError(t, ctx.FlushAsync())
+
+	// Hook should NOT fire during FlushAsync itself
+	assert.False(t, insertCalled)
+
+	// Consume the async SQL event
+	consumer, err := ctx.GetAsyncSQLConsumer()
+	assert.NoError(t, err)
+	assert.NoError(t, consumer.Consume(10, time.Millisecond))
+
+	// Hook should have fired in the consumer
+	assert.True(t, insertCalled)
+	assert.NotNil(t, callbackEntity)
+	assert.Equal(t, e.GetID(), callbackEntity.GetID())
+	assert.Equal(t, "AsyncInsertTest", callbackEntity.GetName())
+	assert.False(t, callbackEntity.GetCreatedAt().IsZero())
+}
+
+func TestAfterUpdateCallbackFiredByAsyncConsumer(t *testing.T) {
+	ctx := fluxaorm.PrepareTablesBeta(t, fluxaorm.NewRegistry(), generateEntityWithTimestampsRedis{})
+
+	var callbackChanges map[string]any
+	var callbackName string
+	var updateCalled bool
+	entities.GenerateEntityWithTimestampsRedisProvider.OnAfterUpdate(ctx.Engine(), func(c fluxaorm.Context, entity *entities.GenerateEntityWithTimestampsRedis, changes map[string]any) error {
+		updateCalled = true
+		callbackName = entity.GetName()
+		callbackChanges = changes
+		return nil
+	})
+
+	// Insert entity first (synchronously so it's in DB)
+	e := entities.GenerateEntityWithTimestampsRedisProvider.New(ctx)
+	e.SetName("Original")
+	assert.NoError(t, ctx.Flush())
+	assert.False(t, updateCalled)
+
+	// Update via FlushAsync
+	e, _, _ = entities.GenerateEntityWithTimestampsRedisProvider.GetByID(ctx, e.GetID())
+	e.SetName("Updated")
+	assert.NoError(t, ctx.FlushAsync())
+	assert.False(t, updateCalled)
+
+	// Consume the async SQL event
+	consumer, err := ctx.GetAsyncSQLConsumer()
+	assert.NoError(t, err)
+	assert.NoError(t, consumer.Consume(10, time.Millisecond))
+
+	assert.True(t, updateCalled)
+	// Entity loaded from DB should have the NEW value
+	assert.Equal(t, "Updated", callbackName)
+	// Changes map should have the OLD value
+	assert.Equal(t, "Original", callbackChanges["Name"])
+	// Timestamp fields should NOT be in changes
+	_, hasUpdatedAt := callbackChanges["UpdatedAt"]
+	assert.False(t, hasUpdatedAt)
+	_, hasCreatedAt := callbackChanges["CreatedAt"]
+	assert.False(t, hasCreatedAt)
+}
+
+func TestAfterDeleteCallbackFiredByAsyncConsumer(t *testing.T) {
+	ctx := fluxaorm.PrepareTablesBeta(t, fluxaorm.NewRegistry(), generateEntityWithTimestampsRedis{})
+
+	var callbackEntity *entities.GenerateEntityWithTimestampsRedis
+	var deleteCalled bool
+	entities.GenerateEntityWithTimestampsRedisProvider.OnAfterDelete(ctx.Engine(), func(c fluxaorm.Context, entity *entities.GenerateEntityWithTimestampsRedis) error {
+		deleteCalled = true
+		callbackEntity = entity
+		return nil
+	})
+
+	// Insert entity first (synchronously)
+	e := entities.GenerateEntityWithTimestampsRedisProvider.New(ctx)
+	e.SetName("DeleteAsyncTest")
+	assert.NoError(t, ctx.Flush())
+
+	// Delete via FlushAsync
+	e, _, _ = entities.GenerateEntityWithTimestampsRedisProvider.GetByID(ctx, e.GetID())
+	entityID := e.GetID()
+	e.Delete()
+	assert.NoError(t, ctx.FlushAsync())
+	assert.False(t, deleteCalled)
+
+	// Consume the async SQL event
+	consumer, err := ctx.GetAsyncSQLConsumer()
+	assert.NoError(t, err)
+	assert.NoError(t, consumer.Consume(10, time.Millisecond))
+
+	assert.True(t, deleteCalled)
+	assert.NotNil(t, callbackEntity)
+	assert.Equal(t, entityID, callbackEntity.GetID())
+}
+
+func TestAfterDeleteCallbackFiredByAsyncConsumerFakeDelete(t *testing.T) {
+	ctx := fluxaorm.PrepareTablesBeta(t, fluxaorm.NewRegistry(), generateReferenceEntity{})
+
+	var callbackEntity *entities.GenerateReferenceEntity
+	var deleteCalled bool
+	var updateCalled bool
+	entities.GenerateReferenceEntityProvider.OnAfterDelete(ctx.Engine(), func(c fluxaorm.Context, entity *entities.GenerateReferenceEntity) error {
+		deleteCalled = true
+		callbackEntity = entity
+		return nil
+	})
+	entities.GenerateReferenceEntityProvider.OnAfterUpdate(ctx.Engine(), func(c fluxaorm.Context, entity *entities.GenerateReferenceEntity, changes map[string]any) error {
+		updateCalled = true
+		return nil
+	})
+
+	// Insert entity first (synchronously)
+	e := entities.GenerateReferenceEntityProvider.New(ctx)
+	e.SetName("FakeDeleteAsyncTest")
+	assert.NoError(t, ctx.Flush())
+
+	// FakeDelete via FlushAsync
+	e, _, _ = entities.GenerateReferenceEntityProvider.GetByID(ctx, e.GetID())
+	entityID := e.GetID()
+	e.Delete() // FakeDelete since entity has FakeDelete field
+	assert.NoError(t, ctx.FlushAsync())
+
+	// Consume the async SQL event
+	consumer, err := ctx.GetAsyncSQLConsumer()
+	assert.NoError(t, err)
+	assert.NoError(t, consumer.Consume(10, time.Millisecond))
+
+	// AfterDelete should fire, not AfterUpdate
+	assert.True(t, deleteCalled)
+	assert.False(t, updateCalled)
+	assert.NotNil(t, callbackEntity)
+	assert.Equal(t, entityID, callbackEntity.GetID())
+}
+
+func TestAfterCallbackErrorInAsyncConsumer(t *testing.T) {
+	ctx := fluxaorm.PrepareTablesBeta(t, fluxaorm.NewRegistry(), generateEntityWithTimestampsRedis{})
+
+	expectedErr := fmt.Errorf("async callback error")
+	entities.GenerateEntityWithTimestampsRedisProvider.OnAfterInsert(ctx.Engine(), func(c fluxaorm.Context, entity *entities.GenerateEntityWithTimestampsRedis) error {
+		return expectedErr
+	})
+
+	e := entities.GenerateEntityWithTimestampsRedisProvider.New(ctx)
+	e.SetName("AsyncErrorTest")
+	assert.NoError(t, ctx.FlushAsync())
+
+	// Consume — hook error should be returned
+	consumer, err := ctx.GetAsyncSQLConsumer()
+	assert.NoError(t, err)
+	err = consumer.Consume(10, time.Millisecond)
+	assert.Equal(t, expectedErr, err)
+
+	// Event was ACK'd (SQL committed), stream should be empty
+	streamLen, err := ctx.Engine().Redis(fluxaorm.DefaultPoolCode).XLen(ctx, fluxaorm.AsyncSQLStreamName)
+	assert.NoError(t, err)
+	assert.Equal(t, int64(0), streamLen)
+
+	// Entity should be in MySQL (SQL committed before hook ran)
+	freshCtx := ctx.Engine().NewContext(context.Background())
+	freshCtx.DisableContextCache()
+	_, found, err := entities.GenerateEntityWithTimestampsRedisProvider.GetByID(freshCtx, e.GetID())
+	assert.NoError(t, err)
+	assert.True(t, found)
 }
