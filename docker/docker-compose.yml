@@ -10,7 +10,7 @@ services:
       MYSQL_DATABASE: test
       MYSQL_ROOT_HOST: "%"
   redis:
-    image: redis:8.2.2
+    image: redis:8.6
     ports:
       - ${LOCAL_IP}:${REDIS_PORT}:6379
     volumes:

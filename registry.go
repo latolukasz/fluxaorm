@@ -1,12 +1,14 @@
 package fluxaorm
 
 import (
+	"context"
 	"database/sql"
 	"fmt"
 	"log"
 	"math"
 	"os"
 	"reflect"
+	"strconv"
 	"strings"
 	"time"
 
@@ -132,6 +134,13 @@ func (r *registry) Validate() (Engine, error) {
 	for k, v := range r.redisPools {
 		client := v.getClient()
 		server := &redisCache{config: v, client: client}
+		info, err := client.Info(context.Background(), "server").Result()
+		if err != nil {
+			return nil, fmt.Errorf("failed to get Redis server info for pool '%s': %w", k, err)
+		}
+		if err := validateRedisVersion(info, k); err != nil {
+			return nil, err
+		}
 		e.redisServers[k] = server
 		if len(k) > maxPoolLen {
 			maxPoolLen = len(k)
@@ -344,4 +353,30 @@ func (p *redisCacheConfig) GetAddress() string {
 
 func (p *redisCacheConfig) getClient() *redis.Client {
 	return p.client
+}
+
+func validateRedisVersion(info string, pool string) error {
+	for _, line := range strings.Split(info, "\n") {
+		line = strings.TrimSpace(line)
+		if strings.HasPrefix(line, "redis_version:") {
+			version := strings.TrimPrefix(line, "redis_version:")
+			parts := strings.Split(version, ".")
+			if len(parts) < 2 {
+				return fmt.Errorf("redis pool '%s': unable to parse version '%s'", pool, version)
+			}
+			major, err := strconv.Atoi(parts[0])
+			if err != nil {
+				return fmt.Errorf("redis pool '%s': unable to parse version '%s'", pool, version)
+			}
+			minor, err := strconv.Atoi(parts[1])
+			if err != nil {
+				return fmt.Errorf("redis pool '%s': unable to parse version '%s'", pool, version)
+			}
+			if major < 8 || (major == 8 && minor < 2) {
+				return fmt.Errorf("redis pool '%s' version %s is not supported, minimum required is 8.2", pool, version)
+			}
+			return nil
+		}
+	}
+	return fmt.Errorf("redis pool '%s': unable to determine Redis version from INFO", pool)
 }

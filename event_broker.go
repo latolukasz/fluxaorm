@@ -32,11 +32,7 @@ func (ev *event) Ack() error {
 	if ev.ack {
 		return nil
 	}
-	_, err := ev.consumer.redis.XAck(ev.consumer.ctx, ev.stream, ev.consumer.group, ev.message.ID)
-	if err != nil {
-		return err
-	}
-	_, err = ev.consumer.redis.XDel(ev.consumer.ctx, ev.stream, ev.message.ID)
+	_, err := ev.consumer.redis.XAckDel(ev.consumer.ctx, ev.stream, ev.consumer.group, ev.message.ID)
 	if err != nil {
 		return err
 	}
@@ -368,11 +364,7 @@ func (r *eventsConsumer) digestEvents(ctx Context, handler EventConsumerHandler,
 		}
 	}
 	for stream, ids := range toAck {
-		_, err := r.redis.XAck(ctx, stream, r.group, ids...)
-		if err != nil {
-			return err
-		}
-		_, err = r.redis.XDel(ctx, stream, ids...)
+		_, err := r.redis.XAckDel(ctx, stream, r.group, ids...)
 		if err != nil {
 			return err
 		}
