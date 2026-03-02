@@ -16,11 +16,6 @@ import (
 	"github.com/pkg/errors"
 )
 
-type dirtyDefinition struct {
-	Stream  string
-	Columns map[string]bool
-}
-
 type searchableFieldDef struct {
 	columnName  string
 	sqlRowIndex int
@@ -110,9 +105,6 @@ type entitySchema struct {
 	uniqueIndexes           map[string]indexDefinition
 	uniqueIndexesColumns    map[string][]string
 	references              map[string]referenceDefinition
-	dirtyAdded              []*dirtyDefinition
-	dirtyUpdated            []*dirtyDefinition
-	dirtyDeleted            []*dirtyDefinition
 	options                 map[string]any
 	hasLocalCache           bool
 	localCache              *localCache
@@ -337,74 +329,6 @@ func (e *entitySchema) init(registry *registry, entityType reflect.Type) error {
 		cacheKey = e.mysqlPoolCode
 	}
 	cacheKey += e.tableName
-	addList := make([]*dirtyDefinition, 0)
-	editList := make([]*dirtyDefinition, 0)
-	deleteList := make([]*dirtyDefinition, 0)
-	for k, v := range e.tags {
-		keys, has := v["dirty"]
-		if has {
-			for _, dirtyDef := range strings.Split(keys, ",") {
-				types := strings.Split(dirtyDef, ":")
-				sources := []string{"add", "edit", "delete"}
-				if k != "ID" {
-					sources = []string{"edit"}
-				}
-				if len(types) > 2 {
-					return fmt.Errorf("invalid dirty definition for field %s in entity %s", k, entityType.Name())
-				} else if len(types) == 2 {
-					if k != "ID" {
-						return fmt.Errorf("invalid dirty definition for field %s in entity %s", k, entityType.Name())
-					}
-					userSources := strings.Split(types[1], "|")
-					if len(userSources) > 3 {
-						return fmt.Errorf("invalid dirty definition for field %s in entity %s", k, entityType.Name())
-					}
-					for _, source := range userSources {
-						if !slices.Contains(sources, source) {
-							return fmt.Errorf("invalid dirty definition for field %s in entity %s", k, entityType.Name())
-						}
-					}
-					sources = userSources
-				}
-				stream := types[0]
-				for _, source := range sources {
-					var actual []*dirtyDefinition
-					if source == "add" {
-						actual = addList
-					} else if source == "edit" {
-						actual = editList
-					} else if source == "delete" {
-						actual = deleteList
-					}
-					var def *dirtyDefinition
-					for _, beforeDef := range actual {
-						if beforeDef.Stream == stream {
-							def = beforeDef
-							def.Columns[k] = true
-							break
-						}
-					}
-					if def == nil {
-						def = &dirtyDefinition{
-							Stream:  stream,
-							Columns: map[string]bool{k: true},
-						}
-						actual = append(actual, def)
-						if source == "add" {
-							addList = actual
-						} else if source == "edit" {
-							editList = actual
-						} else if source == "delete" {
-							deleteList = actual
-						}
-					}
-				}
-			}
-		}
-		e.dirtyAdded = addList
-		e.dirtyUpdated = editList
-		e.dirtyDeleted = deleteList
-	}
 	e.fieldDefinitions = make(map[string]schemaFieldAttributes)
 	e.uniqueIndexesColumns = make(map[string][]string)
 	err := e.initIndexes()

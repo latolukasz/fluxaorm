@@ -61,7 +61,7 @@ Entity registration: `registry.RegisterEntity(&MyEntity{})`, then call `registry
 - `generate_entity.go` — `XxxEntity` struct body
 - `generate_entity_struct.go` — entity struct scaffolding
 - `generate_fields.go` — per-field SQL row and Redis serialisation helpers
-- `generate_getters.go` / `generate_getters_nullable.go` — typed getters & setters with dirty tracking
+- `generate_getters.go` / `generate_getters_nullable.go` — typed getters & setters
 - `generate_provider.go` — `XxxProvider` singleton, `XxxSQLRow`, `redisValues()`
 - `generate_query.go` — `GetByID`, `GetByIDs`, `Search*`, `SearchIDs*`, `New`, `Delete`, etc.
 
@@ -69,7 +69,7 @@ Entity registration: `registry.RegisterEntity(&MyEntity{})`, then call `registry
 
 - **`XxxSQLRow` struct** — flat struct with fields `F0`, `F1`, `F2`... for reflection-free `Scan()`
 - **`XxxProvider` singleton** — holds static metadata (tableName, dbCode, redisCode, cacheIndex, redisCachePrefix, stamp, TTL) and exposes all query methods
-- **`XxxEntity` struct** — user-facing entity; holds `ctx`, `id`, `new`, `deleted`, `originDatabaseValues` (SQLRow), lazy `databaseBind` / `redisBind` maps for dirty tracking
+- **`XxxEntity` struct** — user-facing entity; holds `ctx`, `id`, `new`, `deleted`, `originDatabaseValues` (SQLRow)
 
 ### Caching (Three Tiers)
 

@@ -178,17 +178,6 @@ func (r *registry) Validate() (Engine, error) {
 	for key, value := range r.options {
 		e.registry.options[key] = value
 	}
-	for _, schema := range e.registry.entitySchemas {
-		for _, def := range [][]*dirtyDefinition{schema.dirtyAdded, schema.dirtyUpdated, schema.dirtyDeleted} {
-			for _, dirty := range def {
-				streamName := "dirty_" + dirty.Stream
-				_, hasStream := r.redisStreamPools[streamName]
-				if !hasStream {
-					r.RegisterRedisStream(streamName, schema.getForcedRedisCode())
-				}
-			}
-		}
-	}
 	// Auto-register async SQL streams on the default Redis pool if not already configured.
 	if _, hasAsyncSQL := r.redisStreamPools[AsyncSQLStreamName]; !hasAsyncSQL {
 		if _, hasDefault := r.redisPools[DefaultPoolCode]; hasDefault {
