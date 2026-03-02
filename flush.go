@@ -65,6 +65,10 @@ func (orm *ormImplementation) flush() (err error) {
 			return err
 		}
 	}
+	err = orm.publishDirtyStreamEvents()
+	if err != nil {
+		return err
+	}
 	orm.trackedEntities.Range(func(_ uint64, value *xsync.MapOf[uint64, Entity]) bool {
 		value.Range(func(_ uint64, e Entity) bool {
 			e.PrivateFlushed()

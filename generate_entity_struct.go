@@ -995,6 +995,12 @@ func (g *codeGenerator) generateEntityStruct(schema *entitySchema, names *entity
 	g.addLine("}")
 	g.addLine("")
 
+	// PrivateGetDatabaseBind
+	g.addLine(fmt.Sprintf("func (e *%s) PrivateGetDatabaseBind() map[string]any {", names.entityName))
+	g.addLine("\treturn e.databaseBind")
+	g.addLine("}")
+	g.addLine("")
+
 	// privateGetOriginalColumnValue
 	g.generatePrivateGetOriginalColumnValue(schema, names)
 }

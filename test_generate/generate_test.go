@@ -115,6 +115,13 @@ type generateEntityCachedUniqueFakeDelete struct {
 	Name       string `orm:"unique=Name;cached"`
 }
 
+type generateEntityDirtyStream struct {
+	ID     uint64 `orm:"dirtyStream=DSAllStream,DSStatusStream//ID"`
+	Name   string `orm:"required"`
+	Status string `orm:"required;enum=active,banned;enumName=DSStatus;dirtyStream=DSStatusStream"`
+	Age    uint8
+}
+
 //func BenchmarkGenerate(b *testing.B) {
 //	b.ReportAllocs()
 //	v := struct {
@@ -126,7 +133,7 @@ type generateEntityCachedUniqueFakeDelete struct {
 //}
 
 func TestGenerate(t *testing.T) {
-	ctx := fluxaorm.PrepareTablesBeta(t, fluxaorm.NewRegistry(), generateEntity{}, generateEntityNoRedis{}, generateReferenceEntity{}, generateEntityWithSearch{}, generateEntityWithTimestamps{}, generateEntityWithTimestampsRedis{}, generateEntityCachedUnique{}, generateEntityCachedUniqueNoRedis{}, generateEntityCachedUniqueFakeDelete{})
+	ctx := fluxaorm.PrepareTablesBeta(t, fluxaorm.NewRegistry(), generateEntity{}, generateEntityNoRedis{}, generateReferenceEntity{}, generateEntityWithSearch{}, generateEntityWithTimestamps{}, generateEntityWithTimestampsRedis{}, generateEntityCachedUnique{}, generateEntityCachedUniqueNoRedis{}, generateEntityCachedUniqueFakeDelete{}, generateEntityDirtyStream{})
 	_ = os.MkdirAll("entities", 0755)
 
 	err := fluxaorm.Generate(ctx.Engine(), "entities")
@@ -966,4 +973,147 @@ func TestGenerate(t *testing.T) {
 	assert.NoError(t, err)
 	assert.False(t, found)
 	assert.Nil(t, cufdAfterDelete)
+
+	// ---- Dirty Stream tests ----
+	// Test INSERT publishes to streams with I ops
+	ds1 := entities.GenerateEntityDirtyStreamProvider.New(ctx)
+	ds1.SetName("Alice")
+	ds1.SetStatus(enums.DSStatusList.Active)
+	assert.NoError(t, ctx.Flush())
+
+	// Verify DirtyStreams consumer helper exists
+	assert.Equal(t, "DSAllStream", entities.DirtyStreams.DSAllStream.Name())
+	assert.Equal(t, "DSStatusStream", entities.DirtyStreams.DSStatusStream.Name())
+
+	// Consume events from DSAllStream - should have INSERT event
+	dsConsumer, err := entities.DirtyStreams.DSAllStream.ConsumeSingle(ctx)
+	assert.NoError(t, err)
+	var dsEvents []fluxaorm.DirtyStreamEvent
+	err = dsConsumer.Consume(100, -1, func(events []fluxaorm.Event) error {
+		for _, ev := range events {
+			var dirty fluxaorm.DirtyStreamEvent
+			assert.NoError(t, ev.Unserialize(&dirty))
+			dsEvents = append(dsEvents, dirty)
+		}
+		return nil
+	})
+	assert.NoError(t, err)
+	assert.Len(t, dsEvents, 1)
+	assert.Equal(t, "generateEntityDirtyStream", dsEvents[0].EntityType)
+	assert.Equal(t, ds1.GetID(), dsEvents[0].EntityID)
+	assert.Equal(t, fluxaorm.DirtyStreamInsert, dsEvents[0].FlushType)
+	assert.Nil(t, dsEvents[0].Changes)
+
+	// Consume from DSStatusStream - should have INSERT event (has I in ops)
+	dsConsumer2, err := entities.DirtyStreams.DSStatusStream.ConsumeSingle(ctx)
+	assert.NoError(t, err)
+	var dsEvents2 []fluxaorm.DirtyStreamEvent
+	err = dsConsumer2.Consume(100, -1, func(events []fluxaorm.Event) error {
+		for _, ev := range events {
+			var dirty fluxaorm.DirtyStreamEvent
+			assert.NoError(t, ev.Unserialize(&dirty))
+			dsEvents2 = append(dsEvents2, dirty)
+		}
+		return nil
+	})
+	assert.NoError(t, err)
+	assert.Len(t, dsEvents2, 1)
+	assert.Equal(t, fluxaorm.DirtyStreamInsert, dsEvents2[0].FlushType)
+
+	// Test UPDATE: change Status field -> should trigger DSStatusStream (field-level trigger)
+	// DSAllStream has IUD so it triggers on UPDATE too
+	ds1.SetStatus(enums.DSStatusList.Banned)
+	assert.NoError(t, ctx.Flush())
+
+	// DSAllStream should have UPDATE event
+	var dsEvents3 []fluxaorm.DirtyStreamEvent
+	err = dsConsumer.Consume(100, -1, func(events []fluxaorm.Event) error {
+		for _, ev := range events {
+			var dirty fluxaorm.DirtyStreamEvent
+			assert.NoError(t, ev.Unserialize(&dirty))
+			dsEvents3 = append(dsEvents3, dirty)
+		}
+		return nil
+	})
+	assert.NoError(t, err)
+	assert.Len(t, dsEvents3, 1)
+	assert.Equal(t, fluxaorm.DirtyStreamUpdate, dsEvents3[0].FlushType)
+	assert.Contains(t, dsEvents3[0].Changes, "Status")
+	statusChange := dsEvents3[0].Changes["Status"]
+	assert.Equal(t, "active", statusChange.OldValue())
+	assert.Equal(t, "banned", statusChange.NewValue())
+
+	// DSStatusStream should also have UPDATE event due to field-level trigger
+	var dsEvents4 []fluxaorm.DirtyStreamEvent
+	err = dsConsumer2.Consume(100, -1, func(events []fluxaorm.Event) error {
+		for _, ev := range events {
+			var dirty fluxaorm.DirtyStreamEvent
+			assert.NoError(t, ev.Unserialize(&dirty))
+			dsEvents4 = append(dsEvents4, dirty)
+		}
+		return nil
+	})
+	assert.NoError(t, err)
+	assert.Len(t, dsEvents4, 1)
+	assert.Equal(t, fluxaorm.DirtyStreamUpdate, dsEvents4[0].FlushType)
+
+	// Test UPDATE: change Name only -> DSAllStream should get event but DSStatusStream should NOT
+	// (DSStatusStream has ops "ID" not "U", and Name is not a field trigger for it)
+	ds1.SetName("Bob")
+	assert.NoError(t, ctx.Flush())
+
+	var dsEvents5 []fluxaorm.DirtyStreamEvent
+	err = dsConsumer.Consume(100, -1, func(events []fluxaorm.Event) error {
+		for _, ev := range events {
+			var dirty fluxaorm.DirtyStreamEvent
+			assert.NoError(t, ev.Unserialize(&dirty))
+			dsEvents5 = append(dsEvents5, dirty)
+		}
+		return nil
+	})
+	assert.NoError(t, err)
+	assert.Len(t, dsEvents5, 1) // DSAllStream has U in ops
+
+	var dsEvents6 []fluxaorm.DirtyStreamEvent
+	err = dsConsumer2.Consume(100, -1, func(events []fluxaorm.Event) error {
+		for _, ev := range events {
+			var dirty fluxaorm.DirtyStreamEvent
+			assert.NoError(t, ev.Unserialize(&dirty))
+			dsEvents6 = append(dsEvents6, dirty)
+		}
+		return nil
+	})
+	assert.NoError(t, err)
+	assert.Len(t, dsEvents6, 0) // DSStatusStream has no U, and Name is not a field trigger
+
+	// Test DELETE
+	ds1.Delete()
+	assert.NoError(t, ctx.Flush())
+
+	var dsEvents7 []fluxaorm.DirtyStreamEvent
+	err = dsConsumer.Consume(100, -1, func(events []fluxaorm.Event) error {
+		for _, ev := range events {
+			var dirty fluxaorm.DirtyStreamEvent
+			assert.NoError(t, ev.Unserialize(&dirty))
+			dsEvents7 = append(dsEvents7, dirty)
+		}
+		return nil
+	})
+	assert.NoError(t, err)
+	assert.Len(t, dsEvents7, 1)
+	assert.Equal(t, fluxaorm.DirtyStreamDelete, dsEvents7[0].FlushType)
+
+	// DSStatusStream should also have DELETE event (has D in ops from "ID")
+	var dsEvents8 []fluxaorm.DirtyStreamEvent
+	err = dsConsumer2.Consume(100, -1, func(events []fluxaorm.Event) error {
+		for _, ev := range events {
+			var dirty fluxaorm.DirtyStreamEvent
+			assert.NoError(t, ev.Unserialize(&dirty))
+			dsEvents8 = append(dsEvents8, dirty)
+		}
+		return nil
+	})
+	assert.NoError(t, err)
+	assert.Len(t, dsEvents8, 1)
+	assert.Equal(t, fluxaorm.DirtyStreamDelete, dsEvents8[0].FlushType)
 }

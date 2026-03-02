@@ -8,6 +8,7 @@ import (
 	"math"
 	"os"
 	"reflect"
+	"sort"
 	"strconv"
 	"strings"
 	"time"
@@ -146,8 +147,15 @@ func (r *registry) Validate() (Engine, error) {
 			maxPoolLen = len(k)
 		}
 	}
+	// Sort entity names for deterministic index assignment
+	entityNames := make([]string, 0, len(r.entities))
+	for name := range r.entities {
+		entityNames = append(entityNames, name)
+	}
+	sort.Strings(entityNames)
 	index := uint64(0)
-	for _, entityType := range r.entities {
+	for _, entityName := range entityNames {
+		entityType := r.entities[entityName]
 		schema := &entitySchema{engine: e, index: index}
 		index++
 		err := schema.init(r, entityType)
@@ -174,6 +182,26 @@ func (r *registry) Validate() (Engine, error) {
 		}
 		if schema.hasRedisCache {
 			schema.redisCache = e.redisServers[schema.redisCacheName].(*redisCache)
+		}
+	}
+	// Build entitySchemasByIndex lookup
+	e.registry.entitySchemasByIndex = make(map[uint64]*entitySchema)
+	for _, schema := range e.registry.entitySchemas {
+		e.registry.entitySchemasByIndex[schema.index] = schema
+	}
+
+	// Auto-register dirty streams
+	for _, schema := range e.registry.entitySchemas {
+		if schema.hasDirtyStreams {
+			for _, ds := range schema.dirtyStreams {
+				if existingPool, already := r.redisStreamPools[ds.streamName]; already {
+					if existingPool != ds.redisPoolCode {
+						return nil, fmt.Errorf("dirty stream '%s' uses conflicting Redis pools: '%s' vs '%s'", ds.streamName, existingPool, ds.redisPoolCode)
+					}
+					continue
+				}
+				r.RegisterRedisStream(ds.streamName, ds.redisPoolCode)
+			}
 		}
 	}
 	e.registry.defaultQueryLogger = &defaultLogLogger{maxPoolLen: maxPoolLen, logger: log.New(os.Stderr, "", 0)}

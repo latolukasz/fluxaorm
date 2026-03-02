@@ -23,6 +23,11 @@ type AsyncSQLParam struct {
 	Val  string `msgpack:"v,omitempty"`
 }
 
+// Value converts the parameter back to a Go type.
+func (p AsyncSQLParam) Value() any {
+	return deconvertChangeValue(p)
+}
+
 // AsyncSQLQuery holds a single SQL statement with its typed parameters.
 type AsyncSQLQuery struct {
 	Q string          `msgpack:"q"`
@@ -44,15 +49,25 @@ type AsyncRedisOp struct {
 	Args []string `msgpack:"a,omitempty"`
 }
 
+// AsyncDirtyStreamEvent holds a dirty stream event for deferred publishing.
+type AsyncDirtyStreamEvent struct {
+	Stream     string                      `msgpack:"s"`
+	EntityType string                      `msgpack:"et"`
+	EntityID   uint64                      `msgpack:"id"`
+	FlushType  uint8                       `msgpack:"ft"`
+	Changes    map[string]DirtyFieldChange `msgpack:"ch,omitempty"`
+}
+
 // AsyncSQLOperation holds one or more SQL queries for a single DB pool.
 // Multiple queries are executed in a transaction.
 // This type is also used in the dead-letter stream so consumers can inspect
 // and replay failed operations.
 type AsyncSQLOperation struct {
-	Pool     string             `msgpack:"pool"`
-	Queries  []AsyncSQLQuery    `msgpack:"queries"`
-	Events   []AsyncEntityEvent `msgpack:"events,omitempty"`
-	RedisOps []AsyncRedisOp     `msgpack:"redis,omitempty"`
+	Pool              string                  `msgpack:"pool"`
+	Queries           []AsyncSQLQuery         `msgpack:"queries"`
+	Events            []AsyncEntityEvent      `msgpack:"events,omitempty"`
+	RedisOps          []AsyncRedisOp          `msgpack:"redis,omitempty"`
+	DirtyStreamEvents []AsyncDirtyStreamEvent `msgpack:"dirty,omitempty"`
 }
 
 // convertParam converts a Go SQL parameter value to a typed AsyncSQLParam.
@@ -297,6 +312,76 @@ func (orm *ormImplementation) FlushAsync(immediateRedisUpdates bool) error {
 		})
 	}
 
+	// Step 2b: collect dirty stream events
+	var dirtyStreamEventsByPool map[string][]AsyncDirtyStreamEvent
+	for _, schema := range orm.engine.registry.entitySchemas {
+		if !schema.hasDirtyStreams {
+			continue
+		}
+		if orm.trackedEntities == nil {
+			break
+		}
+		entities, ok := orm.trackedEntities.Load(schema.index)
+		if !ok {
+			continue
+		}
+		entities.Range(func(_ uint64, e Entity) bool {
+			flushType, changes := e.PrivateFlushEvent()
+			if flushType == 0 {
+				return true
+			}
+			databaseBind := e.PrivateGetDatabaseBind()
+			pool, hasPool := orm.engine.entityDBPools[schema.index]
+			if !hasPool {
+				pool = schema.mysqlPoolCode
+			}
+			for _, ds := range schema.dirtyStreams {
+				publish := false
+				switch flushType {
+				case 1:
+					publish = ds.onInsert
+				case 2:
+					if ds.onUpdate {
+						publish = true
+					} else if len(ds.fieldTriggers) > 0 && changes != nil {
+						for _, ft := range ds.fieldTriggers {
+							if _, ok := changes[ft]; ok {
+								publish = true
+								break
+							}
+						}
+					}
+				case 3:
+					publish = ds.onDelete
+				}
+				if !publish {
+					continue
+				}
+				ev := AsyncDirtyStreamEvent{
+					Stream:     ds.streamName,
+					EntityType: schema.tableName,
+					EntityID:   e.GetID(),
+					FlushType:  flushType,
+				}
+				if flushType == 2 && changes != nil {
+					ev.Changes = make(map[string]DirtyFieldChange, len(changes))
+					for field, oldVal := range changes {
+						newVal := databaseBind[field]
+						ev.Changes[field] = DirtyFieldChange{
+							Old: convertChangeValue(oldVal),
+							New: convertChangeValue(newVal),
+						}
+					}
+				}
+				if dirtyStreamEventsByPool == nil {
+					dirtyStreamEventsByPool = make(map[string][]AsyncDirtyStreamEvent)
+				}
+				dirtyStreamEventsByPool[pool] = append(dirtyStreamEventsByPool[pool], ev)
+			}
+			return true
+		})
+	}
+
 	// Step 3: serialize each non-empty DatabasePipeline into AsyncSQLOperation events
 	broker := orm.GetEventBroker()
 	eventFlusher := broker.NewFlusher()
@@ -313,7 +398,7 @@ func (orm *ormImplementation) FlushAsync(immediateRedisUpdates bool) error {
 			}
 			queries[i] = AsyncSQLQuery{Q: q, P: params}
 		}
-		op := AsyncSQLOperation{Pool: pool, Queries: queries, Events: entityEventsByPool[pool]}
+		op := AsyncSQLOperation{Pool: pool, Queries: queries, Events: entityEventsByPool[pool], DirtyStreamEvents: dirtyStreamEventsByPool[pool]}
 
 		// Attach deferred Redis ops to the first operation
 		if !immediateRedisUpdates && firstPool {
@@ -500,6 +585,13 @@ func (c *asyncSQLConsumerImpl) handleEvents(events []Event) error {
 				return err
 			}
 		}
+
+		// Publish dirty stream events after SQL execution
+		if len(op.DirtyStreamEvents) > 0 {
+			if err := c.publishDirtyStreamEvents(op.DirtyStreamEvents); err != nil {
+				return err
+			}
+		}
 	}
 	return nil
 }
@@ -576,6 +668,23 @@ func (c *asyncSQLConsumerImpl) fireEntityHooks(events []AsyncEntityEvent, preLoa
 		}
 	}
 	return nil
+}
+
+func (c *asyncSQLConsumerImpl) publishDirtyStreamEvents(events []AsyncDirtyStreamEvent) error {
+	broker := c.ctx.GetEventBroker()
+	flusher := broker.NewFlusher()
+	for _, ev := range events {
+		dsEvent := DirtyStreamEvent{
+			EntityType: ev.EntityType,
+			EntityID:   ev.EntityID,
+			FlushType:  ev.FlushType,
+			Changes:    ev.Changes,
+		}
+		if err := flusher.Publish(ev.Stream, dsEvent); err != nil {
+			return err
+		}
+	}
+	return flusher.Flush()
 }
 
 func (c *asyncSQLConsumerImpl) executeOperation(op AsyncSQLOperation) error {
