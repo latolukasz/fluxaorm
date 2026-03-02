@@ -3,6 +3,7 @@ package fluxaorm
 import (
 	"errors"
 	"fmt"
+	"strconv"
 	"strings"
 	"time"
 
@@ -16,6 +17,12 @@ type RedisPipeLine struct {
 	pipeLine    redis.Pipeliner
 	commands    int
 	metricsGets []*PipeLineGet
+	recordMode  bool
+	recorded    []AsyncRedisOp
+}
+
+func (rp *RedisPipeLine) GetRecordedOps() []AsyncRedisOp {
+	return rp.recorded
 }
 
 func (rp *RedisPipeLine) LPush(key string, values ...any) {
@@ -24,16 +31,33 @@ func (rp *RedisPipeLine) LPush(key string, values ...any) {
 }
 
 func (rp *RedisPipeLine) RPush(key string, values ...any) {
+	if rp.recordMode {
+		args := make([]string, 0, len(values)+1)
+		args = append(args, key)
+		for _, v := range values {
+			args = append(args, fmt.Sprintf("%v", v))
+		}
+		rp.recorded = append(rp.recorded, AsyncRedisOp{Pool: rp.pool, Cmd: "rpush", Args: args})
+		return
+	}
 	rp.commands++
 	rp.pipeLine.RPush(rp.ctx.Context(), key, values...)
 }
 
 func (rp *RedisPipeLine) LSet(key string, index int64, value any) {
+	if rp.recordMode {
+		rp.recorded = append(rp.recorded, AsyncRedisOp{Pool: rp.pool, Cmd: "lset", Args: []string{key, strconv.FormatInt(index, 10), fmt.Sprintf("%v", value)}})
+		return
+	}
 	rp.commands++
 	rp.pipeLine.LSet(rp.ctx.Context(), key, index, value)
 }
 
 func (rp *RedisPipeLine) Del(key ...string) {
+	if rp.recordMode {
+		rp.recorded = append(rp.recorded, AsyncRedisOp{Pool: rp.pool, Cmd: "del", Args: key})
+		return
+	}
 	rp.commands++
 	rp.pipeLine.Del(rp.ctx.Context(), key...)
 }
@@ -54,6 +78,10 @@ func (rp *RedisPipeLine) LRange(key string, start, stop int64) *PipeLineSlice {
 }
 
 func (rp *RedisPipeLine) Set(key string, value any, expiration time.Duration) {
+	if rp.recordMode {
+		rp.recorded = append(rp.recorded, AsyncRedisOp{Pool: rp.pool, Cmd: "set", Args: []string{key, fmt.Sprintf("%v", value), strconv.FormatInt(int64(expiration.Seconds()), 10)}})
+		return
+	}
 	rp.commands++
 	rp.pipeLine.Set(rp.ctx.Context(), key, value, expiration)
 }
@@ -84,6 +112,15 @@ func (rp *RedisPipeLine) HIncrBy(key, field string, incr int64) *PipeLineInt {
 }
 
 func (rp *RedisPipeLine) HSet(key string, values ...any) {
+	if rp.recordMode {
+		args := make([]string, 0, len(values)+1)
+		args = append(args, key)
+		for _, v := range values {
+			args = append(args, fmt.Sprintf("%v", v))
+		}
+		rp.recorded = append(rp.recorded, AsyncRedisOp{Pool: rp.pool, Cmd: "hset", Args: args})
+		return
+	}
 	rp.commands++
 	rp.pipeLine.HSet(rp.ctx.Context(), key, values...)
 }

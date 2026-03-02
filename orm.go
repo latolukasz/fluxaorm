@@ -29,7 +29,7 @@ type Context interface {
 	DisableContextCache()
 	SetContextCacheTTL(ttl time.Duration)
 	Flush() error
-	FlushAsync() error
+	FlushAsync(immediateRedisUpdates bool) error
 	GetAsyncSQLConsumer() (AsyncSQLConsumer, error)
 	ClearFlush()
 	RedisPipeLine(pool string) *RedisPipeLine
@@ -64,6 +64,7 @@ type ormImplementation struct {
 	hasLocalCacheLogger      bool
 	disabledContextCache     bool
 	meta                     Meta
+	redisRecordMode          bool
 	redisPipeLines           map[string]*RedisPipeLine
 	dbPipeLines              map[string]*DatabasePipeline
 	mutexFlush               sync.Mutex
@@ -108,7 +109,7 @@ func (orm *ormImplementation) RedisPipeLine(pool string) *RedisPipeLine {
 		orm.redisPipeLines = make(map[string]*RedisPipeLine)
 	}
 	r := orm.engine.Redis(pool).(*redisCache)
-	pipeline := &RedisPipeLine{ctx: orm, pool: pool, r: r, pipeLine: r.client.Pipeline()}
+	pipeline := &RedisPipeLine{ctx: orm, pool: pool, r: r, pipeLine: r.client.Pipeline(), recordMode: orm.redisRecordMode}
 	orm.redisPipeLines[pool] = pipeline
 	return pipeline
 }

@@ -3,6 +3,7 @@ package test_generate
 import (
 	"context"
 	"errors"
+	"strconv"
 	"testing"
 	"time"
 
@@ -30,7 +31,7 @@ func TestFlushAsync(t *testing.T) {
 	// Test 1: FlushAsync queues SQL to stream, NOT directly to MySQL
 	// ──────────────────────────────────────────────────────────────────────────
 	e := newTestEntity(ctx, "async-test")
-	assert.NoError(t, ctx.FlushAsync())
+	assert.NoError(t, ctx.FlushAsync(true))
 
 	id := e.GetID()
 
@@ -119,7 +120,7 @@ func TestFlushAsync(t *testing.T) {
 	// ──────────────────────────────────────────────────────────────────────────
 	// Test 5: FlushAsync with no tracked entities is a no-op
 	// ──────────────────────────────────────────────────────────────────────────
-	assert.NoError(t, ctx.FlushAsync())
+	assert.NoError(t, ctx.FlushAsync(true))
 	streamLen, err = ctx.Engine().Redis(fluxaorm.DefaultPoolCode).XLen(ctx, fluxaorm.AsyncSQLStreamName)
 	assert.NoError(t, err)
 	assert.Equal(t, int64(0), streamLen)
@@ -132,7 +133,7 @@ func TestFlushAsync(t *testing.T) {
 	assert.NoError(t, ctx.Engine().Redis(fluxaorm.DefaultPoolCode).FlushDB(ctx))
 
 	e6 := newTestEntity(ctx, "autoclaim-test")
-	assert.NoError(t, ctx.FlushAsync())
+	assert.NoError(t, ctx.FlushAsync(true))
 
 	// Use the raw EventBroker consumer to read the event but fail to process it.
 	// This leaves the event in the pending-entry list (PEL) for this consumer.
@@ -163,4 +164,112 @@ func TestFlushAsync(t *testing.T) {
 	_, found, err = entities.GenerateEntityNoRedisProvider.GetByID(freshCtx6, id6)
 	assert.NoError(t, err)
 	assert.True(t, found, "entity should be in MySQL after AutoClaim processes the event")
+}
+
+func TestFlushAsyncDeferredCache(t *testing.T) {
+	ctx := fluxaorm.PrepareTablesBeta(t, fluxaorm.NewRegistry(), generateEntityWithTimestampsRedis{})
+
+	// ──────────────────────────────────────────────────────────────────────────
+	// Test 1: Insert with FlushAsync(false) → entity NOT in Redis cache AND NOT in MySQL
+	// ──────────────────────────────────────────────────────────────────────────
+	e := entities.GenerateEntityWithTimestampsRedisProvider.New(ctx)
+	e.SetName("deferred-insert")
+	assert.NoError(t, ctx.FlushAsync(false))
+
+	id := e.GetID()
+
+	// Entity should NOT be in Redis cache (deferred mode)
+	redisKey := "d6cd7:" + strconv.FormatUint(id, 10)
+	redisValues, err := ctx.Engine().Redis(fluxaorm.DefaultPoolCode).LRange(ctx, redisKey, 0, -1)
+	assert.NoError(t, err)
+	assert.Empty(t, redisValues, "entity should not be in Redis cache before consumer runs")
+
+	// Entity should NOT be in MySQL — use SearchOne to avoid GetByID writing a
+	// "not found" marker to Redis which would corrupt the cache when the consumer RPushes.
+	freshCtx := ctx.Engine().NewContext(context.Background())
+	freshCtx.DisableContextCache()
+	_, found, err := entities.GenerateEntityWithTimestampsRedisProvider.SearchOne(freshCtx, fluxaorm.NewWhere("`ID` = ?", id))
+	assert.NoError(t, err)
+	assert.False(t, found, "entity should not be in MySQL before consumer runs")
+
+	// ──────────────────────────────────────────────────────────────────────────
+	// Test 2: Consumer processes event → entity appears in BOTH MySQL and Redis cache
+	// ──────────────────────────────────────────────────────────────────────────
+	consumer, err := ctx.GetAsyncSQLConsumer()
+	assert.NoError(t, err)
+	assert.NoError(t, consumer.Consume(10, time.Millisecond))
+
+	freshCtx2 := ctx.Engine().NewContext(context.Background())
+	freshCtx2.DisableContextCache()
+	loaded, found, err := entities.GenerateEntityWithTimestampsRedisProvider.GetByID(freshCtx2, id)
+	assert.NoError(t, err)
+	assert.True(t, found, "entity should be in MySQL after consumer runs")
+	assert.Equal(t, "deferred-insert", loaded.GetName())
+
+	// Verify Redis cache was populated by the consumer
+	redisValues, err = ctx.Engine().Redis(fluxaorm.DefaultPoolCode).LRange(ctx, redisKey, 0, -1)
+	assert.NoError(t, err)
+	assert.NotEmpty(t, redisValues, "entity should be in Redis cache after consumer runs")
+
+	// ──────────────────────────────────────────────────────────────────────────
+	// Test 3: Update with FlushAsync(false) → old cache values still present
+	// ──────────────────────────────────────────────────────────────────────────
+	freshCtx3 := ctx.Engine().NewContext(context.Background())
+	freshCtx3.DisableContextCache()
+	eUpdate, _, err := entities.GenerateEntityWithTimestampsRedisProvider.GetByID(freshCtx3, id)
+	assert.NoError(t, err)
+	eUpdate.SetName("deferred-update")
+	assert.NoError(t, freshCtx3.FlushAsync(false))
+
+	// Redis cache should still have old name (deferred)
+	freshCtx4 := ctx.Engine().NewContext(context.Background())
+	freshCtx4.DisableContextCache()
+	cached, found, err := entities.GenerateEntityWithTimestampsRedisProvider.GetByID(freshCtx4, id)
+	assert.NoError(t, err)
+	assert.True(t, found)
+	assert.Equal(t, "deferred-insert", cached.GetName(), "cache should still have old name before consumer runs")
+
+	// ──────────────────────────────────────────────────────────────────────────
+	// Test 4: Consumer processes update → cache updated
+	// ──────────────────────────────────────────────────────────────────────────
+	consumer2, err := freshCtx3.GetAsyncSQLConsumer()
+	assert.NoError(t, err)
+	assert.NoError(t, consumer2.Consume(10, time.Millisecond))
+
+	freshCtx5 := ctx.Engine().NewContext(context.Background())
+	freshCtx5.DisableContextCache()
+	updated, found, err := entities.GenerateEntityWithTimestampsRedisProvider.GetByID(freshCtx5, id)
+	assert.NoError(t, err)
+	assert.True(t, found)
+	assert.Equal(t, "deferred-update", updated.GetName(), "cache should have new name after consumer runs")
+
+	// ──────────────────────────────────────────────────────────────────────────
+	// Test 5: Delete with FlushAsync(false) → cache still has entity
+	// ──────────────────────────────────────────────────────────────────────────
+	freshCtx6 := ctx.Engine().NewContext(context.Background())
+	freshCtx6.DisableContextCache()
+	eDel, _, err := entities.GenerateEntityWithTimestampsRedisProvider.GetByID(freshCtx6, id)
+	assert.NoError(t, err)
+	eDel.Delete()
+	assert.NoError(t, freshCtx6.FlushAsync(false))
+
+	// Redis cache should still have entity
+	freshCtx7 := ctx.Engine().NewContext(context.Background())
+	freshCtx7.DisableContextCache()
+	_, found, err = entities.GenerateEntityWithTimestampsRedisProvider.GetByID(freshCtx7, id)
+	assert.NoError(t, err)
+	assert.True(t, found, "cache should still have entity before consumer runs")
+
+	// ──────────────────────────────────────────────────────────────────────────
+	// Test 6: Consumer processes delete → cache entry deleted
+	// ──────────────────────────────────────────────────────────────────────────
+	consumer3, err := freshCtx6.GetAsyncSQLConsumer()
+	assert.NoError(t, err)
+	assert.NoError(t, consumer3.Consume(10, time.Millisecond))
+
+	freshCtx8 := ctx.Engine().NewContext(context.Background())
+	freshCtx8.DisableContextCache()
+	_, found, err = entities.GenerateEntityWithTimestampsRedisProvider.GetByID(freshCtx8, id)
+	assert.NoError(t, err)
+	assert.False(t, found, "entity should not be found after consumer processes delete")
 }

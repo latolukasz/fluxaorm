@@ -37,14 +37,22 @@ type AsyncEntityEvent struct {
 	Changes    map[string]AsyncSQLParam `msgpack:"ch,omitempty"`
 }
 
+// AsyncRedisOp represents a recorded Redis command for deferred execution.
+type AsyncRedisOp struct {
+	Pool string   `msgpack:"p"`
+	Cmd  string   `msgpack:"c"`
+	Args []string `msgpack:"a,omitempty"`
+}
+
 // AsyncSQLOperation holds one or more SQL queries for a single DB pool.
 // Multiple queries are executed in a transaction.
 // This type is also used in the dead-letter stream so consumers can inspect
 // and replay failed operations.
 type AsyncSQLOperation struct {
-	Pool    string             `msgpack:"pool"`
-	Queries []AsyncSQLQuery    `msgpack:"queries"`
-	Events  []AsyncEntityEvent `msgpack:"events,omitempty"`
+	Pool     string             `msgpack:"pool"`
+	Queries  []AsyncSQLQuery    `msgpack:"queries"`
+	Events   []AsyncEntityEvent `msgpack:"events,omitempty"`
+	RedisOps []AsyncRedisOp     `msgpack:"redis,omitempty"`
 }
 
 // convertParam converts a Go SQL parameter value to a typed AsyncSQLParam.
@@ -222,14 +230,21 @@ type AsyncSQLConsumer interface {
 }
 
 // FlushAsync is like Flush() but instead of executing SQL directly in MySQL,
-// it publishes the SQL queries to a Redis Stream. Redis cache and search indexes
-// are updated immediately (optimistic update). Call GetAsyncSQLConsumer() to
-// process the queued SQL operations.
-func (orm *ormImplementation) FlushAsync() error {
+// it publishes the SQL queries to a Redis Stream. When immediateRedisUpdates
+// is true, Redis cache and search indexes are updated immediately (optimistic
+// update). When false, Redis operations are serialized into the stream and
+// executed by the consumer after SQL. Call GetAsyncSQLConsumer() to process
+// the queued SQL operations.
+func (orm *ormImplementation) FlushAsync(immediateRedisUpdates bool) error {
 	orm.mutexFlush.Lock()
 	defer orm.mutexFlush.Unlock()
 	if orm.trackedEntities == nil || orm.trackedEntities.Size() == 0 {
 		return nil
+	}
+
+	// Enable recording mode when deferring Redis updates
+	if !immediateRedisUpdates {
+		orm.redisRecordMode = true
 	}
 
 	// Step 1: call PrivateFlush on all tracked entities → populates dbPipeLines and redisPipeLines
@@ -242,6 +257,9 @@ func (orm *ormImplementation) FlushAsync() error {
 		return flushErr == nil
 	})
 	if flushErr != nil {
+		if !immediateRedisUpdates {
+			orm.redisRecordMode = false
+		}
 		return flushErr
 	}
 
@@ -282,6 +300,7 @@ func (orm *ormImplementation) FlushAsync() error {
 	// Step 3: serialize each non-empty DatabasePipeline into AsyncSQLOperation events
 	broker := orm.GetEventBroker()
 	eventFlusher := broker.NewFlusher()
+	firstPool := true
 	for pool, dbPipeline := range orm.dbPipeLines {
 		if len(dbPipeline.queries) == 0 {
 			continue
@@ -295,7 +314,23 @@ func (orm *ormImplementation) FlushAsync() error {
 			queries[i] = AsyncSQLQuery{Q: q, P: params}
 		}
 		op := AsyncSQLOperation{Pool: pool, Queries: queries, Events: entityEventsByPool[pool]}
+
+		// Attach deferred Redis ops to the first operation
+		if !immediateRedisUpdates && firstPool {
+			var allRedisOps []AsyncRedisOp
+			for _, redisPipeline := range orm.redisPipeLines {
+				allRedisOps = append(allRedisOps, redisPipeline.GetRecordedOps()...)
+			}
+			if len(allRedisOps) > 0 {
+				op.RedisOps = allRedisOps
+			}
+			firstPool = false
+		}
+
 		if err := eventFlusher.Publish(AsyncSQLStreamName, op); err != nil {
+			if !immediateRedisUpdates {
+				orm.redisRecordMode = false
+			}
 			return err
 		}
 	}
@@ -303,11 +338,16 @@ func (orm *ormImplementation) FlushAsync() error {
 	// Step 4: clear DB pipelines — queries will go to the stream, not MySQL directly
 	orm.dbPipeLines = nil
 
-	// Step 5: execute Redis pipelines (cache + search indexes updated immediately)
-	for _, redisPipeline := range orm.redisPipeLines {
-		if _, err := redisPipeline.Exec(orm); err != nil {
-			return err
+	// Step 5: execute Redis pipelines (only in immediate mode)
+	if immediateRedisUpdates {
+		for _, redisPipeline := range orm.redisPipeLines {
+			if _, err := redisPipeline.Exec(orm); err != nil {
+				return err
+			}
 		}
+	} else {
+		orm.redisRecordMode = false
+		orm.redisPipeLines = nil
 	}
 
 	// Step 6: publish the serialized SQL events to the async stream
@@ -350,6 +390,56 @@ func (c *asyncSQLConsumerImpl) Consume(count int, blockTime time.Duration) error
 
 func (c *asyncSQLConsumerImpl) AutoClaim(count int, minIdle time.Duration) error {
 	return c.inner.AutoClaim(count, minIdle, c.handleEvents)
+}
+
+func (c *asyncSQLConsumerImpl) executeRedisOps(ops []AsyncRedisOp) error {
+	byPool := make(map[string][]AsyncRedisOp)
+	for _, op := range ops {
+		byPool[op.Pool] = append(byPool[op.Pool], op)
+	}
+	for pool, poolOps := range byPool {
+		redisPipeline := c.ctx.RedisPipeLine(pool)
+		for _, op := range poolOps {
+			switch op.Cmd {
+			case "rpush":
+				if len(op.Args) < 2 {
+					continue
+				}
+				values := make([]any, len(op.Args)-1)
+				for i, v := range op.Args[1:] {
+					values[i] = v
+				}
+				redisPipeline.RPush(op.Args[0], values...)
+			case "lset":
+				if len(op.Args) < 3 {
+					continue
+				}
+				index, _ := strconv.ParseInt(op.Args[1], 10, 64)
+				redisPipeline.LSet(op.Args[0], index, op.Args[2])
+			case "del":
+				redisPipeline.Del(op.Args...)
+			case "hset":
+				if len(op.Args) < 3 {
+					continue
+				}
+				values := make([]any, len(op.Args)-1)
+				for i, v := range op.Args[1:] {
+					values[i] = v
+				}
+				redisPipeline.HSet(op.Args[0], values...)
+			case "set":
+				if len(op.Args) < 3 {
+					continue
+				}
+				expSec, _ := strconv.ParseInt(op.Args[2], 10, 64)
+				redisPipeline.Set(op.Args[0], op.Args[1], time.Duration(expSec)*time.Second)
+			}
+		}
+		if _, err := redisPipeline.Exec(c.ctx); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 func (c *asyncSQLConsumerImpl) handleEvents(events []Event) error {
@@ -396,6 +486,13 @@ func (c *asyncSQLConsumerImpl) handleEvents(events []Event) error {
 			return err
 		}
 		_ = ev.Ack()
+
+		// Execute deferred Redis ops after SQL success
+		if len(op.RedisOps) > 0 {
+			if err := c.executeRedisOps(op.RedisOps); err != nil {
+				return err
+			}
+		}
 
 		// Fire hooks after SQL execution and ACK
 		if len(op.Events) > 0 {

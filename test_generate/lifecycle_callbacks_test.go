@@ -131,7 +131,7 @@ func TestAfterFlushCallbacksNotFiredForFlushAsync(t *testing.T) {
 
 	e := entities.GenerateEntityWithTimestampsRedisProvider.New(ctx)
 	e.SetName("AsyncTest")
-	assert.NoError(t, ctx.FlushAsync())
+	assert.NoError(t, ctx.FlushAsync(true))
 
 	assert.False(t, insertCalled)
 }
@@ -246,7 +246,7 @@ func TestAfterInsertCallbackFiredByAsyncConsumer(t *testing.T) {
 
 	e := entities.GenerateEntityWithTimestampsRedisProvider.New(ctx)
 	e.SetName("AsyncInsertTest")
-	assert.NoError(t, ctx.FlushAsync())
+	assert.NoError(t, ctx.FlushAsync(true))
 
 	// Hook should NOT fire during FlushAsync itself
 	assert.False(t, insertCalled)
@@ -286,7 +286,7 @@ func TestAfterUpdateCallbackFiredByAsyncConsumer(t *testing.T) {
 	// Update via FlushAsync
 	e, _, _ = entities.GenerateEntityWithTimestampsRedisProvider.GetByID(ctx, e.GetID())
 	e.SetName("Updated")
-	assert.NoError(t, ctx.FlushAsync())
+	assert.NoError(t, ctx.FlushAsync(true))
 	assert.False(t, updateCalled)
 
 	// Consume the async SQL event
@@ -326,7 +326,7 @@ func TestAfterDeleteCallbackFiredByAsyncConsumer(t *testing.T) {
 	e, _, _ = entities.GenerateEntityWithTimestampsRedisProvider.GetByID(ctx, e.GetID())
 	entityID := e.GetID()
 	e.Delete()
-	assert.NoError(t, ctx.FlushAsync())
+	assert.NoError(t, ctx.FlushAsync(true))
 	assert.False(t, deleteCalled)
 
 	// Consume the async SQL event
@@ -364,7 +364,7 @@ func TestAfterDeleteCallbackFiredByAsyncConsumerFakeDelete(t *testing.T) {
 	e, _, _ = entities.GenerateReferenceEntityProvider.GetByID(ctx, e.GetID())
 	entityID := e.GetID()
 	e.Delete() // FakeDelete since entity has FakeDelete field
-	assert.NoError(t, ctx.FlushAsync())
+	assert.NoError(t, ctx.FlushAsync(true))
 
 	// Consume the async SQL event
 	consumer, err := ctx.GetAsyncSQLConsumer()
@@ -388,7 +388,7 @@ func TestAfterCallbackErrorInAsyncConsumer(t *testing.T) {
 
 	e := entities.GenerateEntityWithTimestampsRedisProvider.New(ctx)
 	e.SetName("AsyncErrorTest")
-	assert.NoError(t, ctx.FlushAsync())
+	assert.NoError(t, ctx.FlushAsync(true))
 
 	// Consume — hook error should be returned
 	consumer, err := ctx.GetAsyncSQLConsumer()
