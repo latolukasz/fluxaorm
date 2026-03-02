@@ -134,8 +134,6 @@ type entitySchema struct {
 type tableFields struct {
 	t                         reflect.Type
 	fields                    map[int]reflect.StructField
-	forcedOldBid              map[int]bool
-	arrays                    map[int]int
 	prefix                    string
 	uIntegers                 []int
 	integers                  []int
@@ -643,24 +641,12 @@ return deleted
 func (e *entitySchema) buildTableFields(t reflect.Type, registry *registry,
 	start int, prefix string, parents []int, schemaTags map[string]map[string]string, extraPrefix string) (*tableFields, error) {
 	fields := &tableFields{t: t, prefix: prefix, fields: make(map[int]reflect.StructField)}
-	fields.forcedOldBid = make(map[int]bool)
-	fields.arrays = make(map[int]int)
 	for i := start; i < t.NumField(); i++ {
 		f := t.Field(i)
 		tags := schemaTags[prefix+f.Name]
 		_, has := tags["ignore"]
 		if has {
 			continue
-		}
-		hasUnique := false
-		for _, def := range e.uniqueIndexes {
-			if slices.Contains(def.Columns, prefix+f.Name) {
-				hasUnique = true
-				break
-			}
-		}
-		if hasUnique {
-			fields.forcedOldBid[i] = true
 		}
 		attributes := schemaFieldAttributes{
 			Fields:      fields,
@@ -749,9 +735,6 @@ func (e *entitySchema) buildTableFields(t reflect.Type, registry *registry,
 				}
 			} else if fType.Implements(reflect.TypeOf((*referenceInterface)(nil)).Elem()) {
 				e.buildReferenceField(attributes)
-				if attributes.Tags["cached"] == "true" {
-					fields.forcedOldBid[i] = true
-				}
 			} else {
 				return nil, fmt.Errorf("%s field %s type %s is not supported", e.t.String(), f.Name, f.Type.String())
 			}
@@ -772,18 +755,7 @@ type schemaFieldAttributes struct {
 }
 
 func (attributes schemaFieldAttributes) GetColumnNames() []string {
-	l, isArray := attributes.Fields.arrays[attributes.Index]
-	if !isArray {
-		return []string{attributes.Prefix + attributes.ExtraPrefix + attributes.Field.Name}
-	}
-	names := make([]string, l)
-	for i := 0; i <= l; i++ {
-		if i == l {
-			break
-		}
-		names[i] = attributes.Prefix + attributes.ExtraPrefix + attributes.Field.Name + "_" + strconv.Itoa(i+1)
-	}
-	return names
+	return []string{attributes.Prefix + attributes.ExtraPrefix + attributes.Field.Name}
 }
 
 func (e *entitySchema) buildUintField(attributes schemaFieldAttributes, min int64, max uint64) {
@@ -1207,18 +1179,9 @@ func (fields *tableFields) buildColumnNames(subFieldPrefix string) []string {
 	ids = append(ids, fields.timesNullable...)
 	ids = append(ids, fields.datesNullable...)
 	for _, index := range ids {
-		l := fields.arrays[index]
-		if l > 0 {
-			for i := 1; i <= l; i++ {
-				name := subFieldPrefix + fields.fields[index].Name + "_" + strconv.Itoa(i)
-				columns = append(columns, name)
-				fieldsQuery += ",`" + name + "`"
-			}
-		} else {
-			name := subFieldPrefix + fields.fields[index].Name
-			columns = append(columns, name)
-			fieldsQuery += ",`" + name + "`"
-		}
+		name := subFieldPrefix + fields.fields[index].Name
+		columns = append(columns, name)
+		fieldsQuery += ",`" + name + "`"
 	}
 	for i, subFields := range fields.structsFields {
 		field := fields.fields[fields.structs[i]]
