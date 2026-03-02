@@ -497,6 +497,8 @@ func (g *codeGenerator) generateEntityStruct(schema *entitySchema, names *entity
 		g.addLine("\tredisBind map[int64]any")
 		g.addLine("\toriginRedisValues []string")
 	}
+	g.addLine("\tflushType uint8")
+	g.addLine("\tflushChanges map[string]any")
 	g.addLine("}")
 	g.addLine("")
 
@@ -644,6 +646,7 @@ func (g *codeGenerator) generateEntityStruct(schema *entitySchema, names *entity
 		}
 	}
 
+	g.addLine("\t\te.flushType = 1")
 	g.addLine("\t\treturn nil")
 	g.addLine("\t}")
 
@@ -676,11 +679,66 @@ func (g *codeGenerator) generateEntityStruct(schema *entitySchema, names *entity
 			idxNum++
 		}
 	}
+	g.addLine("\t\te.flushType = 3")
 	g.addLine("\t\treturn nil")
 	g.addLine("\t}")
 
 	// UPDATE block
 	g.addLine("\tif len(e.databaseBind) > 0 {")
+
+	// Lifecycle callback: determine flush event type and build old-values map
+	if schema.hasFakeDelete {
+		g.addLine("\t\tif _fdv, _fdok := e.databaseBind[\"FakeDelete\"]; _fdok && _fdv.(bool) {")
+		g.addLine("\t\t\te.flushType = 3")
+		g.addLine("\t\t} else {")
+		g.addLine("\t\t\te.flushType = 2")
+		g.addLine("\t\t\te.flushChanges = make(map[string]any, len(e.databaseBind))")
+		g.addLine("\t\t\tfor _col := range e.databaseBind {")
+		// Exclude auto-set fields from changes map
+		excludeCheck := ""
+		if schema.hasUpdatedAt {
+			excludeCheck += `_col == "UpdatedAt"`
+		}
+		if schema.hasCreatedAt {
+			if excludeCheck != "" {
+				excludeCheck += " || "
+			}
+			excludeCheck += `_col == "CreatedAt"`
+		}
+		// Always exclude FakeDelete from changes when it's not a delete event
+		if excludeCheck != "" {
+			excludeCheck += " || "
+		}
+		excludeCheck += `_col == "FakeDelete"`
+		g.addLine(fmt.Sprintf("\t\t\t\tif %s {", excludeCheck))
+		g.addLine("\t\t\t\t\tcontinue")
+		g.addLine("\t\t\t\t}")
+		g.addLine("\t\t\t\te.flushChanges[_col] = e.privateGetOriginalColumnValue(_col)")
+		g.addLine("\t\t\t}")
+		g.addLine("\t\t}")
+	} else {
+		g.addLine("\t\te.flushType = 2")
+		g.addLine("\t\te.flushChanges = make(map[string]any, len(e.databaseBind))")
+		g.addLine("\t\tfor _col := range e.databaseBind {")
+		excludeCheck := ""
+		if schema.hasUpdatedAt {
+			excludeCheck += `_col == "UpdatedAt"`
+		}
+		if schema.hasCreatedAt {
+			if excludeCheck != "" {
+				excludeCheck += " || "
+			}
+			excludeCheck += `_col == "CreatedAt"`
+		}
+		if excludeCheck != "" {
+			g.addLine(fmt.Sprintf("\t\t\tif %s {", excludeCheck))
+			g.addLine("\t\t\t\tcontinue")
+			g.addLine("\t\t\t}")
+		}
+		g.addLine("\t\t\te.flushChanges[_col] = e.privateGetOriginalColumnValue(_col)")
+		g.addLine("\t\t}")
+	}
+
 	if schema.hasUpdatedAt {
 		g.addImport("time")
 		g.addLine("\t\te.databaseBind[\"UpdatedAt\"] = time.Now().UTC().Truncate(time.Second)")
@@ -709,7 +767,6 @@ func (g *codeGenerator) generateEntityStruct(schema *entitySchema, names *entity
 		g.addLine("\t\tfor index, value := range e.redisBind {")
 		g.addLine("\t\t\tredisPipeLine.LSet(redisKey, index, value)")
 		g.addLine("\t\t}")
-		g.addLine("\t\te.redisBind = nil")
 	}
 
 	// Redis Search UPDATE
@@ -914,7 +971,6 @@ func (g *codeGenerator) generateEntityStruct(schema *entitySchema, names *entity
 		}
 	}
 
-	g.addLine("\t\te.databaseBind = nil")
 	g.addLine("\t}")
 	g.addLine("\treturn nil")
 	g.addLine("}")
@@ -924,6 +980,287 @@ func (g *codeGenerator) generateEntityStruct(schema *entitySchema, names *entity
 	g.addLine("\tif e.new {")
 	g.addLine("\t\te.new = false")
 	g.addLine("\t}")
+	g.addLine("\te.databaseBind = nil")
+	if schema.hasRedisCache {
+		g.addLine("\te.redisBind = nil")
+	}
+	g.addLine("\te.flushType = 0")
+	g.addLine("\te.flushChanges = nil")
+	g.addLine("}")
+	g.addLine("")
+
+	// PrivateFlushEvent
+	g.addLine(fmt.Sprintf("func (e *%s) PrivateFlushEvent() (uint8, map[string]any) {", names.entityName))
+	g.addLine("\treturn e.flushType, e.flushChanges")
+	g.addLine("}")
+	g.addLine("")
+
+	// privateGetOriginalColumnValue
+	g.generatePrivateGetOriginalColumnValue(schema, names)
+}
+
+type colOriginInfo struct {
+	colName  string
+	fIndex   int
+	category string // "uint64", "int64", "bool", "float64", "time", "string", "nullUint64", "nullInt64", "nullBool", "nullFloat64", "nullTime", "nullString"
+}
+
+func buildColOriginInfos(fields *tableFields, fIdx *int) []colOriginInfo {
+	var cols []colOriginInfo
+	for _, i := range fields.uIntegers {
+		fieldName := fields.prefix + fields.fields[i].Name
+		if fieldName == "ID" {
+			*fIdx++
+			continue
+		}
+		cols = append(cols, colOriginInfo{fieldName, *fIdx, "uint64"})
+		*fIdx++
+	}
+	for k, i := range fields.references {
+		fieldName := fields.prefix + fields.fields[i].Name
+		if fields.referencesRequired[k] {
+			cols = append(cols, colOriginInfo{fieldName, *fIdx, "uint64"})
+		} else {
+			cols = append(cols, colOriginInfo{fieldName, *fIdx, "nullUint64"})
+		}
+		*fIdx++
+	}
+	for _, i := range fields.integers {
+		fieldName := fields.prefix + fields.fields[i].Name
+		cols = append(cols, colOriginInfo{fieldName, *fIdx, "int64"})
+		*fIdx++
+	}
+	for _, i := range fields.booleans {
+		fieldName := fields.prefix + fields.fields[i].Name
+		cols = append(cols, colOriginInfo{fieldName, *fIdx, "bool"})
+		*fIdx++
+	}
+	for _, i := range fields.floats {
+		fieldName := fields.prefix + fields.fields[i].Name
+		cols = append(cols, colOriginInfo{fieldName, *fIdx, "float64"})
+		*fIdx++
+	}
+	for _, i := range fields.times {
+		fieldName := fields.prefix + fields.fields[i].Name
+		cols = append(cols, colOriginInfo{fieldName, *fIdx, "time"})
+		*fIdx++
+	}
+	for _, i := range fields.dates {
+		fieldName := fields.prefix + fields.fields[i].Name
+		cols = append(cols, colOriginInfo{fieldName, *fIdx, "time"})
+		*fIdx++
+	}
+	for k, i := range fields.strings {
+		fieldName := fields.prefix + fields.fields[i].Name
+		if fields.stringsRequired[k] {
+			cols = append(cols, colOriginInfo{fieldName, *fIdx, "string"})
+		} else {
+			cols = append(cols, colOriginInfo{fieldName, *fIdx, "nullString"})
+		}
+		*fIdx++
+	}
+	for _, i := range fields.uIntegersNullable {
+		fieldName := fields.prefix + fields.fields[i].Name
+		cols = append(cols, colOriginInfo{fieldName, *fIdx, "nullUint64"})
+		*fIdx++
+	}
+	for _, i := range fields.integersNullable {
+		fieldName := fields.prefix + fields.fields[i].Name
+		cols = append(cols, colOriginInfo{fieldName, *fIdx, "nullInt64"})
+		*fIdx++
+	}
+	for k, i := range fields.stringsEnums {
+		fieldName := fields.prefix + fields.fields[i].Name
+		d := fields.enums[k]
+		if d.required {
+			cols = append(cols, colOriginInfo{fieldName, *fIdx, "string"})
+		} else {
+			cols = append(cols, colOriginInfo{fieldName, *fIdx, "nullString"})
+		}
+		*fIdx++
+	}
+	for _, i := range fields.bytes {
+		fieldName := fields.prefix + fields.fields[i].Name
+		cols = append(cols, colOriginInfo{fieldName, *fIdx, "nullString"})
+		*fIdx++
+	}
+	for k, i := range fields.sliceStringsSets {
+		fieldName := fields.prefix + fields.fields[i].Name
+		d := fields.sets[k]
+		if d.required {
+			cols = append(cols, colOriginInfo{fieldName, *fIdx, "string"})
+		} else {
+			cols = append(cols, colOriginInfo{fieldName, *fIdx, "nullString"})
+		}
+		*fIdx++
+	}
+	for _, i := range fields.booleansNullable {
+		fieldName := fields.prefix + fields.fields[i].Name
+		cols = append(cols, colOriginInfo{fieldName, *fIdx, "nullBool"})
+		*fIdx++
+	}
+	for _, i := range fields.floatsNullable {
+		fieldName := fields.prefix + fields.fields[i].Name
+		cols = append(cols, colOriginInfo{fieldName, *fIdx, "nullFloat64"})
+		*fIdx++
+	}
+	for _, i := range fields.timesNullable {
+		fieldName := fields.prefix + fields.fields[i].Name
+		cols = append(cols, colOriginInfo{fieldName, *fIdx, "nullTime"})
+		*fIdx++
+	}
+	for _, i := range fields.datesNullable {
+		fieldName := fields.prefix + fields.fields[i].Name
+		cols = append(cols, colOriginInfo{fieldName, *fIdx, "nullTime"})
+		*fIdx++
+	}
+	for _, subFields := range fields.structsFields {
+		cols = append(cols, buildColOriginInfos(subFields, fIdx)...)
+	}
+	return cols
+}
+
+func (g *codeGenerator) generatePrivateGetOriginalColumnValue(schema *entitySchema, names *entityNames) {
+	fIdx := 0
+	cols := buildColOriginInfos(schema.fields, &fIdx)
+
+	g.addLine(fmt.Sprintf("func (e *%s) privateGetOriginalColumnValue(column string) any {", names.entityName))
+	g.addLine("\tswitch column {")
+	for _, c := range cols {
+		g.addLine(fmt.Sprintf("\tcase %q:", c.colName))
+		switch c.category {
+		case "uint64":
+			if schema.hasRedisCache {
+				g.addLine(fmt.Sprintf("\t\tif e.originRedisValues != nil {"))
+				g.addLine(fmt.Sprintf("\t\t\t_v, _ := strconv.ParseUint(e.originRedisValues[%d], 10, 64)", c.fIndex))
+				g.addLine("\t\t\treturn _v")
+				g.addLine("\t\t}")
+			}
+			g.addLine(fmt.Sprintf("\t\treturn e.originDatabaseValues.F%d", c.fIndex))
+		case "int64":
+			if schema.hasRedisCache {
+				g.addLine(fmt.Sprintf("\t\tif e.originRedisValues != nil {"))
+				g.addLine(fmt.Sprintf("\t\t\t_v, _ := strconv.ParseInt(e.originRedisValues[%d], 10, 64)", c.fIndex))
+				g.addLine("\t\t\treturn _v")
+				g.addLine("\t\t}")
+			}
+			g.addLine(fmt.Sprintf("\t\treturn e.originDatabaseValues.F%d", c.fIndex))
+		case "bool":
+			if schema.hasRedisCache {
+				g.addLine(fmt.Sprintf("\t\tif e.originRedisValues != nil {"))
+				g.addLine(fmt.Sprintf("\t\t\treturn e.originRedisValues[%d] == \"1\"", c.fIndex))
+				g.addLine("\t\t}")
+			}
+			g.addLine(fmt.Sprintf("\t\treturn e.originDatabaseValues.F%d", c.fIndex))
+		case "float64":
+			if schema.hasRedisCache {
+				g.addLine(fmt.Sprintf("\t\tif e.originRedisValues != nil {"))
+				g.addLine(fmt.Sprintf("\t\t\t_v, _ := strconv.ParseFloat(e.originRedisValues[%d], 64)", c.fIndex))
+				g.addLine("\t\t\treturn _v")
+				g.addLine("\t\t}")
+			}
+			g.addLine(fmt.Sprintf("\t\treturn e.originDatabaseValues.F%d", c.fIndex))
+		case "time":
+			if schema.hasRedisCache {
+				g.addLine(fmt.Sprintf("\t\tif e.originRedisValues != nil {"))
+				g.addLine(fmt.Sprintf("\t\t\t_v, _ := strconv.ParseInt(e.originRedisValues[%d], 10, 64)", c.fIndex))
+				g.addLine("\t\t\treturn time.Unix(_v, 0).UTC()")
+				g.addLine("\t\t}")
+			}
+			g.addLine(fmt.Sprintf("\t\treturn e.originDatabaseValues.F%d", c.fIndex))
+		case "string":
+			if schema.hasRedisCache {
+				g.addLine(fmt.Sprintf("\t\tif e.originRedisValues != nil {"))
+				g.addLine(fmt.Sprintf("\t\t\treturn e.originRedisValues[%d]", c.fIndex))
+				g.addLine("\t\t}")
+			}
+			g.addLine(fmt.Sprintf("\t\treturn e.originDatabaseValues.F%d", c.fIndex))
+		case "nullUint64":
+			if schema.hasRedisCache {
+				g.addLine(fmt.Sprintf("\t\tif e.originRedisValues != nil {"))
+				g.addLine(fmt.Sprintf("\t\t\tif e.originRedisValues[%d] == \"\" {", c.fIndex))
+				g.addLine("\t\t\t\treturn nil")
+				g.addLine("\t\t\t}")
+				g.addLine(fmt.Sprintf("\t\t\t_v, _ := strconv.ParseUint(e.originRedisValues[%d], 10, 64)", c.fIndex))
+				g.addLine("\t\t\treturn _v")
+				g.addLine("\t\t}")
+			}
+			g.addLine(fmt.Sprintf("\t\tif e.originDatabaseValues.F%d.Valid {", c.fIndex))
+			g.addLine(fmt.Sprintf("\t\t\treturn uint64(e.originDatabaseValues.F%d.Int64)", c.fIndex))
+			g.addLine("\t\t}")
+			g.addLine("\t\treturn nil")
+		case "nullInt64":
+			if schema.hasRedisCache {
+				g.addLine(fmt.Sprintf("\t\tif e.originRedisValues != nil {"))
+				g.addLine(fmt.Sprintf("\t\t\tif e.originRedisValues[%d] == \"\" {", c.fIndex))
+				g.addLine("\t\t\t\treturn nil")
+				g.addLine("\t\t\t}")
+				g.addLine(fmt.Sprintf("\t\t\t_v, _ := strconv.ParseInt(e.originRedisValues[%d], 10, 64)", c.fIndex))
+				g.addLine("\t\t\treturn _v")
+				g.addLine("\t\t}")
+			}
+			g.addLine(fmt.Sprintf("\t\tif e.originDatabaseValues.F%d.Valid {", c.fIndex))
+			g.addLine(fmt.Sprintf("\t\t\treturn e.originDatabaseValues.F%d.Int64", c.fIndex))
+			g.addLine("\t\t}")
+			g.addLine("\t\treturn nil")
+		case "nullBool":
+			if schema.hasRedisCache {
+				g.addLine(fmt.Sprintf("\t\tif e.originRedisValues != nil {"))
+				g.addLine(fmt.Sprintf("\t\t\tif e.originRedisValues[%d] == \"\" {", c.fIndex))
+				g.addLine("\t\t\t\treturn nil")
+				g.addLine("\t\t\t}")
+				g.addLine(fmt.Sprintf("\t\t\treturn e.originRedisValues[%d] == \"1\"", c.fIndex))
+				g.addLine("\t\t}")
+			}
+			g.addLine(fmt.Sprintf("\t\tif e.originDatabaseValues.F%d.Valid {", c.fIndex))
+			g.addLine(fmt.Sprintf("\t\t\treturn e.originDatabaseValues.F%d.Bool", c.fIndex))
+			g.addLine("\t\t}")
+			g.addLine("\t\treturn nil")
+		case "nullFloat64":
+			if schema.hasRedisCache {
+				g.addLine(fmt.Sprintf("\t\tif e.originRedisValues != nil {"))
+				g.addLine(fmt.Sprintf("\t\t\tif e.originRedisValues[%d] == \"\" {", c.fIndex))
+				g.addLine("\t\t\t\treturn nil")
+				g.addLine("\t\t\t}")
+				g.addLine(fmt.Sprintf("\t\t\t_v, _ := strconv.ParseFloat(e.originRedisValues[%d], 64)", c.fIndex))
+				g.addLine("\t\t\treturn _v")
+				g.addLine("\t\t}")
+			}
+			g.addLine(fmt.Sprintf("\t\tif e.originDatabaseValues.F%d.Valid {", c.fIndex))
+			g.addLine(fmt.Sprintf("\t\t\treturn e.originDatabaseValues.F%d.Float64", c.fIndex))
+			g.addLine("\t\t}")
+			g.addLine("\t\treturn nil")
+		case "nullTime":
+			if schema.hasRedisCache {
+				g.addLine(fmt.Sprintf("\t\tif e.originRedisValues != nil {"))
+				g.addLine(fmt.Sprintf("\t\t\tif e.originRedisValues[%d] == \"\" {", c.fIndex))
+				g.addLine("\t\t\t\treturn nil")
+				g.addLine("\t\t\t}")
+				g.addLine(fmt.Sprintf("\t\t\t_v, _ := strconv.ParseInt(e.originRedisValues[%d], 10, 64)", c.fIndex))
+				g.addLine("\t\t\treturn time.Unix(_v, 0).UTC()")
+				g.addLine("\t\t}")
+			}
+			g.addLine(fmt.Sprintf("\t\tif e.originDatabaseValues.F%d.Valid {", c.fIndex))
+			g.addLine(fmt.Sprintf("\t\t\treturn e.originDatabaseValues.F%d.Time", c.fIndex))
+			g.addLine("\t\t}")
+			g.addLine("\t\treturn nil")
+		case "nullString":
+			if schema.hasRedisCache {
+				g.addLine(fmt.Sprintf("\t\tif e.originRedisValues != nil {"))
+				g.addLine(fmt.Sprintf("\t\t\tif e.originRedisValues[%d] == \"\" {", c.fIndex))
+				g.addLine("\t\t\t\treturn nil")
+				g.addLine("\t\t\t}")
+				g.addLine(fmt.Sprintf("\t\t\treturn e.originRedisValues[%d]", c.fIndex))
+				g.addLine("\t\t}")
+			}
+			g.addLine(fmt.Sprintf("\t\tif e.originDatabaseValues.F%d.Valid {", c.fIndex))
+			g.addLine(fmt.Sprintf("\t\t\treturn e.originDatabaseValues.F%d.String", c.fIndex))
+			g.addLine("\t\t}")
+			g.addLine("\t\treturn nil")
+		}
+	}
+	g.addLine("\t}")
+	g.addLine("\treturn nil")
 	g.addLine("}")
 	g.addLine("")
 }

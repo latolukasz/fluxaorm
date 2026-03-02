@@ -39,6 +39,29 @@ func (orm *ormImplementation) flush() (err error) {
 			return err
 		}
 	}
+	if orm.engine.afterInsertHandlers != nil || orm.engine.afterUpdateHandlers != nil || orm.engine.afterDeleteHandlers != nil {
+		orm.trackedEntities.Range(func(cacheIndex uint64, value *xsync.MapOf[uint64, Entity]) bool {
+			value.Range(func(_ uint64, e Entity) bool {
+				eventType, changes := e.PrivateFlushEvent()
+				switch eventType {
+				case 1:
+					if handler, ok := orm.engine.afterInsertHandlers[cacheIndex]; ok {
+						handler(orm, e)
+					}
+				case 2:
+					if handler, ok := orm.engine.afterUpdateHandlers[cacheIndex]; ok {
+						handler(orm, e, changes)
+					}
+				case 3:
+					if handler, ok := orm.engine.afterDeleteHandlers[cacheIndex]; ok {
+						handler(orm, e)
+					}
+				}
+				return true
+			})
+			return true
+		})
+	}
 	orm.trackedEntities.Range(func(_ uint64, value *xsync.MapOf[uint64, Entity]) bool {
 		value.Range(func(_ uint64, e Entity) bool {
 			e.PrivateFlushed()
