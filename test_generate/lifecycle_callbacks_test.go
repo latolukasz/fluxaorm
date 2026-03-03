@@ -208,8 +208,7 @@ func TestMultipleEntitiesInSingleFlush(t *testing.T) {
 	names := []string{insertedTimestamps[0].GetName(), insertedTimestamps[1].GetName()}
 	assert.Contains(t, names, "First")
 	assert.Contains(t, names, "Second")
-	assert.NotNil(t, insertedRefs[0].GetName())
-	assert.Equal(t, "Ref", *insertedRefs[0].GetName())
+	assert.Equal(t, "Ref", insertedRefs[0].GetName())
 }
 
 func TestAfterCallbackErrorPropagation(t *testing.T) {
