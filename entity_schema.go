@@ -56,6 +56,10 @@ func (d *enumDefinition) Index(value string) int {
 	return d.mapping[value]
 }
 
+func (d *enumDefinition) isReference() bool {
+	return len(d.fields) == 0
+}
+
 func initEnumDefinition(name string, values []string, required bool) *enumDefinition {
 	enum := &enumDefinition{
 		required:   required,
@@ -773,9 +777,23 @@ func (e *entitySchema) buildTableFields(t reflect.Type, registry *registry,
 			e.buildIntPointerField(attributes, math.MinInt64, math.MaxInt64)
 		case "string":
 			if enumVals, hasEnum := attributes.Tags["enum"]; hasEnum {
-				e.buildEnumField(attributes, strings.Split(enumVals, ","))
+				if enumVals == "true" {
+					if _, hasEnumName := attributes.Tags["enumName"]; !hasEnumName {
+						return nil, fmt.Errorf("enum without values requires enumName in field '%s' of entity '%s'", f.Name, e.t.String())
+					}
+					e.buildEnumField(attributes, nil)
+				} else {
+					e.buildEnumField(attributes, strings.Split(enumVals, ","))
+				}
 			} else if setVals, hasSet := attributes.Tags["set"]; hasSet {
-				e.buildStringSliceField(attributes, strings.Split(setVals, ","))
+				if setVals == "true" {
+					if _, hasEnumName := attributes.Tags["enumName"]; !hasEnumName {
+						return nil, fmt.Errorf("set without values requires enumName in field '%s' of entity '%s'", f.Name, e.t.String())
+					}
+					e.buildStringSliceField(attributes, nil)
+				} else {
+					e.buildStringSliceField(attributes, strings.Split(setVals, ","))
+				}
 			} else {
 				e.buildStringField(attributes)
 			}
@@ -925,7 +943,12 @@ func (e *entitySchema) buildEnumField(attributes schemaFieldAttributes, values [
 	}
 	required := attributes.Tags["required"] == "true"
 	for i, columnName := range attributes.GetColumnNames() {
-		def := initEnumDefinition(enumName, values, required)
+		var def *enumDefinition
+		if values != nil {
+			def = initEnumDefinition(enumName, values, required)
+		} else {
+			def = &enumDefinition{name: enumName, required: required}
+		}
 		if i == 0 {
 			attributes.Fields.enums = append(attributes.Fields.enums, def)
 		}
@@ -973,7 +996,12 @@ func (e *entitySchema) buildStringSliceField(attributes schemaFieldAttributes, v
 	}
 	required := attributes.Tags["required"] == "true"
 	for i, columnName := range attributes.GetColumnNames() {
-		def := initEnumDefinition(enumName, values, required)
+		var def *enumDefinition
+		if values != nil {
+			def = initEnumDefinition(enumName, values, required)
+		} else {
+			def = &enumDefinition{name: enumName, required: required}
+		}
 		if i == 0 {
 			attributes.Fields.sets = append(attributes.Fields.sets, def)
 		}

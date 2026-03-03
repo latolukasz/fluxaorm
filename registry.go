@@ -170,6 +170,10 @@ func (r *registry) Validate() (Engine, error) {
 			r.localCaches[schema.cacheKey] = newLocalCache(schema.cacheKey, schema.localCacheLimit, schema)
 		}
 	}
+	err := resolveSharedEnumDefinitions(e.registry.entitySchemas)
+	if err != nil {
+		return nil, err
+	}
 	for k, v := range r.localCaches {
 		e.localCacheServers[k] = v
 		if len(k) > maxPoolLen {
@@ -407,4 +411,134 @@ func validateRedisVersion(info string, pool string) error {
 		}
 	}
 	return fmt.Errorf("redis pool '%s': unable to determine Redis version from INFO", pool)
+}
+
+type enumSource struct {
+	def        *enumDefinition
+	entityName string
+}
+
+func resolveSharedEnumDefinitions(schemas map[reflect.Type]*entitySchema) error {
+	defs := map[string]enumSource{}
+
+	// Phase 1: Collect all definitions with values (not references)
+	for entityType, schema := range schemas {
+		err := collectEnumDefs(schema.fields, entityType.String(), defs)
+		if err != nil {
+			return err
+		}
+	}
+
+	// Phase 2: Resolve references
+	for entityType, schema := range schemas {
+		err := resolveEnumRefs(schema, schema.fields, entityType.String(), defs)
+		if err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func enumFieldsEqual(a, b *enumDefinition) bool {
+	if len(a.fields) != len(b.fields) {
+		return false
+	}
+	for i, v := range a.fields {
+		if b.fields[i] != v {
+			return false
+		}
+	}
+	return true
+}
+
+func collectEnumDefs(fields *tableFields, entityName string, defs map[string]enumSource) error {
+	for _, def := range fields.enums {
+		if def.isReference() {
+			continue
+		}
+		if existing, exists := defs[def.name]; exists {
+			if existing.entityName != entityName && !enumFieldsEqual(existing.def, def) {
+				return fmt.Errorf("enum/set '%s' has conflicting values defined in both '%s' and '%s', definition must be in only one entity",
+					def.name, existing.entityName, entityName)
+			}
+		} else {
+			defs[def.name] = enumSource{def: def, entityName: entityName}
+		}
+	}
+	for _, def := range fields.sets {
+		if def.isReference() {
+			continue
+		}
+		if existing, exists := defs[def.name]; exists {
+			if existing.entityName != entityName && !enumFieldsEqual(existing.def, def) {
+				return fmt.Errorf("enum/set '%s' has conflicting values defined in both '%s' and '%s', definition must be in only one entity",
+					def.name, existing.entityName, entityName)
+			}
+		} else {
+			defs[def.name] = enumSource{def: def, entityName: entityName}
+		}
+	}
+	for _, subFields := range fields.structsFields {
+		err := collectEnumDefs(subFields, entityName, defs)
+		if err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func resolveEnumRefs(schema *entitySchema, fields *tableFields, entityName string, defs map[string]enumSource) error {
+	for _, def := range fields.enums {
+		if !def.isReference() {
+			continue
+		}
+		source, exists := defs[def.name]
+		if !exists {
+			return fmt.Errorf("enum/set '%s' referenced in '%s' but no entity defines its values", def.name, entityName)
+		}
+		def.fields = source.def.fields
+		def.fieldNames = source.def.fieldNames
+		def.mapping = source.def.mapping
+		def.defaultValue = source.def.defaultValue
+		// Update schema.tags so checkColumn reads correct values for SQL generation
+		for fieldName, fieldTags := range schema.tags {
+			if fieldTags["enumName"] != def.name {
+				continue
+			}
+			if fieldTags["enum"] == "true" {
+				fieldTags["enum"] = strings.Join(source.def.fields, ",")
+				schema.tags[fieldName] = fieldTags
+			}
+		}
+	}
+	for _, def := range fields.sets {
+		if !def.isReference() {
+			continue
+		}
+		source, exists := defs[def.name]
+		if !exists {
+			return fmt.Errorf("enum/set '%s' referenced in '%s' but no entity defines its values", def.name, entityName)
+		}
+		def.fields = source.def.fields
+		def.fieldNames = source.def.fieldNames
+		def.mapping = source.def.mapping
+		def.defaultValue = source.def.defaultValue
+		// Update schema.tags so checkColumn reads correct values for SQL generation
+		for fieldName, fieldTags := range schema.tags {
+			if fieldTags["enumName"] != def.name {
+				continue
+			}
+			if fieldTags["set"] == "true" {
+				fieldTags["set"] = strings.Join(source.def.fields, ",")
+				schema.tags[fieldName] = fieldTags
+			}
+		}
+	}
+	for _, subFields := range fields.structsFields {
+		err := resolveEnumRefs(schema, subFields, entityName, defs)
+		if err != nil {
+			return err
+		}
+	}
+	return nil
 }
