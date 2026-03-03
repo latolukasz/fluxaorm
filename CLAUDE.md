@@ -108,7 +108,7 @@ Entities opt in to Redis Search (FT.SEARCH) indexing via struct tags on the ID f
 - `locker.go` — distributed locking via `bsm/redislock`
 - `metrics.go` — Prometheus metrics for queries, cache hits/misses
 - `where.go` — typed WHERE clause builder
-- `test.go` — test utilities (`PrepareTablesBeta`, mock structures)
+- `test.go` — test utilities (`PrepareTables`, mock structures)
 
 ### Test Fixtures
 

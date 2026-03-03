@@ -25,7 +25,7 @@ func newTestEntity(ctx fluxaorm.Context, name string) *entities.GenerateEntityNo
 }
 
 func TestFlushAsync(t *testing.T) {
-	ctx := fluxaorm.PrepareTablesBeta(t, fluxaorm.NewRegistry(), generateEntityNoRedis{}, generateReferenceEntity{})
+	ctx := fluxaorm.PrepareTables(t, fluxaorm.NewRegistry(), generateEntityNoRedis{}, generateReferenceEntity{})
 
 	// ──────────────────────────────────────────────────────────────────────────
 	// Test 1: FlushAsync queues SQL to stream, NOT directly to MySQL
@@ -167,7 +167,7 @@ func TestFlushAsync(t *testing.T) {
 }
 
 func TestFlushAsyncDeferredCache(t *testing.T) {
-	ctx := fluxaorm.PrepareTablesBeta(t, fluxaorm.NewRegistry(), generateEntityWithTimestampsRedis{})
+	ctx := fluxaorm.PrepareTables(t, fluxaorm.NewRegistry(), generateEntityWithTimestampsRedis{})
 
 	// ──────────────────────────────────────────────────────────────────────────
 	// Test 1: Insert with FlushAsync(false) → entity NOT in Redis cache AND NOT in MySQL
