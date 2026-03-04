@@ -508,7 +508,7 @@ func resolveEnumRefs(schema *entitySchema, fields *tableFields, entityName strin
 			if fieldTags["enumName"] != def.name {
 				continue
 			}
-			if fieldTags["enum"] == "true" {
+			if _, hasEnum := fieldTags["enum"]; !hasEnum || fieldTags["enum"] == "true" {
 				fieldTags["enum"] = strings.Join(source.def.fields, ",")
 				schema.tags[fieldName] = fieldTags
 			}
@@ -531,7 +531,7 @@ func resolveEnumRefs(schema *entitySchema, fields *tableFields, entityName strin
 			if fieldTags["enumName"] != def.name {
 				continue
 			}
-			if fieldTags["set"] == "true" {
+			if _, hasSet := fieldTags["set"]; !hasSet || fieldTags["set"] == "true" {
 				fieldTags["set"] = strings.Join(source.def.fields, ",")
 				schema.tags[fieldName] = fieldTags
 			}

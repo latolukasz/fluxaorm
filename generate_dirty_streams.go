@@ -58,13 +58,7 @@ func (g *codeGenerator) generateDirtyStreamsFile(streams map[string]bool) error 
 	defer f.Close()
 
 	g.writeToFile(f, "package "+filepath.Base(g.dir)+"\n\n")
-	if len(g.imports) > 0 {
-		g.writeToFile(f, "import (\n")
-		for imp := range g.imports {
-			g.writeToFile(f, fmt.Sprintf("\t%q\n", imp))
-		}
-		g.writeToFile(f, ")\n\n")
-	}
+	g.writeImports(f)
 	g.writeToFile(f, g.body)
 	return nil
 }

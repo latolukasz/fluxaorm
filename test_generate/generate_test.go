@@ -115,6 +115,11 @@ type generateEntityCachedUniqueFakeDelete struct {
 	Name       string `orm:"unique=Name;cached"`
 }
 
+type generateEntityEnumRef struct {
+	ID     uint64
+	Status string `orm:"enumName=TestEnum"`
+}
+
 type generateEntityDirtyStream struct {
 	ID     uint64 `orm:"dirtyStream=DSAllStream,DSStatusStream//ID"`
 	Name   string `orm:"required"`
@@ -133,7 +138,7 @@ type generateEntityDirtyStream struct {
 //}
 
 func TestGenerate(t *testing.T) {
-	ctx := fluxaorm.PrepareTables(t, fluxaorm.NewRegistry(), generateEntity{}, generateEntityNoRedis{}, generateReferenceEntity{}, generateEntityWithSearch{}, generateEntityWithTimestamps{}, generateEntityWithTimestampsRedis{}, generateEntityCachedUnique{}, generateEntityCachedUniqueNoRedis{}, generateEntityCachedUniqueFakeDelete{}, generateEntityDirtyStream{})
+	ctx := fluxaorm.PrepareTables(t, fluxaorm.NewRegistry(), generateEntity{}, generateEntityNoRedis{}, generateReferenceEntity{}, generateEntityWithSearch{}, generateEntityWithTimestamps{}, generateEntityWithTimestampsRedis{}, generateEntityCachedUnique{}, generateEntityCachedUniqueNoRedis{}, generateEntityCachedUniqueFakeDelete{}, generateEntityDirtyStream{}, generateEntityEnumRef{})
 	_ = os.MkdirAll("entities", 0755)
 
 	err := fluxaorm.Generate(ctx.Engine(), "entities")
@@ -980,6 +985,18 @@ func TestGenerate(t *testing.T) {
 	assert.NoError(t, err)
 	assert.False(t, found)
 	assert.Nil(t, cufdAfterDelete)
+
+	// ---- enumName-only reference tests ----
+	eRef := entities.GenerateEntityEnumRefProvider.New(ctx)
+	assert.Nil(t, eRef.GetStatus())
+	val := enums.TestEnumList.A
+	eRef.SetStatus(&val)
+	assert.Equal(t, enums.TestEnumList.A, *eRef.GetStatus())
+	assert.NoError(t, ctx.Flush())
+	eRefLoaded, eRefFound, err := entities.GenerateEntityEnumRefProvider.GetByID(ctx, eRef.GetID())
+	assert.NoError(t, err)
+	assert.True(t, eRefFound)
+	assert.Equal(t, enums.TestEnumList.A, *eRefLoaded.GetStatus())
 
 	// ---- Dirty Stream tests ----
 	// Test INSERT publishes to streams with I ops

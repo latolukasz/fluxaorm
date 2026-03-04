@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 )
 
@@ -149,6 +150,38 @@ func getModuleName(goModPath string) (string, error) {
 		}
 	}
 	return "", fmt.Errorf("module name not found in go.mod")
+}
+
+func (g *codeGenerator) writeImports(f *os.File) {
+	if len(g.imports) == 0 {
+		return
+	}
+	var stdlib, thirdParty []string
+	for imp := range g.imports {
+		if strings.Contains(strings.Split(imp, "/")[0], ".") {
+			thirdParty = append(thirdParty, imp)
+		} else {
+			stdlib = append(stdlib, imp)
+		}
+	}
+	sort.Strings(stdlib)
+	sort.Strings(thirdParty)
+
+	if len(g.imports) == 1 && len(stdlib) == 1 {
+		g.writeToFile(f, fmt.Sprintf("import \"%s\"\n\n", stdlib[0]))
+		return
+	}
+	g.writeToFile(f, "import (\n")
+	for _, imp := range stdlib {
+		g.writeToFile(f, fmt.Sprintf("\t\"%s\"\n", imp))
+	}
+	if len(stdlib) > 0 && len(thirdParty) > 0 {
+		g.writeToFile(f, "\n")
+	}
+	for _, imp := range thirdParty {
+		g.writeToFile(f, fmt.Sprintf("\t\"%s\"\n", imp))
+	}
+	g.writeToFile(f, ")\n\n")
 }
 
 func (g *codeGenerator) addImport(value string) {

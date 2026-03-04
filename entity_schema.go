@@ -801,6 +801,8 @@ func (e *entitySchema) buildTableFields(t reflect.Type, registry *registry,
 				} else {
 					e.buildStringSliceField(attributes, strings.Split(setVals, ","))
 				}
+			} else if _, hasEnumName := attributes.Tags["enumName"]; hasEnumName {
+				e.buildEnumField(attributes, nil)
 			} else {
 				e.buildStringField(attributes)
 			}

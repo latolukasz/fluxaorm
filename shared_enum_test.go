@@ -370,3 +370,67 @@ func TestBuildTableFieldsSetReferenceCreatesPlaceholder(t *testing.T) {
 	assert.True(t, fields.sets[0].isReference())
 	assert.Equal(t, "MySet", fields.sets[0].name)
 }
+
+func TestBuildTableFieldsEnumNameOnlyCreatesPlaceholder(t *testing.T) {
+	// enumName without enum tag should create an enum reference placeholder
+	schema := &entitySchema{
+		t:                reflect.TypeOf(struct{ Status string }{}),
+		fieldDefinitions: make(map[string]schemaFieldAttributes),
+	}
+	tags := map[string]map[string]string{
+		"Status": {"enumName": "MyEnum"},
+	}
+	fields, err := schema.buildTableFields(
+		reflect.TypeOf(struct{ Status string }{}),
+		&registry{},
+		0,
+		"",
+		nil,
+		tags,
+		"",
+	)
+	assert.NoError(t, err)
+	assert.Len(t, fields.enums, 1)
+	assert.True(t, fields.enums[0].isReference())
+	assert.Equal(t, "MyEnum", fields.enums[0].name)
+}
+
+func TestSharedEnumResolutionEnumNameOnly(t *testing.T) {
+	// Entity A defines values, Entity B references with enumName only (no enum tag)
+	schemaA := &entitySchema{
+		fields: &tableFields{
+			enums: []*enumDefinition{
+				initEnumDefinition("SharedStatus", []string{"active", "banned"}, false),
+			},
+		},
+		tags: map[string]map[string]string{},
+	}
+	schemaB := &entitySchema{
+		fields: &tableFields{
+			enums: []*enumDefinition{
+				{name: "SharedStatus", required: false}, // reference (no enum tag)
+			},
+		},
+		tags: map[string]map[string]string{
+			"Status": {"enumName": "SharedStatus"},
+		},
+	}
+
+	schemas := map[reflect.Type]*entitySchema{
+		reflect.TypeOf(struct{ A int }{}): schemaA,
+		reflect.TypeOf(struct{ B int }{}): schemaB,
+	}
+
+	err := resolveSharedEnumDefinitions(schemas)
+	assert.NoError(t, err)
+
+	// Verify reference was resolved
+	resolvedDef := schemaB.fields.enums[0]
+	assert.False(t, resolvedDef.isReference())
+	assert.Equal(t, []string{"active", "banned"}, resolvedDef.fields)
+	assert.Equal(t, 1, resolvedDef.mapping["active"])
+	assert.Equal(t, 2, resolvedDef.mapping["banned"])
+
+	// Verify tags were updated (enum tag added from resolution)
+	assert.Equal(t, "active,banned", schemaB.tags["Status"]["enum"])
+}
