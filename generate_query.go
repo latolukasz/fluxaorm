@@ -64,6 +64,22 @@ func (g *codeGenerator) generateGetByID(schema *entitySchema, names *entityNames
 	g.addLine("")
 }
 
+func (g *codeGenerator) generateMustGetByID(names *entityNames) {
+	g.addImport("fmt")
+	g.addLine(fmt.Sprintf("func (p %s) MustGetByID(ctx fluxaorm.Context, id uint64) (entity *%s, err error) {",
+		names.providerNamePrivate, names.entityName))
+	g.addLine("\tentity, found, err := p.GetByID(ctx, id)")
+	g.addLine("\tif err != nil {")
+	g.addLine("\t\treturn nil, err")
+	g.addLine("\t}")
+	g.addLine("\tif !found {")
+	g.addLine(fmt.Sprintf("\t\tpanic(fmt.Sprintf(\"%s with id %%d not found\", id))", names.entityName))
+	g.addLine("\t}")
+	g.addLine("\treturn entity, nil")
+	g.addLine("}")
+	g.addLine("")
+}
+
 func (g *codeGenerator) generateGetByIDs(schema *entitySchema, names *entityNames) {
 	g.addImport("strings")
 	g.addImport("strconv")

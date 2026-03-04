@@ -37,6 +37,15 @@ func (g *codeGenerator) generateGettersSetters(entityName, providerName string, 
 		}
 		g.addLine("}")
 		g.addLine("")
+		g.addLine(fmt.Sprintf("func (e *%s) MustGet%s(ctx fluxaorm.Context) (reference *%s, err error) {", entityName, fieldName, refName))
+		g.addLine(fmt.Sprintf("\treference, found, err := e.Get%s(ctx)", fieldName))
+		g.addLine("\tif err != nil {\n\t\treturn nil, err\n\t}")
+		g.addLine("\tif !found {")
+		g.addLine(fmt.Sprintf("\t\tpanic(\"%s not found in %s\")", fieldName, entityName))
+		g.addLine("\t}")
+		g.addLine("\treturn reference, nil")
+		g.addLine("}")
+		g.addLine("")
 	}
 	for _, i := range fields.integers {
 		fieldName := fields.prefix + fields.fields[i].Name

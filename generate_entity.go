@@ -32,6 +32,7 @@ func (g *codeGenerator) generateCodeForEntity(schema *entitySchema) error {
 
 	g.generateProviderAndSQLRow(schema, names)
 	g.generateGetByID(schema, names)
+	g.generateMustGetByID(names)
 	g.generateGetByIDs(schema, names)
 	g.generateNewMethods(schema, names)
 	g.generateUniqueIndexGetters(schema, names)
