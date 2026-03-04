@@ -434,5 +434,13 @@ func (g *codeGenerator) createEnumDefinition(d *enumDefinition, name string) err
 		g.writeToFile(f, fmt.Sprintf("\t%s: \"%s\",\n", d.fieldNames[i], v))
 	}
 	g.writeToFile(f, "}\n")
+	g.writeToFile(f, "\n")
+	g.writeToFile(f, fmt.Sprintf("func (e %s) Valid() bool {\n", name))
+	g.writeToFile(f, "\tswitch e {\n")
+	g.writeToFile(f, fmt.Sprintf("\tcase \"%s\":\n", strings.Join(d.fields, "\", \"")))
+	g.writeToFile(f, "\t\treturn true\n")
+	g.writeToFile(f, "\t}\n")
+	g.writeToFile(f, "\treturn false\n")
+	g.writeToFile(f, "}\n")
 	return nil
 }
