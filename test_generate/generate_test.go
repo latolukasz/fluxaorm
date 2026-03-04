@@ -713,7 +713,7 @@ func TestGenerate(t *testing.T) {
 	assert.Contains(t, searchIDs, es3.GetID())
 
 	// SearchIDsInRedis: numeric range
-	searchIDs, err = entities.GenerateEntityWithSearchProvider.SearchIDsInRedis(ctx, fluxaorm.NewRedisSearchWhere().NumericRange("Age", 10, 20), nil)
+	searchIDs, err = entities.GenerateEntityWithSearchProvider.SearchIDsInRedis(ctx, fluxaorm.NewRedisSearchWhere().Uint64Range("Age", 10, 20), nil)
 	assert.NoError(t, err)
 	assert.Len(t, searchIDs, 2)
 	assert.Contains(t, searchIDs, es1.GetID())
@@ -721,7 +721,7 @@ func TestGenerate(t *testing.T) {
 
 	// SearchIDsInRedisWithCount
 	var searchTotal int
-	searchIDs, searchTotal, err = entities.GenerateEntityWithSearchProvider.SearchIDsInRedisWithCount(ctx, fluxaorm.NewRedisSearchWhere().NumericMin("Age", 20), fluxaorm.NewPager(1, 10))
+	searchIDs, searchTotal, err = entities.GenerateEntityWithSearchProvider.SearchIDsInRedisWithCount(ctx, fluxaorm.NewRedisSearchWhere().Uint64Min("Age", 20), fluxaorm.NewPager(1, 10))
 	assert.NoError(t, err)
 	assert.Equal(t, 2, searchTotal)
 	assert.Len(t, searchIDs, 2)
@@ -729,25 +729,25 @@ func TestGenerate(t *testing.T) {
 	assert.Contains(t, searchIDs, es3.GetID())
 
 	// SearchIDsInRedisWithCount: no match
-	searchIDs, searchTotal, err = entities.GenerateEntityWithSearchProvider.SearchIDsInRedisWithCount(ctx, fluxaorm.NewRedisSearchWhere().NumericEqual("Age", 999), fluxaorm.NewPager(1, 10))
+	searchIDs, searchTotal, err = entities.GenerateEntityWithSearchProvider.SearchIDsInRedisWithCount(ctx, fluxaorm.NewRedisSearchWhere().Uint64Equal("Age", 999), fluxaorm.NewPager(1, 10))
 	assert.NoError(t, err)
 	assert.Equal(t, 0, searchTotal)
 	assert.Nil(t, searchIDs)
 
 	// SearchInRedis: returns entities
 	var searchEntities []*entities.GenerateEntityWithSearch
-	searchEntities, err = entities.GenerateEntityWithSearchProvider.SearchInRedis(ctx, fluxaorm.NewRedisSearchWhere().NumericMax("Age", 20), nil)
+	searchEntities, err = entities.GenerateEntityWithSearchProvider.SearchInRedis(ctx, fluxaorm.NewRedisSearchWhere().Uint64Max("Age", 20), nil)
 	assert.NoError(t, err)
 	assert.Len(t, searchEntities, 2)
 
 	// SearchOneInRedis
 	var searchOne *entities.GenerateEntityWithSearch
-	searchOne, found, err = entities.GenerateEntityWithSearchProvider.SearchOneInRedis(ctx, fluxaorm.NewRedisSearchWhere().NumericEqual("Age", 10))
+	searchOne, found, err = entities.GenerateEntityWithSearchProvider.SearchOneInRedis(ctx, fluxaorm.NewRedisSearchWhere().Uint64Equal("Age", 10))
 	assert.NoError(t, err)
 	assert.True(t, found)
 	assert.Equal(t, es1.GetID(), searchOne.GetID())
 
-	searchOne, found, err = entities.GenerateEntityWithSearchProvider.SearchOneInRedis(ctx, fluxaorm.NewRedisSearchWhere().NumericEqual("Age", 999))
+	searchOne, found, err = entities.GenerateEntityWithSearchProvider.SearchOneInRedis(ctx, fluxaorm.NewRedisSearchWhere().Uint64Equal("Age", 999))
 	assert.NoError(t, err)
 	assert.False(t, found)
 	assert.Nil(t, searchOne)
@@ -763,11 +763,11 @@ func TestGenerate(t *testing.T) {
 	es1.SetAge(15)
 	assert.NoError(t, ctx.Flush())
 
-	searchIDs, err = entities.GenerateEntityWithSearchProvider.SearchIDsInRedis(ctx, fluxaorm.NewRedisSearchWhere().NumericEqual("Age", 10), nil)
+	searchIDs, err = entities.GenerateEntityWithSearchProvider.SearchIDsInRedis(ctx, fluxaorm.NewRedisSearchWhere().Uint64Equal("Age", 10), nil)
 	assert.NoError(t, err)
 	assert.Nil(t, searchIDs)
 
-	searchIDs, err = entities.GenerateEntityWithSearchProvider.SearchIDsInRedis(ctx, fluxaorm.NewRedisSearchWhere().NumericEqual("Age", 15), nil)
+	searchIDs, err = entities.GenerateEntityWithSearchProvider.SearchIDsInRedis(ctx, fluxaorm.NewRedisSearchWhere().Uint64Equal("Age", 15), nil)
 	assert.NoError(t, err)
 	assert.Equal(t, []uint64{es1.GetID()}, searchIDs)
 
@@ -789,7 +789,7 @@ func TestGenerate(t *testing.T) {
 	assert.Contains(t, searchIDs, es1.GetID())
 	assert.Contains(t, searchIDs, es2.GetID())
 	// After reindex, updated age=15 for es1 should be searchable
-	searchIDs, err = entities.GenerateEntityWithSearchProvider.SearchIDsInRedis(ctx, fluxaorm.NewRedisSearchWhere().NumericEqual("Age", 15), nil)
+	searchIDs, err = entities.GenerateEntityWithSearchProvider.SearchIDsInRedis(ctx, fluxaorm.NewRedisSearchWhere().Uint64Equal("Age", 15), nil)
 	assert.NoError(t, err)
 	assert.Equal(t, []uint64{es1.GetID()}, searchIDs)
 

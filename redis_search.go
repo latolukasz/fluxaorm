@@ -2,6 +2,7 @@ package fluxaorm
 
 import (
 	"fmt"
+	"strconv"
 	"strings"
 
 	"github.com/redis/go-redis/v9"
@@ -19,27 +20,78 @@ func NewRedisSearchWhere() *RedisSearchWhere {
 	return &RedisSearchWhere{}
 }
 
-// NumericRange adds @field:[min max] condition.
-func (w *RedisSearchWhere) NumericRange(field string, min, max float64) *RedisSearchWhere {
-	w.parts = append(w.parts, fmt.Sprintf("@%s:[%g %g]", field, min, max))
+// Float64Range adds @field:[min max] condition for float64 values.
+func (w *RedisSearchWhere) Float64Range(field string, min, max float64) *RedisSearchWhere {
+	w.parts = append(w.parts, fmt.Sprintf("@%s:[%s %s]", field, strconv.FormatFloat(min, 'f', -1, 64), strconv.FormatFloat(max, 'f', -1, 64)))
 	return w
 }
 
-// NumericMin adds @field:[min +inf] condition.
-func (w *RedisSearchWhere) NumericMin(field string, min float64) *RedisSearchWhere {
-	w.parts = append(w.parts, fmt.Sprintf("@%s:[%g +inf]", field, min))
+// Float64Min adds @field:[min +inf] condition for float64 values.
+func (w *RedisSearchWhere) Float64Min(field string, min float64) *RedisSearchWhere {
+	w.parts = append(w.parts, fmt.Sprintf("@%s:[%s +inf]", field, strconv.FormatFloat(min, 'f', -1, 64)))
 	return w
 }
 
-// NumericMax adds @field:[-inf max] condition.
-func (w *RedisSearchWhere) NumericMax(field string, max float64) *RedisSearchWhere {
-	w.parts = append(w.parts, fmt.Sprintf("@%s:[-inf %g]", field, max))
+// Float64Max adds @field:[-inf max] condition for float64 values.
+func (w *RedisSearchWhere) Float64Max(field string, max float64) *RedisSearchWhere {
+	w.parts = append(w.parts, fmt.Sprintf("@%s:[-inf %s]", field, strconv.FormatFloat(max, 'f', -1, 64)))
 	return w
 }
 
-// NumericEqual adds @field:[val val] (exact match) condition.
-func (w *RedisSearchWhere) NumericEqual(field string, value float64) *RedisSearchWhere {
-	w.parts = append(w.parts, fmt.Sprintf("@%s:[%g %g]", field, value, value))
+// Float64Equal adds @field:[val val] (exact match) condition for float64 values.
+func (w *RedisSearchWhere) Float64Equal(field string, value float64) *RedisSearchWhere {
+	s := strconv.FormatFloat(value, 'f', -1, 64)
+	w.parts = append(w.parts, fmt.Sprintf("@%s:[%s %s]", field, s, s))
+	return w
+}
+
+// Int64Range adds @field:[min max] condition for int64 values.
+func (w *RedisSearchWhere) Int64Range(field string, min, max int64) *RedisSearchWhere {
+	w.parts = append(w.parts, fmt.Sprintf("@%s:[%s %s]", field, strconv.FormatInt(min, 10), strconv.FormatInt(max, 10)))
+	return w
+}
+
+// Int64Min adds @field:[min +inf] condition for int64 values.
+func (w *RedisSearchWhere) Int64Min(field string, min int64) *RedisSearchWhere {
+	w.parts = append(w.parts, fmt.Sprintf("@%s:[%s +inf]", field, strconv.FormatInt(min, 10)))
+	return w
+}
+
+// Int64Max adds @field:[-inf max] condition for int64 values.
+func (w *RedisSearchWhere) Int64Max(field string, max int64) *RedisSearchWhere {
+	w.parts = append(w.parts, fmt.Sprintf("@%s:[-inf %s]", field, strconv.FormatInt(max, 10)))
+	return w
+}
+
+// Int64Equal adds @field:[val val] (exact match) condition for int64 values.
+func (w *RedisSearchWhere) Int64Equal(field string, value int64) *RedisSearchWhere {
+	s := strconv.FormatInt(value, 10)
+	w.parts = append(w.parts, fmt.Sprintf("@%s:[%s %s]", field, s, s))
+	return w
+}
+
+// Uint64Range adds @field:[min max] condition for uint64 values.
+func (w *RedisSearchWhere) Uint64Range(field string, min, max uint64) *RedisSearchWhere {
+	w.parts = append(w.parts, fmt.Sprintf("@%s:[%s %s]", field, strconv.FormatUint(min, 10), strconv.FormatUint(max, 10)))
+	return w
+}
+
+// Uint64Min adds @field:[min +inf] condition for uint64 values.
+func (w *RedisSearchWhere) Uint64Min(field string, min uint64) *RedisSearchWhere {
+	w.parts = append(w.parts, fmt.Sprintf("@%s:[%s +inf]", field, strconv.FormatUint(min, 10)))
+	return w
+}
+
+// Uint64Max adds @field:[-inf max] condition for uint64 values.
+func (w *RedisSearchWhere) Uint64Max(field string, max uint64) *RedisSearchWhere {
+	w.parts = append(w.parts, fmt.Sprintf("@%s:[-inf %s]", field, strconv.FormatUint(max, 10)))
+	return w
+}
+
+// Uint64Equal adds @field:[val val] (exact match) condition for uint64 values.
+func (w *RedisSearchWhere) Uint64Equal(field string, value uint64) *RedisSearchWhere {
+	s := strconv.FormatUint(value, 10)
+	w.parts = append(w.parts, fmt.Sprintf("@%s:[%s %s]", field, s, s))
 	return w
 }
 
