@@ -76,7 +76,7 @@ type generateReferenceEntity struct {
 }
 
 type generateEntityWithSearch struct {
-	ID    uint64  `orm:"redisSearch=default"`
+	ID    uint64
 	Age   uint32  `orm:"searchable;sortable"`
 	Name  string  `orm:"required;searchable"`
 	Score float64 `orm:"searchable"`

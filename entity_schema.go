@@ -372,7 +372,14 @@ func (e *entitySchema) init(registry *registry, entityType reflect.Type) error {
 		}
 		e.uniqueIndexFIndexes[indexName] = fIndexes
 	}
-	if len(e.pendingSearchableFields) > 0 && e.redisSearchPoolCode != "" {
+	if len(e.pendingSearchableFields) > 0 {
+		if e.redisSearchPoolCode == "" {
+			e.redisSearchPoolCode = DefaultPoolCode
+			_, has := registry.redisPools[e.redisSearchPoolCode]
+			if !has {
+				return fmt.Errorf("redis pool '%s' not found for redisSearch in entity '%s'", e.redisSearchPoolCode, entityType.Name())
+			}
+		}
 		for i, colName := range e.columnNames {
 			if pending, ok := e.pendingSearchableFields[colName]; ok {
 				e.searchableFields = append(e.searchableFields, searchableFieldDef{
