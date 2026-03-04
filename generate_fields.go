@@ -24,6 +24,7 @@ func (g *codeGenerator) generateGettersSetters(entityName, providerName string, 
 		if required {
 			g.createGetterSetterUint64(schema, fieldName, entityName, "ID", providerName)
 		} else {
+			g.addImport("database/sql")
 			g.createGetterSetterUint64Nullable(schema, fieldName, entityName, "ID", providerName)
 		}
 		g.addLine(fmt.Sprintf("func (e *%s) Get%s(ctx fluxaorm.Context) (reference *%s, found bool, err error) {", entityName, fieldName, refName))
@@ -146,6 +147,7 @@ func (g *codeGenerator) generateGettersSetters(entityName, providerName string, 
 		if d.required {
 			g.createGetterSetterSet(schema, fieldName, entityName, enumFullName, providerName)
 		} else {
+			g.addImport("database/sql")
 			g.createGetterSetterSetNullable(schema, fieldName, entityName, enumFullName, providerName)
 		}
 	}
