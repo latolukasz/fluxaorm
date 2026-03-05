@@ -1140,4 +1140,77 @@ func TestGenerate(t *testing.T) {
 	assert.NoError(t, err)
 	assert.Len(t, dsEvents8, 1)
 	assert.Equal(t, fluxaorm.DirtyStreamDelete, dsEvents8[0].FlushType)
+
+	// ---- Provider interface tests ----
+
+	// EntityProvider: all providers implement TableName() and DBCode()
+	assert.Equal(t, "generateEntity", entities.GenerateEntityProvider.TableName())
+	assert.Equal(t, "default", entities.GenerateEntityProvider.DBCode())
+	assert.Equal(t, "generateEntityNoRedis", entities.GenerateEntityNoRedisProvider.TableName())
+	assert.Equal(t, "default", entities.GenerateEntityNoRedisProvider.DBCode())
+	assert.Equal(t, "generateEntityWithSearch", entities.GenerateEntityWithSearchProvider.TableName())
+	assert.Equal(t, "default", entities.GenerateEntityWithSearchProvider.DBCode())
+	assert.Equal(t, "generateEntityCachedUnique", entities.GenerateEntityCachedUniqueProvider.TableName())
+	assert.Equal(t, "generateEntityCachedUniqueNoRedis", entities.GenerateEntityCachedUniqueNoRedisProvider.TableName())
+	assert.Equal(t, "generateEntityCachedUniqueFakeDelete", entities.GenerateEntityCachedUniqueFakeDeleteProvider.TableName())
+	assert.Equal(t, "generateEntityDirtyStream", entities.GenerateEntityDirtyStreamProvider.TableName())
+	assert.Equal(t, "generateEntityEnumRef", entities.GenerateEntityEnumRefProvider.TableName())
+	assert.Equal(t, "generateEntityWithTimestamps", entities.GenerateEntityWithTimestampsProvider.TableName())
+	assert.Equal(t, "generateEntityWithTimestampsRedis", entities.GenerateEntityWithTimestampsRedisProvider.TableName())
+	assert.Equal(t, "generateReferenceEntity", entities.GenerateReferenceEntityProvider.TableName())
+
+	// RedisCacheEntityProvider: only redis cache providers
+	var redisCacheProvider fluxaorm.RedisCacheEntityProvider
+
+	redisCacheProvider = &entities.GenerateEntityProvider
+	assert.Equal(t, "default", redisCacheProvider.RedisCode())
+	assert.Equal(t, "5ff3a:", redisCacheProvider.RedisCachePrefix())
+
+	redisCacheProvider = &entities.GenerateEntityCachedUniqueProvider
+	assert.NotEmpty(t, redisCacheProvider.RedisCachePrefix())
+
+	redisCacheProvider = &entities.GenerateEntityCachedUniqueFakeDeleteProvider
+	assert.NotEmpty(t, redisCacheProvider.RedisCachePrefix())
+
+	redisCacheProvider = &entities.GenerateEntityWithTimestampsRedisProvider
+	assert.NotEmpty(t, redisCacheProvider.RedisCachePrefix())
+
+	// Negative: non-redis providers do NOT implement RedisCacheEntityProvider
+	var entityProvider fluxaorm.EntityProvider
+	entityProvider = &entities.GenerateEntityNoRedisProvider
+	_, isRedisCache := entityProvider.(fluxaorm.RedisCacheEntityProvider)
+	assert.False(t, isRedisCache)
+
+	entityProvider = &entities.GenerateEntityWithSearchProvider
+	_, isRedisCache = entityProvider.(fluxaorm.RedisCacheEntityProvider)
+	assert.False(t, isRedisCache)
+
+	entityProvider = &entities.GenerateEntityDirtyStreamProvider
+	_, isRedisCache = entityProvider.(fluxaorm.RedisCacheEntityProvider)
+	assert.False(t, isRedisCache)
+
+	// RedisSearchEntityProvider: only search providers
+	var redisSearchProvider fluxaorm.RedisSearchEntityProvider
+	redisSearchProvider = &entities.GenerateEntityWithSearchProvider
+	assert.Equal(t, "default", redisSearchProvider.RedisSearchCode())
+	assert.NotEmpty(t, redisSearchProvider.RedisSearchIndexName())
+	assert.NotEmpty(t, redisSearchProvider.RedisSearchHashPrefix())
+
+	// Negative: non-search providers do NOT implement RedisSearchEntityProvider
+	entityProvider = &entities.GenerateEntityProvider
+	_, isRedisSearch := entityProvider.(fluxaorm.RedisSearchEntityProvider)
+	assert.False(t, isRedisSearch)
+
+	entityProvider = &entities.GenerateEntityNoRedisProvider
+	_, isRedisSearch = entityProvider.(fluxaorm.RedisSearchEntityProvider)
+	assert.False(t, isRedisSearch)
+
+	// AllProviders: correct length (11 entities)
+	assert.Len(t, entities.AllProviders, 11)
+
+	// AllProviders: all entries implement EntityProvider and have non-empty TableName
+	for _, p := range entities.AllProviders {
+		assert.NotEmpty(t, p.TableName())
+		assert.NotEmpty(t, p.DBCode())
+	}
 }

@@ -15,10 +15,6 @@ type RedisSearchWhere struct {
 	sortAsc bool
 }
 
-type RedisSearchReindex interface {
-	ReindexRedisSearch(ctx Context) error
-}
-
 // NewRedisSearchWhere creates a new empty where builder.
 func NewRedisSearchWhere() *RedisSearchWhere {
 	return &RedisSearchWhere{}

@@ -1,0 +1,47 @@
+package fluxaorm
+
+import (
+	"fmt"
+	"os"
+	"path/filepath"
+	"reflect"
+	"sort"
+)
+
+func (g *codeGenerator) generateProvidersFile(schemas map[reflect.Type]*entitySchema) error {
+	type providerEntry struct {
+		tableName    string
+		providerName string
+	}
+
+	entries := make([]providerEntry, 0, len(schemas))
+	for _, schema := range schemas {
+		entries = append(entries, providerEntry{
+			tableName:    schema.tableName,
+			providerName: g.capitalizeFirst(schema.tableName) + "Provider",
+		})
+	}
+	sort.Slice(entries, func(i, j int) bool {
+		return entries[i].tableName < entries[j].tableName
+	})
+
+	g.addImport("github.com/latolukasz/fluxaorm/v2")
+
+	g.addLine("var AllProviders = []fluxaorm.EntityProvider{")
+	for _, entry := range entries {
+		g.addLine(fmt.Sprintf("\t&%s,", entry.providerName))
+	}
+	g.addLine("}")
+
+	filePath := filepath.Join(g.dir, "providers.go")
+	f, err := os.Create(filePath)
+	if err != nil {
+		return err
+	}
+	defer f.Close()
+
+	g.writeToFile(f, "package "+filepath.Base(g.dir)+"\n\n")
+	g.writeImports(f)
+	g.writeToFile(f, g.body)
+	return nil
+}

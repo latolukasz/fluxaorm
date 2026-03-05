@@ -50,6 +50,26 @@ func (g *codeGenerator) generateProviderAndSQLRow(schema *entitySchema, names *e
 	g.addLine("}")
 	g.addLine("")
 
+	// EntityProvider interface methods (all providers)
+	g.addLine(fmt.Sprintf("func (p %s) TableName() string { return p.tableName }", names.providerNamePrivate))
+	g.addLine(fmt.Sprintf("func (p %s) DBCode() string { return p.dbCode }", names.providerNamePrivate))
+	g.addLine("")
+
+	// RedisCacheEntityProvider interface methods (only when hasRedisCache)
+	if schema.hasRedisCache {
+		g.addLine(fmt.Sprintf("func (p %s) RedisCode() string { return p.redisCode }", names.providerNamePrivate))
+		g.addLine(fmt.Sprintf("func (p %s) RedisCachePrefix() string { return p.redisCachePrefix }", names.providerNamePrivate))
+		g.addLine("")
+	}
+
+	// RedisSearchEntityProvider interface methods (only when hasRedisSearch)
+	if schema.hasRedisSearch {
+		g.addLine(fmt.Sprintf("func (p %s) RedisSearchCode() string { return p.redisSearchCode }", names.providerNamePrivate))
+		g.addLine(fmt.Sprintf("func (p %s) RedisSearchIndexName() string { return p.redisSearchIndex }", names.providerNamePrivate))
+		g.addLine(fmt.Sprintf("func (p %s) RedisSearchHashPrefix() string { return p.redisSearchPrefix }", names.providerNamePrivate))
+		g.addLine("")
+	}
+
 	g.addLine(fmt.Sprintf("type %s struct {", names.sqlRowName))
 	g.filedIndex = 0
 	g.addLine(strings.TrimRight(g.addSQLRowLines(schema.fields), "\t\n"))

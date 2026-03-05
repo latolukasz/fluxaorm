@@ -118,6 +118,14 @@ func Generate(engine Engine, outputDirectory string) error {
 		}
 	}
 
+	// Generate providers registry file
+	generator.body = ""
+	generator.imports = make(map[string]bool)
+	err = generator.generateProvidersFile(engine.Registry().(*engineRegistryImplementation).entitySchemas)
+	if err != nil {
+		return err
+	}
+
 	return nil
 }
 
