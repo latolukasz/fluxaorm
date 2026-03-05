@@ -10,6 +10,7 @@ type EntityProvider interface {
 type RedisCacheEntityProvider interface {
 	RedisCode() string
 	RedisCachePrefix() string
+	ClearRedisCache(ctx Context) (int, error)
 }
 
 // RedisSearchEntityProvider is implemented by providers whose entity has Redis Search indexing.

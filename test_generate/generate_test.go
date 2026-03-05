@@ -1165,6 +1165,7 @@ func TestGenerate(t *testing.T) {
 	redisCacheProvider = &entities.GenerateEntityProvider
 	assert.Equal(t, "default", redisCacheProvider.RedisCode())
 	assert.Equal(t, "5ff3a:", redisCacheProvider.RedisCachePrefix())
+	assert.NotNil(t, redisCacheProvider.ClearRedisCache)
 
 	redisCacheProvider = &entities.GenerateEntityCachedUniqueProvider
 	assert.NotEmpty(t, redisCacheProvider.RedisCachePrefix())
@@ -1213,4 +1214,33 @@ func TestGenerate(t *testing.T) {
 		assert.NotEmpty(t, p.TableName())
 		assert.NotEmpty(t, p.DBCode())
 	}
+
+	// ClearRedisCache: insert entity to populate redis cache, then clear it
+	clearEntity := entities.GenerateEntityProvider.New(ctx)
+	clearEntity.SetName("clear_test")
+	clearEntity.SetTestEnum(enums.TestEnumList.A)
+	clearEntity.SetTime(time.Now().UTC())
+	clearEntity.SetDate(time.Now().UTC())
+	assert.NoError(t, ctx.Flush())
+
+	clearID := clearEntity.GetID()
+	_, found, err = entities.GenerateEntityProvider.GetByID(ctx, clearID)
+	assert.NoError(t, err)
+	assert.True(t, found)
+
+	// Verify redis cache key exists
+	redisClient := ctx.Engine().Redis("default")
+	cacheKeys, _, errScan := redisClient.Scan(ctx, 0, entities.GenerateEntityProvider.RedisCachePrefix()+"*", 1000)
+	assert.NoError(t, errScan)
+	assert.Greater(t, len(cacheKeys), 0)
+
+	// Clear redis cache
+	removed, err := entities.GenerateEntityProvider.ClearRedisCache(ctx)
+	assert.NoError(t, err)
+	assert.Greater(t, removed, 0)
+
+	// Verify cache keys are gone
+	cacheKeys, _, errScan = redisClient.Scan(ctx, 0, entities.GenerateEntityProvider.RedisCachePrefix()+"*", 1000)
+	assert.NoError(t, errScan)
+	assert.Len(t, cacheKeys, 0)
 }
