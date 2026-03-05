@@ -33,8 +33,8 @@ func (g *codeGenerator) generateGettersSetters(entityName, providerName string, 
 			g.addLine("\tif id == 0 {\n\t\treturn nil, false, nil\n\t}")
 			g.addLine(fmt.Sprintf("\treturn %sProvider.GetByID(ctx, id)", refName))
 		} else {
-			g.addLine("\tif id == nil || *id == 0 {\n\t\treturn nil, false, nil\n\t}")
-			g.addLine(fmt.Sprintf("\treturn %sProvider.GetByID(ctx, *id)", refName))
+			g.addLine("\tif id == 0 {\n\t\treturn nil, false, nil\n\t}")
+			g.addLine(fmt.Sprintf("\treturn %sProvider.GetByID(ctx, id)", refName))
 		}
 		g.addLine("}")
 		g.addLine("")

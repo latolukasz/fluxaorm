@@ -173,7 +173,7 @@ func TestGenerate(t *testing.T) {
 	assert.Equal(t, time.Time{}, e.GetTime())
 	assert.Equal(t, time.Time{}, e.GetDate())
 	assert.Equal(t, uint64(0), e.GetReferenceRequiredID())
-	assert.Nil(t, e.GetReferenceOptionalID())
+	assert.Equal(t, uint64(0), e.GetReferenceOptionalID())
 	assert.NotNil(t, e)
 
 	e2 := entities.GenerateEntityNoRedisProvider.New(ctx)
@@ -198,7 +198,7 @@ func TestGenerate(t *testing.T) {
 	assert.Equal(t, time.Time{}, e2.GetTime())
 	assert.Equal(t, time.Time{}, e2.GetDate())
 	assert.Equal(t, uint64(0), e2.GetReferenceRequiredID())
-	assert.Nil(t, e2.GetReferenceOptionalID())
+	assert.Equal(t, uint64(0), e2.GetReferenceOptionalID())
 	assert.NotNil(t, e2)
 
 	now := time.Now().UTC()
@@ -235,7 +235,7 @@ func TestGenerate(t *testing.T) {
 	assert.Nil(t, e.GetDateNullable())
 	assert.Equal(t, now.Truncate(time.Second).Unix(), e.GetTime().Unix())
 	assert.Equal(t, now.Truncate(time.Hour*24).Unix(), e.GetDate().Unix())
-	assert.Nil(t, e.GetReferenceOptionalID())
+	assert.Equal(t, uint64(0), e.GetReferenceOptionalID())
 	assert.Equal(t, uint64(0), e.GetReferenceRequiredID())
 
 	id = e2.GetID()
@@ -263,7 +263,7 @@ func TestGenerate(t *testing.T) {
 	assert.Nil(t, e2.GetDateNullable())
 	assert.Equal(t, now.Truncate(time.Second).Unix(), e2.GetTime().Unix())
 	assert.Equal(t, now.Truncate(time.Hour*24).Unix(), e2.GetDate().Unix())
-	assert.Nil(t, e2.GetReferenceOptionalID())
+	assert.Equal(t, uint64(0), e2.GetReferenceOptionalID())
 	assert.Equal(t, uint64(0), e2.GetReferenceRequiredID())
 
 	e.SetAge(0)
@@ -326,7 +326,7 @@ func TestGenerate(t *testing.T) {
 	assert.Nil(t, e.GetDateNullable())
 	assert.Equal(t, now.Truncate(time.Second).Unix(), e.GetTime().Unix())
 	assert.Equal(t, now.Truncate(time.Hour*24).Unix(), e.GetDate().Unix())
-	assert.Nil(t, e.GetReferenceOptionalID())
+	assert.Equal(t, uint64(0), e.GetReferenceOptionalID())
 	assert.Equal(t, uint64(0), e.GetReferenceRequiredID())
 	assert.Equal(t, uint64(0), e2.GetAge())
 	assert.Equal(t, int64(0), e2.GetBalance())
@@ -347,7 +347,7 @@ func TestGenerate(t *testing.T) {
 	assert.Nil(t, e2.GetDateNullable())
 	assert.Equal(t, now.Truncate(time.Second).Unix(), e2.GetTime().Unix())
 	assert.Equal(t, now.Truncate(time.Hour*24).Unix(), e2.GetDate().Unix())
-	assert.Nil(t, e2.GetReferenceOptionalID())
+	assert.Equal(t, uint64(0), e2.GetReferenceOptionalID())
 	assert.Equal(t, uint64(0), e2.GetReferenceRequiredID())
 	assert.NoError(t, ctx.Flush())
 
@@ -449,8 +449,8 @@ func TestGenerate(t *testing.T) {
 	assert.Equal(t, now2.Truncate(time.Hour*24), e2.GetDate())
 	assert.Equal(t, ref.GetID(), e.GetReferenceRequiredID())
 	assert.Equal(t, ref.GetID(), e2.GetReferenceRequiredID())
-	assert.Equal(t, ref.GetID(), *e.GetReferenceOptionalID())
-	assert.Equal(t, ref.GetID(), *e2.GetReferenceOptionalID())
+	assert.Equal(t, ref.GetID(), e.GetReferenceOptionalID())
+	assert.Equal(t, ref.GetID(), e2.GetReferenceOptionalID())
 
 	e.SetAge(1)
 	e2.SetAge(1)
