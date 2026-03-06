@@ -227,8 +227,13 @@ func (g *codeGenerator) generateNewMethods(schema *entitySchema, names *entityNa
 	g.addLine(fmt.Sprintf("\treturn p.NewWithID(ctx, p.uuid(ctx))"))
 	g.addLine("}")
 	g.addLine("")
+	defaults := collectRequiredEnumDefaults(schema.fields)
+	sqlRowInit := "F0: id"
+	for _, d := range defaults {
+		sqlRowInit += fmt.Sprintf(", F%d: %q", d.fIndex, d.defaultValue)
+	}
 	g.addLine(fmt.Sprintf("func (p %s) NewWithID(ctx fluxaorm.Context, id uint64) *%s  {", names.providerNamePrivate, names.entityName))
-	g.addLine(fmt.Sprintf("\te := &%s{ctx: ctx, new: true, id: id, originDatabaseValues: &%s{F0: id}}", names.entityName, names.sqlRowName))
+	g.addLine(fmt.Sprintf("\te := &%s{ctx: ctx, new: true, id: id, originDatabaseValues: &%s{%s}}", names.entityName, names.sqlRowName, sqlRowInit))
 	g.addLine(fmt.Sprintf("\te.ctx.Track(e, %s.cacheIndex)", names.providerName))
 	if schema.hasRedisCache {
 		g.addImport("strconv")
@@ -236,6 +241,83 @@ func (g *codeGenerator) generateNewMethods(schema *entitySchema, names *entityNa
 	g.addLine("\treturn e")
 	g.addLine("}")
 	g.addLine("")
+}
+
+type enumDefault struct {
+	fIndex       int
+	defaultValue string
+}
+
+func collectRequiredEnumDefaults(fields *tableFields) []enumDefault {
+	var results []enumDefault
+	fIndex := 0
+	collectRequiredEnumDefaultsRecursive(fields, &fIndex, &results)
+	return results
+}
+
+func collectRequiredEnumDefaultsRecursive(fields *tableFields, fIndex *int, results *[]enumDefault) {
+	for range fields.uIntegers {
+		*fIndex++
+	}
+	for range fields.references {
+		*fIndex++
+	}
+	for range fields.integers {
+		*fIndex++
+	}
+	for range fields.booleans {
+		*fIndex++
+	}
+	for range fields.floats {
+		*fIndex++
+	}
+	for range fields.times {
+		*fIndex++
+	}
+	for range fields.dates {
+		*fIndex++
+	}
+	for range fields.strings {
+		*fIndex++
+	}
+	for range fields.uIntegersNullable {
+		*fIndex++
+	}
+	for range fields.integersNullable {
+		*fIndex++
+	}
+	for k := range fields.stringsEnums {
+		d := fields.enums[k]
+		if d.required {
+			*results = append(*results, enumDefault{fIndex: *fIndex, defaultValue: d.defaultValue})
+		}
+		*fIndex++
+	}
+	for range fields.bytes {
+		*fIndex++
+	}
+	for k := range fields.sliceStringsSets {
+		d := fields.sets[k]
+		if d.required {
+			*results = append(*results, enumDefault{fIndex: *fIndex, defaultValue: d.defaultValue})
+		}
+		*fIndex++
+	}
+	for range fields.booleansNullable {
+		*fIndex++
+	}
+	for range fields.floatsNullable {
+		*fIndex++
+	}
+	for range fields.timesNullable {
+		*fIndex++
+	}
+	for range fields.datesNullable {
+		*fIndex++
+	}
+	for _, subFields := range fields.structsFields {
+		collectRequiredEnumDefaultsRecursive(subFields, fIndex, results)
+	}
 }
 
 func (g *codeGenerator) uniqueIndexGoType(schema *entitySchema, columnName string) string {
