@@ -126,6 +126,13 @@ func (rp *RedisPipeLine) HSet(key string, values ...any) {
 }
 
 func (rp *RedisPipeLine) HDel(key string, values ...string) {
+	if rp.recordMode {
+		args := make([]string, 0, len(values)+1)
+		args = append(args, key)
+		args = append(args, values...)
+		rp.recorded = append(rp.recorded, AsyncRedisOp{Pool: rp.pool, Cmd: "hdel", Args: args})
+		return
+	}
 	rp.commands++
 	rp.pipeLine.HDel(rp.ctx.Context(), key, values...)
 }

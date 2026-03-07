@@ -431,6 +431,34 @@ func (g *codeGenerator) generateNonCachedUniqueIndexGetter(schema *entitySchema,
 	}
 	g.addLine(fmt.Sprintf(") (entity *%s, found bool, err error) {", names.entityName))
 
+	// Truncate time.Time parameters to match stored precision
+	for i, columnName := range index.Columns {
+		if goTypes[i] == "time.Time" || goTypes[i] == "*time.Time" {
+			paramName := g.lowerFirst(columnName)
+			attr := schema.fieldDefinitions[columnName]
+			_, isTime := attr.Tags["time"]
+			if isTime || columnName == "CreatedAt" || columnName == "UpdatedAt" {
+				if goTypes[i] == "time.Time" {
+					g.addLine(fmt.Sprintf("\t%s = %s.Truncate(time.Second)", paramName, paramName))
+				} else {
+					g.addLine(fmt.Sprintf("\tif %s != nil {", paramName))
+					g.addLine(fmt.Sprintf("\t\t_truncated := (*%s).Truncate(time.Second)", paramName))
+					g.addLine(fmt.Sprintf("\t\t%s = &_truncated", paramName))
+					g.addLine("\t}")
+				}
+			} else {
+				if goTypes[i] == "time.Time" {
+					g.addLine(fmt.Sprintf("\t%s = %s.Truncate(time.Hour * 24)", paramName, paramName))
+				} else {
+					g.addLine(fmt.Sprintf("\tif %s != nil {", paramName))
+					g.addLine(fmt.Sprintf("\t\t_truncated := (*%s).Truncate(time.Hour * 24)", paramName))
+					g.addLine(fmt.Sprintf("\t\t%s = &_truncated", paramName))
+					g.addLine("\t}")
+				}
+			}
+		}
+	}
+
 	// Build SELECT query
 	g.appendToLine("\tquery := \"SELECT `ID`")
 	for _, columnName := range schema.GetColumns()[1:] {
@@ -503,6 +531,34 @@ func (g *codeGenerator) generateCachedUniqueIndexGetter(schema *entitySchema, na
 		g.body += fmt.Sprintf(", %s %s", g.lowerFirst(columnName), goType)
 	}
 	g.addLine(fmt.Sprintf(") (entity *%s, found bool, err error) {", names.entityName))
+
+	// Truncate time.Time parameters to match stored precision
+	for i, columnName := range index.Columns {
+		if goTypes[i] == "time.Time" || goTypes[i] == "*time.Time" {
+			paramName := g.lowerFirst(columnName)
+			attr := schema.fieldDefinitions[columnName]
+			_, isTime := attr.Tags["time"]
+			if isTime || columnName == "CreatedAt" || columnName == "UpdatedAt" {
+				if goTypes[i] == "time.Time" {
+					g.addLine(fmt.Sprintf("\t%s = %s.Truncate(time.Second)", paramName, paramName))
+				} else {
+					g.addLine(fmt.Sprintf("\tif %s != nil {", paramName))
+					g.addLine(fmt.Sprintf("\t\t_truncated := (*%s).Truncate(time.Second)", paramName))
+					g.addLine(fmt.Sprintf("\t\t%s = &_truncated", paramName))
+					g.addLine("\t}")
+				}
+			} else {
+				if goTypes[i] == "time.Time" {
+					g.addLine(fmt.Sprintf("\t%s = %s.Truncate(time.Hour * 24)", paramName, paramName))
+				} else {
+					g.addLine(fmt.Sprintf("\tif %s != nil {", paramName))
+					g.addLine(fmt.Sprintf("\t\t_truncated := (*%s).Truncate(time.Hour * 24)", paramName))
+					g.addLine(fmt.Sprintf("\t\t%s = &_truncated", paramName))
+					g.addLine("\t}")
+				}
+			}
+		}
+	}
 
 	// If any param is nullable, check for nil and skip Redis cache
 	if hasNullable {

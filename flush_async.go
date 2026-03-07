@@ -512,6 +512,11 @@ func (c *asyncSQLConsumerImpl) executeRedisOps(ops []AsyncRedisOp) error {
 					values[i] = v
 				}
 				redisPipeline.HSet(op.Args[0], values...)
+			case "hdel":
+				if len(op.Args) < 2 {
+					continue
+				}
+				redisPipeline.HDel(op.Args[0], op.Args[1:]...)
 			case "set":
 				if len(op.Args) < 3 {
 					continue

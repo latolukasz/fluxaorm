@@ -425,6 +425,108 @@ func (g *codeGenerator) searchHSetAppendFromDBBind(f searchableFieldDef, indent,
 	return sb.String()
 }
 
+// searchHSetAppendOnlyChanged returns generated code that appends a searchable field's
+// serialised value to hsetVar only if the field is present in databaseBind. For nullable
+// fields that become NULL, the column name is appended to hdelVar instead.
+func (g *codeGenerator) searchHSetAppendOnlyChanged(f searchableFieldDef, indent, hsetVar, hdelVar string) string {
+	col := f.columnName
+	var sb strings.Builder
+	if !f.nullable {
+		switch f.goKind {
+		case "uint", "ref":
+			sb.WriteString(fmt.Sprintf("%sif _sv, _ok := e.databaseBind[%q]; _ok {\n", indent, col))
+			sb.WriteString(fmt.Sprintf("%s\t%s = append(%s, %q, strconv.FormatUint(_sv.(uint64), 10))\n", indent, hsetVar, hsetVar, col))
+			sb.WriteString(fmt.Sprintf("%s}\n", indent))
+		case "int":
+			sb.WriteString(fmt.Sprintf("%sif _sv, _ok := e.databaseBind[%q]; _ok {\n", indent, col))
+			sb.WriteString(fmt.Sprintf("%s\t%s = append(%s, %q, strconv.FormatInt(_sv.(int64), 10))\n", indent, hsetVar, hsetVar, col))
+			sb.WriteString(fmt.Sprintf("%s}\n", indent))
+		case "float":
+			sb.WriteString(fmt.Sprintf("%sif _sv, _ok := e.databaseBind[%q]; _ok {\n", indent, col))
+			sb.WriteString(fmt.Sprintf("%s\t%s = append(%s, %q, strconv.FormatFloat(_sv.(float64), 'g', -1, 64))\n", indent, hsetVar, hsetVar, col))
+			sb.WriteString(fmt.Sprintf("%s}\n", indent))
+		case "time", "date":
+			sb.WriteString(fmt.Sprintf("%sif _sv, _ok := e.databaseBind[%q]; _ok {\n", indent, col))
+			sb.WriteString(fmt.Sprintf("%s\t%s = append(%s, %q, strconv.FormatInt(_sv.(time.Time).Unix(), 10))\n", indent, hsetVar, hsetVar, col))
+			sb.WriteString(fmt.Sprintf("%s}\n", indent))
+		case "bool":
+			sb.WriteString(fmt.Sprintf("%sif _sv, _ok := e.databaseBind[%q]; _ok {\n", indent, col))
+			sb.WriteString(fmt.Sprintf("%s\tif _sv.(bool) {\n", indent))
+			sb.WriteString(fmt.Sprintf("%s\t\t%s = append(%s, %q, \"1\")\n", indent, hsetVar, hsetVar, col))
+			sb.WriteString(fmt.Sprintf("%s\t} else {\n", indent))
+			sb.WriteString(fmt.Sprintf("%s\t\t%s = append(%s, %q, \"0\")\n", indent, hsetVar, hsetVar, col))
+			sb.WriteString(fmt.Sprintf("%s\t}\n", indent))
+			sb.WriteString(fmt.Sprintf("%s}\n", indent))
+		default: // string, enum, set
+			sb.WriteString(fmt.Sprintf("%sif _sv, _ok := e.databaseBind[%q]; _ok {\n", indent, col))
+			sb.WriteString(fmt.Sprintf("%s\t%s = append(%s, %q, _sv.(string))\n", indent, hsetVar, hsetVar, col))
+			sb.WriteString(fmt.Sprintf("%s}\n", indent))
+		}
+	} else {
+		switch f.goKind {
+		case "uint", "ref":
+			sb.WriteString(fmt.Sprintf("%sif _sv, _ok := e.databaseBind[%q]; _ok {\n", indent, col))
+			sb.WriteString(fmt.Sprintf("%s\t_nv := _sv.(sql.NullInt64)\n", indent))
+			sb.WriteString(fmt.Sprintf("%s\tif _nv.Valid {\n", indent))
+			sb.WriteString(fmt.Sprintf("%s\t\t%s = append(%s, %q, strconv.FormatUint(uint64(_nv.Int64), 10))\n", indent, hsetVar, hsetVar, col))
+			sb.WriteString(fmt.Sprintf("%s\t} else {\n", indent))
+			sb.WriteString(fmt.Sprintf("%s\t\t%s = append(%s, %q)\n", indent, hdelVar, hdelVar, col))
+			sb.WriteString(fmt.Sprintf("%s\t}\n", indent))
+			sb.WriteString(fmt.Sprintf("%s}\n", indent))
+		case "int":
+			sb.WriteString(fmt.Sprintf("%sif _sv, _ok := e.databaseBind[%q]; _ok {\n", indent, col))
+			sb.WriteString(fmt.Sprintf("%s\t_nv := _sv.(sql.NullInt64)\n", indent))
+			sb.WriteString(fmt.Sprintf("%s\tif _nv.Valid {\n", indent))
+			sb.WriteString(fmt.Sprintf("%s\t\t%s = append(%s, %q, strconv.FormatInt(_nv.Int64, 10))\n", indent, hsetVar, hsetVar, col))
+			sb.WriteString(fmt.Sprintf("%s\t} else {\n", indent))
+			sb.WriteString(fmt.Sprintf("%s\t\t%s = append(%s, %q)\n", indent, hdelVar, hdelVar, col))
+			sb.WriteString(fmt.Sprintf("%s\t}\n", indent))
+			sb.WriteString(fmt.Sprintf("%s}\n", indent))
+		case "float":
+			sb.WriteString(fmt.Sprintf("%sif _sv, _ok := e.databaseBind[%q]; _ok {\n", indent, col))
+			sb.WriteString(fmt.Sprintf("%s\t_nv := _sv.(sql.NullFloat64)\n", indent))
+			sb.WriteString(fmt.Sprintf("%s\tif _nv.Valid {\n", indent))
+			sb.WriteString(fmt.Sprintf("%s\t\t%s = append(%s, %q, strconv.FormatFloat(_nv.Float64, 'g', -1, 64))\n", indent, hsetVar, hsetVar, col))
+			sb.WriteString(fmt.Sprintf("%s\t} else {\n", indent))
+			sb.WriteString(fmt.Sprintf("%s\t\t%s = append(%s, %q)\n", indent, hdelVar, hdelVar, col))
+			sb.WriteString(fmt.Sprintf("%s\t}\n", indent))
+			sb.WriteString(fmt.Sprintf("%s}\n", indent))
+		case "time", "date":
+			sb.WriteString(fmt.Sprintf("%sif _sv, _ok := e.databaseBind[%q]; _ok {\n", indent, col))
+			sb.WriteString(fmt.Sprintf("%s\t_nv := _sv.(sql.NullTime)\n", indent))
+			sb.WriteString(fmt.Sprintf("%s\tif _nv.Valid {\n", indent))
+			sb.WriteString(fmt.Sprintf("%s\t\t%s = append(%s, %q, strconv.FormatInt(_nv.Time.Unix(), 10))\n", indent, hsetVar, hsetVar, col))
+			sb.WriteString(fmt.Sprintf("%s\t} else {\n", indent))
+			sb.WriteString(fmt.Sprintf("%s\t\t%s = append(%s, %q)\n", indent, hdelVar, hdelVar, col))
+			sb.WriteString(fmt.Sprintf("%s\t}\n", indent))
+			sb.WriteString(fmt.Sprintf("%s}\n", indent))
+		case "bool":
+			sb.WriteString(fmt.Sprintf("%sif _sv, _ok := e.databaseBind[%q]; _ok {\n", indent, col))
+			sb.WriteString(fmt.Sprintf("%s\t_nv := _sv.(sql.NullBool)\n", indent))
+			sb.WriteString(fmt.Sprintf("%s\tif _nv.Valid {\n", indent))
+			sb.WriteString(fmt.Sprintf("%s\t\tif _nv.Bool {\n", indent))
+			sb.WriteString(fmt.Sprintf("%s\t\t\t%s = append(%s, %q, \"1\")\n", indent, hsetVar, hsetVar, col))
+			sb.WriteString(fmt.Sprintf("%s\t\t} else {\n", indent))
+			sb.WriteString(fmt.Sprintf("%s\t\t\t%s = append(%s, %q, \"0\")\n", indent, hsetVar, hsetVar, col))
+			sb.WriteString(fmt.Sprintf("%s\t\t}\n", indent))
+			sb.WriteString(fmt.Sprintf("%s\t} else {\n", indent))
+			sb.WriteString(fmt.Sprintf("%s\t\t%s = append(%s, %q)\n", indent, hdelVar, hdelVar, col))
+			sb.WriteString(fmt.Sprintf("%s\t}\n", indent))
+			sb.WriteString(fmt.Sprintf("%s}\n", indent))
+		default: // string, enum, set (sql.NullString)
+			sb.WriteString(fmt.Sprintf("%sif _sv, _ok := e.databaseBind[%q]; _ok {\n", indent, col))
+			sb.WriteString(fmt.Sprintf("%s\t_nv := _sv.(sql.NullString)\n", indent))
+			sb.WriteString(fmt.Sprintf("%s\tif _nv.Valid {\n", indent))
+			sb.WriteString(fmt.Sprintf("%s\t\t%s = append(%s, %q, _nv.String)\n", indent, hsetVar, hsetVar, col))
+			sb.WriteString(fmt.Sprintf("%s\t} else {\n", indent))
+			sb.WriteString(fmt.Sprintf("%s\t\t%s = append(%s, %q)\n", indent, hdelVar, hdelVar, col))
+			sb.WriteString(fmt.Sprintf("%s\t}\n", indent))
+			sb.WriteString(fmt.Sprintf("%s}\n", indent))
+		}
+	}
+	return sb.String()
+}
+
 // searchHSetAppendFromVar is like searchHSetAppendFromOrigin but reads from an arbitrary
 // local variable (e.g. "_sqlRow") instead of "e.originDatabaseValues".
 func (g *codeGenerator) searchHSetAppendFromVar(f searchableFieldDef, indent, varName, sourceVar string) string {
@@ -778,13 +880,23 @@ func (g *codeGenerator) generateEntityStruct(schema *entitySchema, names *entity
 		cap := len(schema.searchableFields) * 2
 		g.addLine(fmt.Sprintf("\t\t_searchKey2 := %s.redisSearchPrefix + strconv.FormatUint(e.GetID(), 10)", names.providerName))
 		g.addLine(fmt.Sprintf("\t\t_sp2 := e.ctx.RedisPipeLine(%s.redisSearchCode)", names.providerName))
+		hasNullable := false
+		nullableCount := 0
+		for _, f := range schema.searchableFields {
+			if f.nullable {
+				hasNullable = true
+				nullableCount++
+			}
+		}
 		if schema.hasFakeDelete {
 			g.addLine("\t\t_doSearch := false")
+			g.addLine("\t\t_doSearchFull := false")
 			g.addLine("\t\tif _fdv, _fdok := e.databaseBind[\"FakeDelete\"]; _fdok {")
 			g.addLine("\t\t\tif _fdv.(bool) {")
 			g.addLine("\t\t\t\t_sp2.Del(_searchKey2)")
 			g.addLine("\t\t\t} else {")
 			g.addLine("\t\t\t\t_doSearch = true")
+			g.addLine("\t\t\t\t_doSearchFull = true")
 			g.addLine("\t\t\t}")
 			g.addLine("\t\t} else {")
 			g.addLine(fmt.Sprintf("\t\t\tfor _, _sf := range []string{%s} {", strings.Join(searchFieldNames, ", ")))
@@ -795,13 +907,31 @@ func (g *codeGenerator) generateEntityStruct(schema *entitySchema, names *entity
 			g.addLine("\t\t\t}")
 			g.addLine("\t\t}")
 			g.addLine("\t\tif _doSearch {")
-			g.addLine("\t\t\t_sp2.Del(_searchKey2)")
-			g.addLine(fmt.Sprintf("\t\t\t_sa2 := make([]any, 0, %d)", cap))
+			g.addLine("\t\t\tif _doSearchFull {")
+			g.addLine("\t\t\t\t_sp2.Del(_searchKey2)")
+			g.addLine(fmt.Sprintf("\t\t\t\t_sa2 := make([]any, 0, %d)", cap))
 			for _, f := range schema.searchableFields {
-				g.body += g.searchHSetAppendFromDBBind(f, "\t\t\t", "_sa2")
+				g.body += g.searchHSetAppendFromDBBind(f, "\t\t\t\t", "_sa2")
 			}
-			g.addLine("\t\t\tif len(_sa2) > 0 {")
-			g.addLine("\t\t\t\t_sp2.HSet(_searchKey2, _sa2...)")
+			g.addLine("\t\t\t\tif len(_sa2) > 0 {")
+			g.addLine("\t\t\t\t\t_sp2.HSet(_searchKey2, _sa2...)")
+			g.addLine("\t\t\t\t}")
+			g.addLine("\t\t\t} else {")
+			g.addLine(fmt.Sprintf("\t\t\t\t_sa2 := make([]any, 0, %d)", cap))
+			if hasNullable {
+				g.addLine(fmt.Sprintf("\t\t\t\t_sd2 := make([]string, 0, %d)", nullableCount))
+			}
+			for _, f := range schema.searchableFields {
+				g.body += g.searchHSetAppendOnlyChanged(f, "\t\t\t\t", "_sa2", "_sd2")
+			}
+			g.addLine("\t\t\t\tif len(_sa2) > 0 {")
+			g.addLine("\t\t\t\t\t_sp2.HSet(_searchKey2, _sa2...)")
+			g.addLine("\t\t\t\t}")
+			if hasNullable {
+				g.addLine("\t\t\t\tif len(_sd2) > 0 {")
+				g.addLine("\t\t\t\t\t_sp2.HDel(_searchKey2, _sd2...)")
+				g.addLine("\t\t\t\t}")
+			}
 			g.addLine("\t\t\t}")
 			g.addLine("\t\t}")
 		} else {
@@ -813,14 +943,21 @@ func (g *codeGenerator) generateEntityStruct(schema *entitySchema, names *entity
 			g.addLine("\t\t\t}")
 			g.addLine("\t\t}")
 			g.addLine("\t\tif _doSearch2 {")
-			g.addLine("\t\t\t_sp2.Del(_searchKey2)")
 			g.addLine(fmt.Sprintf("\t\t\t_sa2 := make([]any, 0, %d)", cap))
+			if hasNullable {
+				g.addLine(fmt.Sprintf("\t\t\t_sd2 := make([]string, 0, %d)", nullableCount))
+			}
 			for _, f := range schema.searchableFields {
-				g.body += g.searchHSetAppendFromDBBind(f, "\t\t\t", "_sa2")
+				g.body += g.searchHSetAppendOnlyChanged(f, "\t\t\t", "_sa2", "_sd2")
 			}
 			g.addLine("\t\t\tif len(_sa2) > 0 {")
 			g.addLine("\t\t\t\t_sp2.HSet(_searchKey2, _sa2...)")
 			g.addLine("\t\t\t}")
+			if hasNullable {
+				g.addLine("\t\t\tif len(_sd2) > 0 {")
+				g.addLine("\t\t\t\t_sp2.HDel(_searchKey2, _sd2...)")
+				g.addLine("\t\t\t}")
+			}
 			g.addLine("\t\t}")
 		}
 	}
