@@ -144,7 +144,11 @@ func (w *RedisSearchWhere) GetSearchOptions(offset, count int) *redis.FTSearchOp
 		Limit:       count,
 	}
 	if w != nil && w.sortBy != "" {
-		opts.SortBy = []redis.FTSearchSortBy{{FieldName: w.sortBy, Asc: w.sortAsc}}
+		if w.sortAsc {
+			opts.SortBy = []redis.FTSearchSortBy{{FieldName: w.sortBy, Asc: true}}
+		} else {
+			opts.SortBy = []redis.FTSearchSortBy{{FieldName: w.sortBy, Desc: true}}
+		}
 	}
 	return opts
 }
