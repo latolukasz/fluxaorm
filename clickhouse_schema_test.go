@@ -92,6 +92,40 @@ func TestClickhouseTableBuilderTTL(t *testing.T) {
 	assert.Contains(t, sql, "TTL ts + INTERVAL 30 DAY")
 }
 
+func TestExtractClickhouseTTL(t *testing.T) {
+	tests := []struct {
+		name     string
+		ddl      string
+		expected string
+	}{
+		{
+			"with TTL and SETTINGS",
+			"CREATE TABLE fluxabee.scale_measurements (`imei` UInt64, `date` DateTime) ENGINE = MergeTree PARTITION BY toYYYYMM(date) ORDER BY (hive, date) TTL date + toIntervalYear(2) SETTINGS index_granularity = 8192",
+			"date + toIntervalYear(2)",
+		},
+		{
+			"no TTL",
+			"CREATE TABLE db.t (`id` UInt64) ENGINE = MergeTree ORDER BY id SETTINGS index_granularity = 8192",
+			"",
+		},
+		{
+			"TTL at end without SETTINGS",
+			"CREATE TABLE db.t (`date` Date) ENGINE = MergeTree ORDER BY date TTL date + INTERVAL 30 DAY",
+			"date + INTERVAL 30 DAY",
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			assert.Equal(t, tt.expected, extractClickhouseTTL(tt.ddl))
+		})
+	}
+}
+
+func TestNormalizeClickhouseExpr(t *testing.T) {
+	assert.Equal(t, normalizeClickhouseExpr("date + toIntervalYear(2)"), normalizeClickhouseExpr("date  +  toIntervalYear(2)"))
+	assert.Equal(t, normalizeClickhouseExpr("Date + TOINTERVALYEAR(2)"), normalizeClickhouseExpr("date + toIntervalYear(2)"))
+}
+
 func TestClickhouseTableBuilderComment(t *testing.T) {
 	table := NewClickhouseTable("test_comment", DefaultPoolCode).
 		Column("id", "UInt64").
@@ -491,6 +525,24 @@ func TestGetClickhouseAltersIgnoredTables(t *testing.T) {
 }
 
 func TestGetClickhouseAltersNoTablesRegistered(t *testing.T) {
+	tableName := "test_ch_schema_no_tables"
+
+	// First create a table in the database using an engine with the table registered
+	table := NewClickhouseTable(tableName, DefaultPoolCode).
+		Column("id", "UInt64").
+		Engine("MergeTree").
+		OrderBy("id")
+	engineWithTable, ctxWithTable := getClickhouseTestEngine(t, table)
+	defer cleanupClickhouseTable(t, ctxWithTable, engineWithTable, tableName)
+	cleanupClickhouseTable(t, ctxWithTable, engineWithTable, tableName)
+
+	alters, err := GetClickhouseAlters(ctxWithTable)
+	assert.NoError(t, err)
+	assert.Len(t, alters, 1)
+	err = alters[0].Exec(ctxWithTable)
+	assert.NoError(t, err)
+
+	// Now create an engine with no tables registered but with the table existing in the DB
 	registry := NewRegistry()
 	registry.RegisterClickhouse("clickhouse://localhost:9942/default", DefaultPoolCode, nil)
 	registry.RegisterRedis("localhost:6395", 15, "redis", nil)
@@ -498,9 +550,18 @@ func TestGetClickhouseAltersNoTablesRegistered(t *testing.T) {
 	assert.NoError(t, err)
 	ctx := engine.NewContext(context.Background())
 
-	alters, err := GetClickhouseAlters(ctx)
+	alters, err = GetClickhouseAlters(ctx)
 	assert.NoError(t, err)
-	assert.Nil(t, alters)
+	assert.NotEmpty(t, alters)
+
+	found := false
+	for _, alter := range alters {
+		if strings.Contains(alter.SQL, "DROP TABLE IF EXISTS "+tableName) {
+			found = true
+			break
+		}
+	}
+	assert.True(t, found, "expected DROP TABLE alter for %s", tableName)
 }
 
 func TestGetClickhouseAltersOrderByMismatch(t *testing.T) {

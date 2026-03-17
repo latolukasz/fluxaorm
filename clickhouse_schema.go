@@ -261,10 +261,6 @@ func (a ClickhouseAlter) Exec(ctx Context) error {
 // database schemas and returns the DDL statements needed to synchronize them.
 func GetClickhouseAlters(ctx Context) ([]ClickhouseAlter, error) {
 	registry := ctx.Engine().Registry().(*engineRegistryImplementation)
-	if len(registry.clickhouseTables) == 0 {
-		return nil, nil
-	}
-
 	// Group registered tables by pool
 	tablesByPool := make(map[string][]*ClickhouseTableBuilder)
 	for _, t := range registry.clickhouseTables {
@@ -329,6 +325,38 @@ func GetClickhouseAlters(ctx Context) ([]ClickhouseAlter, error) {
 			if registeredNames[tableName] {
 				continue
 			}
+			if ignoredTables != nil && ignoredTables[tableName] {
+				continue
+			}
+			alters = append(alters, ClickhouseAlter{
+				SQL:  fmt.Sprintf("DROP TABLE IF EXISTS %s;", tableName),
+				Pool: poolCode,
+			})
+		}
+	}
+
+	// Drop tables in pools with no registered tables
+	for poolCode, ch := range registry.engine.clickhouseServers {
+		if _, hasRegistered := tablesByPool[poolCode]; hasRegistered {
+			continue
+		}
+		existingTables := make(map[string]bool)
+		rows, closeRows, err := ch.Query(ctx, "SELECT name FROM system.tables WHERE database = currentDatabase() AND engine != 'View'")
+		if err != nil {
+			return nil, fmt.Errorf("failed to query system.tables for pool '%s': %w", poolCode, err)
+		}
+		for rows.Next() {
+			var name string
+			if err := rows.Scan(&name); err != nil {
+				closeRows()
+				return nil, err
+			}
+			existingTables[name] = true
+		}
+		closeRows()
+
+		ignoredTables := registry.clickhouseIgnoredTables[poolCode]
+		for tableName := range existingTables {
 			if ignoredTables != nil && ignoredTables[tableName] {
 				continue
 			}
@@ -439,18 +467,41 @@ func columnNeedsModify(defined clickhouseColumnDef, existing clickhouseExistingC
 	return false
 }
 
+// extractClickhouseTTL extracts the table-level TTL expression from a CREATE TABLE DDL string.
+// The DDL is returned as a single line from system.tables.create_table_query.
+func extractClickhouseTTL(createTableQuery string) string {
+	upper := strings.ToUpper(createTableQuery)
+	idx := strings.Index(upper, " TTL ")
+	if idx == -1 {
+		return ""
+	}
+	rest := createTableQuery[idx+5:] // skip " TTL "
+	// TTL expression ends at SETTINGS keyword or end of string
+	if settingsIdx := strings.Index(strings.ToUpper(rest), " SETTINGS "); settingsIdx != -1 {
+		rest = rest[:settingsIdx]
+	}
+	return strings.TrimSpace(rest)
+}
+
+// normalizeClickhouseExpr normalizes a ClickHouse expression for comparison
+// by collapsing whitespace and lowercasing.
+func normalizeClickhouseExpr(expr string) string {
+	fields := strings.Fields(strings.ToLower(strings.TrimSpace(expr)))
+	return strings.Join(fields, " ")
+}
+
 func compareClickhouseTableProperties(ctx Context, ch Clickhouse, table *ClickhouseTableBuilder) ([]ClickhouseAlter, error) {
 	rows, closeRows, err := ch.Query(ctx,
-		"SELECT engine, sorting_key, partition_key, primary_key, comment "+
+		"SELECT engine, sorting_key, partition_key, primary_key, comment, create_table_query "+
 			"FROM system.tables WHERE database = currentDatabase() AND name = ?", table.tableName)
 	if err != nil {
 		return nil, fmt.Errorf("failed to query system.tables for table '%s': %w", table.tableName, err)
 	}
 
-	var engine, sortingKey, partitionKey, primaryKey, comment string
+	var engine, sortingKey, partitionKey, primaryKey, comment, createTableQuery string
 	hasRow := false
 	for rows.Next() {
-		if err := rows.Scan(&engine, &sortingKey, &partitionKey, &primaryKey, &comment); err != nil {
+		if err := rows.Scan(&engine, &sortingKey, &partitionKey, &primaryKey, &comment, &createTableQuery); err != nil {
 			closeRows()
 			return nil, err
 		}
@@ -496,10 +547,14 @@ func compareClickhouseTableProperties(ctx Context, ch Clickhouse, table *Clickho
 
 	// TTL can be altered
 	if table.ttl != "" {
-		alters = append(alters, ClickhouseAlter{
-			SQL:  fmt.Sprintf("ALTER TABLE %s MODIFY TTL %s;", table.tableName, table.ttl),
-			Pool: table.poolCode,
-		})
+		currentTTL := extractClickhouseTTL(createTableQuery)
+		if normalizeClickhouseExpr(currentTTL) != normalizeClickhouseExpr(table.ttl) {
+			fmt.Printf("TABLE %s: TTL mismatch. Current: %s, Expected: %s. Manual recreation required.\n", table.tableName, currentTTL, table.ttl)
+			alters = append(alters, ClickhouseAlter{
+				SQL:  fmt.Sprintf("ALTER TABLE %s MODIFY TTL %s;", table.tableName, table.ttl),
+				Pool: table.poolCode,
+			})
+		}
 	}
 
 	// SETTINGS can be altered
