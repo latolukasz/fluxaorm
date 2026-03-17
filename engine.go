@@ -9,6 +9,7 @@ const DefaultPoolCode = "default"
 
 type EngineRegistry interface {
 	DBPools() map[string]DB
+	ClickhousePools() map[string]Clickhouse
 	LocalCachePools() map[string]LocalCache
 	RedisPools() map[string]RedisCache
 	Option(key string) any
@@ -24,6 +25,7 @@ type EngineSetter interface {
 type Engine interface {
 	NewContext(parent context.Context) Context
 	DB(code string) DB
+	Clickhouse(code string) Clickhouse
 	LocalCache(code string) LocalCache
 	Redis(code string) RedisCache
 	Registry() EngineRegistry
@@ -48,6 +50,7 @@ type engineImplementation struct {
 	registry            *engineRegistryImplementation
 	localCacheServers   map[string]LocalCache
 	dbServers           map[string]DB
+	clickhouseServers   map[string]Clickhouse
 	redisServers        map[string]RedisCache
 	options             map[string]any
 	afterInsertHandlers map[uint64]func(Context, Entity) error
@@ -77,6 +80,10 @@ func (e *engineImplementation) SetOption(key string, value any) {
 	e.options[key] = value
 }
 
+func (e *engineImplementation) Clickhouse(code string) Clickhouse {
+	return e.clickhouseServers[code]
+}
+
 func (e *engineImplementation) DB(code string) DB {
 	return e.dbServers[code]
 }
@@ -98,6 +105,10 @@ func (e *engineImplementation) GetRedisStreams() map[string]map[string]string {
 		}
 	}
 	return res
+}
+
+func (er *engineRegistryImplementation) ClickhousePools() map[string]Clickhouse {
+	return er.engine.clickhouseServers
 }
 
 func (er *engineRegistryImplementation) RedisPools() map[string]RedisCache {

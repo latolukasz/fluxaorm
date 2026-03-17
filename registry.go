@@ -19,6 +19,7 @@ import (
 
 	"github.com/pkg/errors"
 
+	_ "github.com/ClickHouse/clickhouse-go/v2"
 	_ "github.com/go-sql-driver/mysql" // force this mysql driver
 )
 
@@ -31,6 +32,7 @@ type Registry interface {
 	InitByYaml(yaml any) error
 	InitByConfig(config *Config) error
 	SetOption(key string, value any)
+	RegisterClickhouse(dataSourceName string, poolCode string, poolOptions *ClickhouseOptions)
 	RegisterRedisStream(name string, redisPool string)
 	RegisterAsyncSQLStream(redisPool string)
 	EnableMetrics(factory promauto.Factory)
@@ -40,6 +42,7 @@ type registry struct {
 	mysqlPools        map[string]MySQLConfig
 	localCaches       map[string]LocalCache
 	redisPools        map[string]RedisPoolConfig
+	clickhousePools   map[string]ClickhouseConfig
 	entities          map[string]reflect.Type
 	options           map[string]any
 	redisStreamGroups map[string]map[string]string
@@ -129,6 +132,35 @@ func (r *registry) Validate() (Engine, error) {
 		}
 		v.(*mySQLConfig).client = db
 		e.dbServers[k] = &dbImplementation{config: v, client: &standardSQLClient{db: v.getClient()}}
+	}
+	if e.clickhouseServers == nil {
+		e.clickhouseServers = make(map[string]Clickhouse)
+	}
+	for k, v := range r.clickhousePools {
+		if len(k) > maxPoolLen {
+			maxPoolLen = len(k)
+		}
+		db, err := sql.Open("clickhouse", v.GetDataSourceURI())
+		if err != nil {
+			return nil, err
+		}
+		maxLimit := 100
+		if v.GetOptions().MaxOpenConnections > 0 {
+			maxLimit = v.GetOptions().MaxOpenConnections
+		}
+		maxIdle := maxLimit
+		if v.GetOptions().MaxIdleConnections > 0 {
+			maxIdle = v.GetOptions().MaxIdleConnections
+		}
+		maxDuration := 5 * time.Minute
+		if v.GetOptions().ConnMaxLifetime > 0 {
+			maxDuration = v.GetOptions().ConnMaxLifetime
+		}
+		db.SetMaxOpenConns(maxLimit)
+		db.SetMaxIdleConns(maxIdle)
+		db.SetConnMaxLifetime(maxDuration)
+		v.(*clickhouseConfig).client = db
+		e.clickhouseServers[k] = &clickhouseImplementation{config: v, client: &standardSQLClient{db: v.getClient()}}
 	}
 	if e.localCacheServers == nil {
 		e.localCacheServers = make(map[string]LocalCache)
@@ -298,6 +330,17 @@ func (r *registry) RegisterMySQL(dataSourceName string, poolCode string, poolOpt
 	dbName := strings.Split(parts[len(parts)-1], "?")[0]
 	db.databaseName = dbName
 	r.mysqlPools[poolCode] = db
+}
+
+func (r *registry) RegisterClickhouse(dataSourceName string, poolCode string, poolOptions *ClickhouseOptions) {
+	if poolOptions == nil {
+		poolOptions = &ClickhouseOptions{}
+	}
+	ch := &clickhouseConfig{code: poolCode, dataSourceName: dataSourceName, options: poolOptions}
+	if r.clickhousePools == nil {
+		r.clickhousePools = make(map[string]ClickhouseConfig)
+	}
+	r.clickhousePools[poolCode] = ch
 }
 
 func (r *registry) RegisterLocalCache(code string, limit int) {

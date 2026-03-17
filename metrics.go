@@ -8,11 +8,13 @@ import (
 const MetricsMetaKey = "MetrictMetaKey"
 
 type metricsRegistry struct {
-	queriesDB          *prometheus.HistogramVec
-	queriesRedis       *prometheus.HistogramVec
-	queriesRedisBlock  *prometheus.CounterVec
-	queriesDBErrors    *prometheus.CounterVec
-	queriesRedisErrors *prometheus.CounterVec
+	queriesDB               *prometheus.HistogramVec
+	queriesRedis            *prometheus.HistogramVec
+	queriesRedisBlock       *prometheus.CounterVec
+	queriesDBErrors         *prometheus.CounterVec
+	queriesRedisErrors      *prometheus.CounterVec
+	queriesClickhouse       *prometheus.HistogramVec
+	queriesClickhouseErrors *prometheus.CounterVec
 }
 
 func initMetricsRegistry(factory promauto.Factory) *metricsRegistry {
@@ -36,6 +38,14 @@ func initMetricsRegistry(factory promauto.Factory) *metricsRegistry {
 	reg.queriesRedisErrors = factory.NewCounterVec(prometheus.CounterOpts{
 		Name: "fluxaorm_redis_queries_errors",
 		Help: "Total number of Redis queries errors",
+	}, []string{"pool", "source"})
+	reg.queriesClickhouse = factory.NewHistogramVec(prometheus.HistogramOpts{
+		Name: "fluxaorm_clickhouse_queries_seconds",
+		Help: "Total number of ClickHouse queries executed",
+	}, []string{"operation", "pool", "source"})
+	reg.queriesClickhouseErrors = factory.NewCounterVec(prometheus.CounterOpts{
+		Name: "fluxaorm_clickhouse_queries_errors",
+		Help: "Total number of ClickHouse queries errors",
 	}, []string{"pool", "source"})
 	return reg
 }

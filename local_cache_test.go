@@ -15,9 +15,9 @@ func TestLocalCache(t *testing.T) {
 	assert.Nil(t, err)
 	orm := validatedRegistry.NewContext(context.Background())
 	testLogger := &MockLogHandler{}
-	orm.RegisterQueryLogger(testLogger, false, false, true)
+	orm.RegisterQueryLogger(testLogger, QueryLoggerOptions{Local: true})
 	testQueryLog := &MockLogHandler{}
-	orm.RegisterQueryLogger(testQueryLog, false, false, true)
+	orm.RegisterQueryLogger(testQueryLog, QueryLoggerOptions{Local: true})
 
 	lc := orm.Engine().LocalCache(DefaultPoolCode)
 	assert.Equal(t, DefaultPoolCode, lc.GetConfig().GetCode())
@@ -50,8 +50,8 @@ func TestLocalCache(t *testing.T) {
 	assert.True(t, found)
 
 	orm = validatedRegistry.NewContext(context.Background())
-	orm.RegisterQueryLogger(testLogger, false, false, true)
-	orm.RegisterQueryLogger(testQueryLog, false, false, true)
+	orm.RegisterQueryLogger(testLogger, QueryLoggerOptions{Local: true})
+	orm.RegisterQueryLogger(testQueryLog, QueryLoggerOptions{Local: true})
 	lc = orm.Engine().LocalCache(DefaultPoolCode)
 	val, has = lc.Get(orm, "test_get")
 	assert.True(t, has)

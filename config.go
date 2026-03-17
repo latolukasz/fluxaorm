@@ -39,11 +39,20 @@ type ConfigLocalCache struct {
 	Limit int    `yaml:"limit" validate:"required"`
 }
 
+type ConfigClickhouse struct {
+	Code               string `yaml:"code" validate:"required"`
+	URI                string `yaml:"uri" validate:"required"`
+	ConnMaxLifetime    int    `yaml:"connMaxLifetime"`
+	MaxOpenConnections int    `yaml:"maxOpenConnections"`
+	MaxIdleConnections int    `yaml:"maxIdleConnections"`
+}
+
 type Config struct {
 	MySQlPools         []ConfigMysql         `yaml:"mysqlPools"`
 	RedisPools         []ConfigRedis         `yaml:"redisPools"`
 	RedisSentinelPools []ConfigRedisSentinel `yaml:"redisSentinelPools"`
 	LocalCachePools    []ConfigLocalCache    `yaml:"localCachePools"`
+	ClickhousePools    []ConfigClickhouse    `yaml:"clickhousePools"`
 }
 
 func (r *registry) InitByConfig(config *Config) error {
@@ -85,6 +94,13 @@ func (r *registry) InitByConfig(config *Config) error {
 	}
 	for _, pool := range config.LocalCachePools {
 		r.RegisterLocalCache(pool.Code, pool.Limit)
+	}
+	for _, pool := range config.ClickhousePools {
+		options := &ClickhouseOptions{}
+		options.ConnMaxLifetime = time.Duration(pool.ConnMaxLifetime) * time.Second
+		options.MaxOpenConnections = pool.MaxOpenConnections
+		options.MaxIdleConnections = pool.MaxIdleConnections
+		r.RegisterClickhouse(pool.URI, pool.Code, options)
 	}
 	return nil
 }

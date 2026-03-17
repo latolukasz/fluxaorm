@@ -20,7 +20,7 @@ func TestRedis(t *testing.T) {
 	r := orm.Engine().Redis(DefaultPoolCode)
 
 	testLogger := &MockLogHandler{}
-	orm.RegisterQueryLogger(testLogger, false, true, false)
+	orm.RegisterQueryLogger(testLogger, QueryLoggerOptions{Redis: true})
 	err = r.FlushDB(orm)
 	assert.NoError(t, err)
 	testLogger.Clear()

@@ -42,6 +42,11 @@ func (r *registry) InitByYaml(yaml any) error {
 				if err != nil {
 					return err
 				}
+			case "clickhouse":
+				err = validateOrmClickhouseURI(r, value, key)
+				if err != nil {
+					return err
+				}
 			case "local_cache":
 				limit, err := validateOrmInt(value, key)
 				if err != nil {
@@ -56,6 +61,42 @@ func (r *registry) InitByYaml(yaml any) error {
 			}
 		}
 	}
+	return nil
+}
+
+func validateOrmClickhouseURI(registry *registry, value any, key string) error {
+	def, err := fixYamlMap(value, key)
+	if err != nil {
+		return err
+	}
+	uri := ""
+	options := &ClickhouseOptions{}
+	for k, v := range def {
+		switch k {
+		case "uri":
+			uri, err = validateOrmString(v, "uri")
+			if err != nil {
+				return err
+			}
+		case "connMaxLifetime":
+			connMaxLifetime, err := validateOrmInt(v, "connMaxLifetime")
+			if err != nil {
+				return err
+			}
+			options.ConnMaxLifetime = time.Duration(connMaxLifetime) * time.Second
+		case "maxOpenConnections":
+			options.MaxOpenConnections, err = validateOrmInt(v, "maxOpenConnections")
+			if err != nil {
+				return err
+			}
+		case "maxIdleConnections":
+			options.MaxIdleConnections, err = validateOrmInt(v, "maxIdleConnections")
+			if err != nil {
+				return err
+			}
+		}
+	}
+	registry.RegisterClickhouse(uri, key, options)
 	return nil
 }
 

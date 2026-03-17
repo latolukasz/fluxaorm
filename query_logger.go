@@ -14,10 +14,12 @@ type QueryLoggerSource int
 const sourceMySQL = "mysql"
 const sourceRedis = "redis"
 const sourceLocalCache = "local_cache"
+const sourceClickhouse = "clickhouse"
 const ormLogo = "\u001B[1m\x1b[38;2;0;0;0;48;2;255;255;255mFluxa\u001B[38;2;254;147;51mORM \u001B[0m\x1b[0m\u001B[0m"
 const mysqlLogo = "\x1b[38;2;2;117;143;48;2;255;255;255mMy\u001B[38;2;242;145;17mSQL \u001B[0m\x1b[0m\u001B[0m"
 const redisLogo = "\u001B[1m\x1b[38;2;191;56;42;48;2;255;255;255mredis \u001B[0m\x1b[0m\u001B[0m"
 const localCacheLogo = "\u001B[1m\x1b[38;2;254;147;51;48;2;255;255;255mlocal \u001B[0m\x1b[0m\u001B[0m"
+const clickhouseLogo = "\u001B[1m\x1b[38;2;255;215;0;48;2;255;255;255mCH \u001B[0m\x1b[0m\u001B[0m"
 const timeTemplate = "\x1b[38;2;0;0;0;48;2;255;%d;%dm %0.1fms%s \u001B[0m\x1b[0m\u001B[0m\n"
 const operationTemplate = "\u001B[1m\x1b[38;2;0;0;0;48;2;255;255;255m%-14s\u001B[0m\x1b[0m\u001B[0m"
 const queryTemplate = "\x1b[38;2;255;255;155m%s\u001B[0m\x1b[0m\u001B[0m\n"
@@ -37,6 +39,8 @@ func (d *defaultLogLogger) Handle(_ Context, fields map[string]any) {
 		row += redisLogo
 	case "local_cache":
 		row += localCacheLogo
+	case "clickhouse":
+		row += clickhouseLogo
 	}
 	poolTemplate := "\u001B[1m\x1b[38;2;175;175;175;48;2;255;255;255m%-" + strconv.Itoa(d.maxPoolLen+3) + "s\u001B[0m\x1b[0m\u001B[0m"
 	row += fmt.Sprintf(poolTemplate, fields["pool"])
@@ -65,29 +69,40 @@ type LogHandler interface {
 	Handle(ctx Context, log map[string]any)
 }
 
-func (orm *ormImplementation) RegisterQueryLogger(handler LogHandler, mysql, redis, local bool) {
+type QueryLoggerOptions struct {
+	MySQL      bool
+	Redis      bool
+	Local      bool
+	Clickhouse bool
+}
+
+func (orm *ormImplementation) RegisterQueryLogger(handler LogHandler, options QueryLoggerOptions) {
 	orm.mutexData.Lock()
 	defer orm.mutexData.Unlock()
-	if mysql {
+	if options.MySQL {
 		orm.hasDBLogger = true
 		orm.queryLoggersDB = orm.appendLog(orm.queryLoggersDB, handler)
 	}
-	if redis {
+	if options.Redis {
 		orm.hasRedisLogger = true
 		orm.queryLoggersRedis = orm.appendLog(orm.queryLoggersRedis, handler)
 	}
-	if local {
+	if options.Local {
 		orm.hasLocalCacheLogger = true
 		orm.queryLoggersLocalCache = orm.appendLog(orm.queryLoggersLocalCache, handler)
+	}
+	if options.Clickhouse {
+		orm.hasClickhouseLogger = true
+		orm.queryLoggersClickhouse = orm.appendLog(orm.queryLoggersClickhouse, handler)
 	}
 }
 
 func (orm *ormImplementation) EnableQueryDebug() {
-	orm.EnableQueryDebugCustom(true, true, true)
+	orm.EnableQueryDebugCustom(QueryLoggerOptions{MySQL: true, Redis: true, Local: true, Clickhouse: true})
 }
 
-func (orm *ormImplementation) EnableQueryDebugCustom(mysql, redis, local bool) {
-	orm.RegisterQueryLogger(orm.engine.Registry().getDefaultQueryLogger(), mysql, redis, local)
+func (orm *ormImplementation) EnableQueryDebugCustom(options QueryLoggerOptions) {
+	orm.RegisterQueryLogger(orm.engine.Registry().getDefaultQueryLogger(), options)
 }
 
 func (orm *ormImplementation) appendLog(logs []LogHandler, toAdd LogHandler) []LogHandler {

@@ -17,7 +17,7 @@ func TestLocker(t *testing.T) {
 	err = orm.Engine().Redis(DefaultPoolCode).FlushDB(orm)
 	assert.NoError(t, err)
 	testLogger := &MockLogHandler{}
-	orm.RegisterQueryLogger(testLogger, false, true, false)
+	orm.RegisterQueryLogger(testLogger, QueryLoggerOptions{Redis: true})
 
 	l := orm.Engine().Redis(DefaultPoolCode).GetLocker()
 	lock, has, err := l.Obtain(orm, "test_key", time.Second, 0)
