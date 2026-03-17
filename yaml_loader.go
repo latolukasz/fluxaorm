@@ -47,6 +47,11 @@ func (r *registry) InitByYaml(yaml any) error {
 				if err != nil {
 					return err
 				}
+			case "kafka":
+				err = validateOrmKafkaConfig(r, value, key)
+				if err != nil {
+					return err
+				}
 			case "local_cache":
 				limit, err := validateOrmInt(value, key)
 				if err != nil {
@@ -264,6 +269,111 @@ func fixYamlMap(value any, key string) (map[string]any, error) {
 		}
 	}
 	return def, nil
+}
+
+func validateOrmKafkaConfig(registry *registry, value any, key string) error {
+	def, err := fixYamlMap(value, key)
+	if err != nil {
+		return err
+	}
+	var brokers []string
+	options := &KafkaOptions{}
+	for k, v := range def {
+		switch k {
+		case "brokers":
+			brokers, err = validateOrmStrings(v, "brokers")
+			if err != nil {
+				return err
+			}
+		case "clientID":
+			options.ClientID, err = validateOrmString(v, "clientID")
+			if err != nil {
+				return err
+			}
+		case "consumerGroup":
+			options.ConsumerGroup, err = validateOrmString(v, "consumerGroup")
+			if err != nil {
+				return err
+			}
+		case "consumeTopics":
+			options.ConsumeTopics, err = validateOrmStrings(v, "consumeTopics")
+			if err != nil {
+				return err
+			}
+		case "requiredAcks":
+			options.RequiredAcks, err = validateOrmInt(v, "requiredAcks")
+			if err != nil {
+				return err
+			}
+		case "producerLingerMs":
+			ms, err := validateOrmInt(v, "producerLingerMs")
+			if err != nil {
+				return err
+			}
+			options.ProducerLinger = time.Duration(ms) * time.Millisecond
+		case "maxBufferedRecords":
+			options.MaxBufferedRecords, err = validateOrmInt(v, "maxBufferedRecords")
+			if err != nil {
+				return err
+			}
+		case "sessionTimeoutMs":
+			ms, err := validateOrmInt(v, "sessionTimeoutMs")
+			if err != nil {
+				return err
+			}
+			options.SessionTimeout = time.Duration(ms) * time.Millisecond
+		case "rebalanceTimeoutMs":
+			ms, err := validateOrmInt(v, "rebalanceTimeoutMs")
+			if err != nil {
+				return err
+			}
+			options.RebalanceTimeout = time.Duration(ms) * time.Millisecond
+		case "fetchMaxBytes":
+			fb, err := validateOrmInt(v, "fetchMaxBytes")
+			if err != nil {
+				return err
+			}
+			options.FetchMaxBytes = int32(fb)
+		case "autoCommitIntervalMs":
+			ms, err := validateOrmInt(v, "autoCommitIntervalMs")
+			if err != nil {
+				return err
+			}
+			options.AutoCommitInterval = time.Duration(ms) * time.Millisecond
+		case "saslMechanism":
+			mechanism, err := validateOrmString(v, "saslMechanism")
+			if err != nil {
+				return err
+			}
+			if options.SASL == nil {
+				options.SASL = &KafkaSASLConfig{}
+			}
+			options.SASL.Mechanism = mechanism
+		case "saslUser":
+			user, err := validateOrmString(v, "saslUser")
+			if err != nil {
+				return err
+			}
+			if options.SASL == nil {
+				options.SASL = &KafkaSASLConfig{}
+			}
+			options.SASL.User = user
+		case "saslPassword":
+			password, err := validateOrmString(v, "saslPassword")
+			if err != nil {
+				return err
+			}
+			if options.SASL == nil {
+				options.SASL = &KafkaSASLConfig{}
+			}
+			options.SASL.Password = password
+		}
+	}
+	if len(brokers) == 0 {
+		return fmt.Errorf("kafka pool '%s': brokers are required", key)
+	}
+	registry.RegisterKafka(brokers, key, options)
+	return nil
 }
 
 func validateOrmInt(value any, key string) (int, error) {

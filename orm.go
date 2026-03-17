@@ -38,6 +38,7 @@ type Context interface {
 	getDBLoggers() (bool, []LogHandler)
 	getLocalCacheLoggers() (bool, []LogHandler)
 	getClickhouseLoggers() (bool, []LogHandler)
+	getKafkaLoggers() (bool, []LogHandler)
 	getRedisLoggers() (bool, []LogHandler)
 	Track(e Entity, cacheIndex uint64)
 	GetEventBroker() EventBroker
@@ -57,10 +58,12 @@ type ormImplementation struct {
 	queryLoggersRedis        []LogHandler
 	queryLoggersLocalCache   []LogHandler
 	queryLoggersClickhouse   []LogHandler
+	queryLoggersKafka        []LogHandler
 	hasRedisLogger           bool
 	hasDBLogger              bool
 	hasLocalCacheLogger      bool
 	hasClickhouseLogger      bool
+	hasKafkaLogger           bool
 	disabledContextCache     bool
 	meta                     Meta
 	redisRecordMode          bool
@@ -83,10 +86,12 @@ func (orm *ormImplementation) CloneWithContext(context context.Context) Context 
 		queryLoggersRedis:      orm.queryLoggersRedis,
 		queryLoggersLocalCache: orm.queryLoggersLocalCache,
 		queryLoggersClickhouse: orm.queryLoggersClickhouse,
+		queryLoggersKafka:      orm.queryLoggersKafka,
 		hasRedisLogger:         orm.hasRedisLogger,
 		hasDBLogger:            orm.hasDBLogger,
 		hasLocalCacheLogger:    orm.hasLocalCacheLogger,
 		hasClickhouseLogger:    orm.hasClickhouseLogger,
+		hasKafkaLogger:         orm.hasKafkaLogger,
 		meta:                   orm.meta,
 		disabledContextCache:   orm.disabledContextCache,
 		contextCacheTTL:        orm.contextCacheTTL,
@@ -168,6 +173,13 @@ func (orm *ormImplementation) getDBLoggers() (bool, []LogHandler) {
 func (orm *ormImplementation) getClickhouseLoggers() (bool, []LogHandler) {
 	if orm.hasClickhouseLogger {
 		return true, orm.queryLoggersClickhouse
+	}
+	return false, nil
+}
+
+func (orm *ormImplementation) getKafkaLoggers() (bool, []LogHandler) {
+	if orm.hasKafkaLogger {
+		return true, orm.queryLoggersKafka
 	}
 	return false, nil
 }

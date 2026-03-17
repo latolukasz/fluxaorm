@@ -15,6 +15,8 @@ type metricsRegistry struct {
 	queriesRedisErrors      *prometheus.CounterVec
 	queriesClickhouse       *prometheus.HistogramVec
 	queriesClickhouseErrors *prometheus.CounterVec
+	queriesKafka            *prometheus.HistogramVec
+	queriesKafkaErrors      *prometheus.CounterVec
 }
 
 func initMetricsRegistry(factory promauto.Factory) *metricsRegistry {
@@ -46,6 +48,14 @@ func initMetricsRegistry(factory promauto.Factory) *metricsRegistry {
 	reg.queriesClickhouseErrors = factory.NewCounterVec(prometheus.CounterOpts{
 		Name: "fluxaorm_clickhouse_queries_errors",
 		Help: "Total number of ClickHouse queries errors",
+	}, []string{"pool", "source"})
+	reg.queriesKafka = factory.NewHistogramVec(prometheus.HistogramOpts{
+		Name: "fluxaorm_kafka_operations_seconds",
+		Help: "Total number of Kafka operations executed",
+	}, []string{"operation", "pool", "source"})
+	reg.queriesKafkaErrors = factory.NewCounterVec(prometheus.CounterOpts{
+		Name: "fluxaorm_kafka_operations_errors",
+		Help: "Total number of Kafka operation errors",
 	}, []string{"pool", "source"})
 	return reg
 }

@@ -15,6 +15,8 @@ const sourceMySQL = "mysql"
 const sourceRedis = "redis"
 const sourceLocalCache = "local_cache"
 const sourceClickhouse = "clickhouse"
+const sourceKafka = "kafka"
+const kafkaLogo = "\u001B[1m\x1b[38;2;0;0;0;48;2;255;255;255mKafka \u001B[0m\x1b[0m\u001B[0m"
 const ormLogo = "\u001B[1m\x1b[38;2;0;0;0;48;2;255;255;255mFluxa\u001B[38;2;254;147;51mORM \u001B[0m\x1b[0m\u001B[0m"
 const mysqlLogo = "\x1b[38;2;2;117;143;48;2;255;255;255mMy\u001B[38;2;242;145;17mSQL \u001B[0m\x1b[0m\u001B[0m"
 const redisLogo = "\u001B[1m\x1b[38;2;191;56;42;48;2;255;255;255mredis \u001B[0m\x1b[0m\u001B[0m"
@@ -41,6 +43,8 @@ func (d *defaultLogLogger) Handle(_ Context, fields map[string]any) {
 		row += localCacheLogo
 	case "clickhouse":
 		row += clickhouseLogo
+	case "kafka":
+		row += kafkaLogo
 	}
 	poolTemplate := "\u001B[1m\x1b[38;2;175;175;175;48;2;255;255;255m%-" + strconv.Itoa(d.maxPoolLen+3) + "s\u001B[0m\x1b[0m\u001B[0m"
 	row += fmt.Sprintf(poolTemplate, fields["pool"])
@@ -74,6 +78,7 @@ type QueryLoggerOptions struct {
 	Redis      bool
 	Local      bool
 	Clickhouse bool
+	Kafka      bool
 }
 
 func (orm *ormImplementation) RegisterQueryLogger(handler LogHandler, options QueryLoggerOptions) {
@@ -95,10 +100,14 @@ func (orm *ormImplementation) RegisterQueryLogger(handler LogHandler, options Qu
 		orm.hasClickhouseLogger = true
 		orm.queryLoggersClickhouse = orm.appendLog(orm.queryLoggersClickhouse, handler)
 	}
+	if options.Kafka {
+		orm.hasKafkaLogger = true
+		orm.queryLoggersKafka = orm.appendLog(orm.queryLoggersKafka, handler)
+	}
 }
 
 func (orm *ormImplementation) EnableQueryDebug() {
-	orm.EnableQueryDebugCustom(QueryLoggerOptions{MySQL: true, Redis: true, Local: true, Clickhouse: true})
+	orm.EnableQueryDebugCustom(QueryLoggerOptions{MySQL: true, Redis: true, Local: true, Clickhouse: true, Kafka: true})
 }
 
 func (orm *ormImplementation) EnableQueryDebugCustom(options QueryLoggerOptions) {

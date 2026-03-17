@@ -48,12 +48,31 @@ type ConfigClickhouse struct {
 	IgnoredTables      []string `yaml:"ignoredTables"`
 }
 
+type ConfigKafka struct {
+	Code                 string   `yaml:"code" validate:"required"`
+	Brokers              []string `yaml:"brokers" validate:"required"`
+	ClientID             string   `yaml:"clientID"`
+	ConsumerGroup        string   `yaml:"consumerGroup"`
+	ConsumeTopics        []string `yaml:"consumeTopics"`
+	RequiredAcks         int      `yaml:"requiredAcks"`
+	ProducerLingerMs     int      `yaml:"producerLingerMs"`
+	MaxBufferedRecords   int      `yaml:"maxBufferedRecords"`
+	SessionTimeoutMs     int      `yaml:"sessionTimeoutMs"`
+	RebalanceTimeoutMs   int      `yaml:"rebalanceTimeoutMs"`
+	FetchMaxBytes        int      `yaml:"fetchMaxBytes"`
+	AutoCommitIntervalMs int      `yaml:"autoCommitIntervalMs"`
+	SASLMechanism        string   `yaml:"saslMechanism"`
+	SASLUser             string   `yaml:"saslUser"`
+	SASLPassword         string   `yaml:"saslPassword"`
+}
+
 type Config struct {
 	MySQlPools         []ConfigMysql         `yaml:"mysqlPools"`
 	RedisPools         []ConfigRedis         `yaml:"redisPools"`
 	RedisSentinelPools []ConfigRedisSentinel `yaml:"redisSentinelPools"`
 	LocalCachePools    []ConfigLocalCache    `yaml:"localCachePools"`
 	ClickhousePools    []ConfigClickhouse    `yaml:"clickhousePools"`
+	KafkaPools         []ConfigKafka         `yaml:"kafkaPools"`
 }
 
 func (r *registry) InitByConfig(config *Config) error {
@@ -103,6 +122,37 @@ func (r *registry) InitByConfig(config *Config) error {
 		options.MaxIdleConnections = pool.MaxIdleConnections
 		options.IgnoredTables = pool.IgnoredTables
 		r.RegisterClickhouse(pool.URI, pool.Code, options)
+	}
+	for _, pool := range config.KafkaPools {
+		options := &KafkaOptions{}
+		options.ClientID = pool.ClientID
+		options.ConsumerGroup = pool.ConsumerGroup
+		options.ConsumeTopics = pool.ConsumeTopics
+		options.RequiredAcks = pool.RequiredAcks
+		if pool.ProducerLingerMs > 0 {
+			options.ProducerLinger = time.Duration(pool.ProducerLingerMs) * time.Millisecond
+		}
+		options.MaxBufferedRecords = pool.MaxBufferedRecords
+		if pool.SessionTimeoutMs > 0 {
+			options.SessionTimeout = time.Duration(pool.SessionTimeoutMs) * time.Millisecond
+		}
+		if pool.RebalanceTimeoutMs > 0 {
+			options.RebalanceTimeout = time.Duration(pool.RebalanceTimeoutMs) * time.Millisecond
+		}
+		if pool.FetchMaxBytes > 0 {
+			options.FetchMaxBytes = int32(pool.FetchMaxBytes)
+		}
+		if pool.AutoCommitIntervalMs > 0 {
+			options.AutoCommitInterval = time.Duration(pool.AutoCommitIntervalMs) * time.Millisecond
+		}
+		if pool.SASLMechanism != "" {
+			options.SASL = &KafkaSASLConfig{
+				Mechanism: pool.SASLMechanism,
+				User:      pool.SASLUser,
+				Password:  pool.SASLPassword,
+			}
+		}
+		r.RegisterKafka(pool.Brokers, pool.Code, options)
 	}
 	return nil
 }
