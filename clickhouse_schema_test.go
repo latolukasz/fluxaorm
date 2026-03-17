@@ -561,7 +561,7 @@ func TestClickhouseAlterExec(t *testing.T) {
 	// Verify it was created
 	ch := engine.Clickhouse(DefaultPoolCode)
 	var count uint64
-	found, err := ch.QueryRow(ctx, "SELECT count() FROM "+tableName, &count)
+	found, err := ch.QueryRow(ctx, NewWhere("SELECT count() FROM "+tableName), &count)
 	assert.NoError(t, err)
 	assert.True(t, found)
 	assert.Equal(t, uint64(0), count)

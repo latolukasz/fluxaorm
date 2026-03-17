@@ -41,13 +41,13 @@ func TestClickhouse(t *testing.T) {
 
 	// Test QueryRow
 	var name string
-	found, err := ch.QueryRow(ctx, "SELECT name FROM test_clickhouse WHERE id = 1", &name)
+	found, err := ch.QueryRow(ctx, NewWhere("SELECT name FROM test_clickhouse WHERE id = 1"), &name)
 	assert.NoError(t, err)
 	assert.True(t, found)
 	assert.Equal(t, "Alice", name)
 
 	// Test QueryRow - not found
-	found, err = ch.QueryRow(ctx, "SELECT name FROM test_clickhouse WHERE id = 999", &name)
+	found, err = ch.QueryRow(ctx, NewWhere("SELECT name FROM test_clickhouse WHERE id = 999"), &name)
 	assert.NoError(t, err)
 	assert.False(t, found)
 
@@ -91,7 +91,7 @@ func TestClickhouse(t *testing.T) {
 
 	testLogger.Clear()
 
-	found, err = ch.QueryRow(ctx, "SELECT name FROM test_clickhouse WHERE id = 1", &name)
+	found, err = ch.QueryRow(ctx, NewWhere("SELECT name FROM test_clickhouse WHERE id = 1"), &name)
 	assert.NoError(t, err)
 	assert.True(t, found)
 	assert.Len(t, testLogger.Logs, 1)

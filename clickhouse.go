@@ -55,7 +55,7 @@ type Clickhouse interface {
 	GetDBClient() DBClient
 	SetMockDBClient(mock DBClient)
 	Exec(ctx Context, query string, args ...any) (ExecResult, error)
-	QueryRow(ctx Context, query string, toFill ...any) (found bool, err error)
+	QueryRow(ctx Context, query Where, toFill ...any) (found bool, err error)
 	Query(ctx Context, query string, args ...any) (rows Rows, close func(), err error)
 }
 
@@ -92,14 +92,15 @@ func (ch *clickhouseImplementation) Exec(ctx Context, query string, args ...any)
 	return &execResult{r: rows}, err
 }
 
-func (ch *clickhouseImplementation) QueryRow(ctx Context, query string, toFill ...any) (found bool, err error) {
+func (ch *clickhouseImplementation) QueryRow(ctx Context, query Where, toFill ...any) (found bool, err error) {
 	hasLogger, _ := ctx.getClickhouseLoggers()
+	querySQL := query.String()
 	start := time.Now()
-	row := ch.client.QueryRow(query)
+	row := ch.client.QueryRow(querySQL, query.GetParameters()...)
 	end := time.Since(start)
 	if row.Err() != nil {
 		if hasLogger {
-			ch.fillLogFields(ctx, "SELECT", query, end, row.Err())
+			ch.fillLogFields(ctx, "SELECT", querySQL, end, row.Err())
 		}
 		ch.fillMetrics(ctx, end, metricsOperationSelect, row.Err())
 		return false, row.Err()
@@ -108,19 +109,19 @@ func (ch *clickhouseImplementation) QueryRow(ctx Context, query string, toFill .
 	if err != nil {
 		if err.Error() == "sql: no rows in result set" {
 			if hasLogger {
-				ch.fillLogFields(ctx, "SELECT", query, end, nil)
+				ch.fillLogFields(ctx, "SELECT", querySQL, end, nil)
 			}
 			ch.fillMetrics(ctx, end, metricsOperationSelect, nil)
 			return false, nil
 		}
 		if hasLogger {
-			ch.fillLogFields(ctx, "SELECT", query, end, err)
+			ch.fillLogFields(ctx, "SELECT", querySQL, end, err)
 		}
 		ch.fillMetrics(ctx, end, metricsOperationSelect, err)
 		return false, err
 	}
 	if hasLogger {
-		ch.fillLogFields(ctx, "SELECT", query, end, nil)
+		ch.fillLogFields(ctx, "SELECT", querySQL, end, nil)
 	}
 	ch.fillMetrics(ctx, end, metricsOperationSelect, nil)
 	return true, nil
