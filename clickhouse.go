@@ -10,12 +10,14 @@ import (
 type ClickhouseConfig interface {
 	GetCode() string
 	GetDataSourceURI() string
+	GetDatabaseName() string
 	GetOptions() *ClickhouseOptions
 	getClient() *sql.DB
 }
 
 type clickhouseConfig struct {
 	dataSourceName string
+	databaseName   string
 	code           string
 	client         *sql.DB
 	options        *ClickhouseOptions
@@ -27,6 +29,10 @@ func (p *clickhouseConfig) GetCode() string {
 
 func (p *clickhouseConfig) GetDataSourceURI() string {
 	return p.dataSourceName
+}
+
+func (p *clickhouseConfig) GetDatabaseName() string {
+	return p.databaseName
 }
 
 func (p *clickhouseConfig) getClient() *sql.DB {
@@ -41,6 +47,7 @@ type ClickhouseOptions struct {
 	ConnMaxLifetime    time.Duration
 	MaxOpenConnections int
 	MaxIdleConnections int
+	IgnoredTables      []string
 }
 
 type Clickhouse interface {

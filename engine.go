@@ -34,16 +34,18 @@ type Engine interface {
 }
 
 type engineRegistryImplementation struct {
-	engine               *engineImplementation
-	entitySchemas        map[reflect.Type]*entitySchema
-	entitySchemasByIndex map[uint64]*entitySchema
-	defaultQueryLogger   *defaultLogLogger
-	dbTables             map[string]map[string]bool
-	options              map[string]any
-	redisStreamGroups    map[string]map[string]string
-	redisStreamPools     map[string]string
-	hasMetrics           bool
-	metricsRegistry      *metricsRegistry
+	engine                  *engineImplementation
+	entitySchemas           map[reflect.Type]*entitySchema
+	entitySchemasByIndex    map[uint64]*entitySchema
+	defaultQueryLogger      *defaultLogLogger
+	dbTables                map[string]map[string]bool
+	options                 map[string]any
+	redisStreamGroups       map[string]map[string]string
+	redisStreamPools        map[string]string
+	clickhouseTables        []*ClickhouseTableBuilder
+	clickhouseIgnoredTables map[string]map[string]bool
+	hasMetrics              bool
+	metricsRegistry         *metricsRegistry
 }
 
 type engineImplementation struct {

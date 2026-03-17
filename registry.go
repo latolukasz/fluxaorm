@@ -33,6 +33,7 @@ type Registry interface {
 	InitByConfig(config *Config) error
 	SetOption(key string, value any)
 	RegisterClickhouse(dataSourceName string, poolCode string, poolOptions *ClickhouseOptions)
+	RegisterClickhouseTable(table *ClickhouseTableBuilder)
 	RegisterRedisStream(name string, redisPool string)
 	RegisterAsyncSQLStream(redisPool string)
 	EnableMetrics(factory promauto.Factory)
@@ -43,6 +44,7 @@ type registry struct {
 	localCaches       map[string]LocalCache
 	redisPools        map[string]RedisPoolConfig
 	clickhousePools   map[string]ClickhouseConfig
+	clickhouseTables  []*ClickhouseTableBuilder
 	entities          map[string]reflect.Type
 	options           map[string]any
 	redisStreamGroups map[string]map[string]string
@@ -161,6 +163,36 @@ func (r *registry) Validate() (Engine, error) {
 		db.SetConnMaxLifetime(maxDuration)
 		v.(*clickhouseConfig).client = db
 		e.clickhouseServers[k] = &clickhouseImplementation{config: v, client: &standardSQLClient{db: v.getClient()}}
+	}
+	// Validate and register ClickHouse table definitions
+	if len(r.clickhouseTables) > 0 {
+		seenTableNames := make(map[string]string) // tableName -> poolCode
+		for _, table := range r.clickhouseTables {
+			if err := table.validate(); err != nil {
+				return nil, err
+			}
+			if _, exists := r.clickhousePools[table.poolCode]; !exists {
+				return nil, fmt.Errorf("clickhouse pool '%s' not registered for table '%s'", table.poolCode, table.tableName)
+			}
+			key := table.poolCode + "." + table.tableName
+			if existingPool, exists := seenTableNames[key]; exists {
+				return nil, fmt.Errorf("duplicate clickhouse table '%s' in pool '%s' (already registered in pool '%s')", table.tableName, table.poolCode, existingPool)
+			}
+			seenTableNames[key] = table.poolCode
+		}
+		e.registry.clickhouseTables = r.clickhouseTables
+		// Build ignored tables map from ClickhouseOptions
+		e.registry.clickhouseIgnoredTables = make(map[string]map[string]bool)
+		for poolCode, poolConfig := range r.clickhousePools {
+			if len(poolConfig.GetOptions().IgnoredTables) > 0 {
+				if e.registry.clickhouseIgnoredTables[poolCode] == nil {
+					e.registry.clickhouseIgnoredTables[poolCode] = make(map[string]bool)
+				}
+				for _, ignoredTable := range poolConfig.GetOptions().IgnoredTables {
+					e.registry.clickhouseIgnoredTables[poolCode][ignoredTable] = true
+				}
+			}
+		}
 	}
 	if e.localCacheServers == nil {
 		e.localCacheServers = make(map[string]LocalCache)
@@ -337,10 +369,25 @@ func (r *registry) RegisterClickhouse(dataSourceName string, poolCode string, po
 		poolOptions = &ClickhouseOptions{}
 	}
 	ch := &clickhouseConfig{code: poolCode, dataSourceName: dataSourceName, options: poolOptions}
+	// Parse database name from DSN: clickhouse://host:port/dbname?params
+	if idx := strings.Index(dataSourceName, "://"); idx >= 0 {
+		rest := dataSourceName[idx+3:]
+		if slashIdx := strings.Index(rest, "/"); slashIdx >= 0 {
+			dbPart := rest[slashIdx+1:]
+			if qIdx := strings.Index(dbPart, "?"); qIdx >= 0 {
+				dbPart = dbPart[:qIdx]
+			}
+			ch.databaseName = dbPart
+		}
+	}
 	if r.clickhousePools == nil {
 		r.clickhousePools = make(map[string]ClickhouseConfig)
 	}
 	r.clickhousePools[poolCode] = ch
+}
+
+func (r *registry) RegisterClickhouseTable(table *ClickhouseTableBuilder) {
+	r.clickhouseTables = append(r.clickhouseTables, table)
 }
 
 func (r *registry) RegisterLocalCache(code string, limit int) {

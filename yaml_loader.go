@@ -94,6 +94,11 @@ func validateOrmClickhouseURI(registry *registry, value any, key string) error {
 			if err != nil {
 				return err
 			}
+		case "ignoredTables":
+			options.IgnoredTables, err = validateOrmStrings(v, "ignoredTables")
+			if err != nil {
+				return err
+			}
 		}
 	}
 	registry.RegisterClickhouse(uri, key, options)

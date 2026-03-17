@@ -40,11 +40,12 @@ type ConfigLocalCache struct {
 }
 
 type ConfigClickhouse struct {
-	Code               string `yaml:"code" validate:"required"`
-	URI                string `yaml:"uri" validate:"required"`
-	ConnMaxLifetime    int    `yaml:"connMaxLifetime"`
-	MaxOpenConnections int    `yaml:"maxOpenConnections"`
-	MaxIdleConnections int    `yaml:"maxIdleConnections"`
+	Code               string   `yaml:"code" validate:"required"`
+	URI                string   `yaml:"uri" validate:"required"`
+	ConnMaxLifetime    int      `yaml:"connMaxLifetime"`
+	MaxOpenConnections int      `yaml:"maxOpenConnections"`
+	MaxIdleConnections int      `yaml:"maxIdleConnections"`
+	IgnoredTables      []string `yaml:"ignoredTables"`
 }
 
 type Config struct {
@@ -100,6 +101,7 @@ func (r *registry) InitByConfig(config *Config) error {
 		options.ConnMaxLifetime = time.Duration(pool.ConnMaxLifetime) * time.Second
 		options.MaxOpenConnections = pool.MaxOpenConnections
 		options.MaxIdleConnections = pool.MaxIdleConnections
+		options.IgnoredTables = pool.IgnoredTables
 		r.RegisterClickhouse(pool.URI, pool.Code, options)
 	}
 	return nil
