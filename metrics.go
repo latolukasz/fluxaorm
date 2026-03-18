@@ -52,10 +52,10 @@ func initMetricsRegistry(factory promauto.Factory) *metricsRegistry {
 	reg.queriesKafka = factory.NewHistogramVec(prometheus.HistogramOpts{
 		Name: "fluxaorm_kafka_operations_seconds",
 		Help: "Total number of Kafka operations executed",
-	}, []string{"operation", "pool", "source"})
+	}, []string{"operation", "pool", "source", "consumer_group"})
 	reg.queriesKafkaErrors = factory.NewCounterVec(prometheus.CounterOpts{
 		Name: "fluxaorm_kafka_operations_errors",
 		Help: "Total number of Kafka operation errors",
-	}, []string{"pool", "source"})
+	}, []string{"pool", "source", "consumer_group"})
 	return reg
 }

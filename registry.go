@@ -37,7 +37,7 @@ type Registry interface {
 	SetOption(key string, value any)
 	RegisterClickhouse(dataSourceName string, poolCode string, poolOptions *ClickhouseOptions)
 	RegisterClickhouseTable(table *ClickhouseTableBuilder)
-	RegisterKafka(brokers []string, poolCode string, options *KafkaOptions)
+	RegisterKafka(brokers []string, poolCode string, options *KafkaPoolOptions, consumerGroups ...KafkaConsumerGroupSettings)
 	RegisterRedisStream(name string, redisPool string)
 	RegisterAsyncSQLStream(redisPool string)
 	EnableMetrics(factory promauto.Factory)
@@ -49,7 +49,7 @@ type registry struct {
 	redisPools        map[string]RedisPoolConfig
 	clickhousePools   map[string]ClickhouseConfig
 	clickhouseTables  []*ClickhouseTableBuilder
-	kafkaPools        map[string]KafkaConfig
+	kafkaPools        map[string]*kafkaPoolConfig
 	entities          map[string]reflect.Type
 	options           map[string]any
 	redisStreamGroups map[string]map[string]string
@@ -206,78 +206,32 @@ func (r *registry) Validate() (Engine, error) {
 		if len(k) > maxPoolLen {
 			maxPoolLen = len(k)
 		}
-		opts := []kgo.Opt{kgo.SeedBrokers(v.GetBrokers()...)}
-		options := v.GetOptions()
-		if options.ClientID != "" {
-			opts = append(opts, kgo.ClientID(options.ClientID))
-		}
-		if options.ConsumerGroup != "" {
-			opts = append(opts, kgo.ConsumerGroup(options.ConsumerGroup))
-		}
-		if len(options.ConsumeTopics) > 0 {
-			opts = append(opts, kgo.ConsumeTopics(options.ConsumeTopics...))
-		}
-		if options.RequiredAcks != 0 {
-			switch options.RequiredAcks {
-			case 1:
-				opts = append(opts, kgo.RequiredAcks(kgo.LeaderAck()))
-			case -1:
-				opts = append(opts, kgo.RequiredAcks(kgo.AllISRAcks()))
-			case 0:
-				opts = append(opts, kgo.RequiredAcks(kgo.NoAck()))
-			}
-		}
-		if options.ProducerLinger > 0 {
-			opts = append(opts, kgo.ProducerLinger(options.ProducerLinger))
-		}
-		if options.MaxBufferedRecords > 0 {
-			opts = append(opts, kgo.MaxBufferedRecords(options.MaxBufferedRecords))
-		}
-		if options.SessionTimeout > 0 {
-			opts = append(opts, kgo.SessionTimeout(options.SessionTimeout))
-		}
-		if options.RebalanceTimeout > 0 {
-			opts = append(opts, kgo.RebalanceTimeout(options.RebalanceTimeout))
-		}
-		if options.FetchMaxBytes > 0 {
-			opts = append(opts, kgo.FetchMaxBytes(options.FetchMaxBytes))
-		}
-		if options.AutoCommitInterval > 0 {
-			opts = append(opts, kgo.AutoCommitInterval(options.AutoCommitInterval))
-		} else if options.ConsumerGroup != "" {
-			opts = append(opts, kgo.DisableAutoCommit())
-		}
-		if options.SASL != nil {
-			switch options.SASL.Mechanism {
-			case "PLAIN":
-				opts = append(opts, kgo.SASL(plain.Auth{
-					User: options.SASL.User,
-					Pass: options.SASL.Password,
-				}.AsMechanism()))
-			case "SCRAM-SHA-256":
-				opts = append(opts, kgo.SASL(scram.Auth{
-					User: options.SASL.User,
-					Pass: options.SASL.Password,
-				}.AsSha256Mechanism()))
-			case "SCRAM-SHA-512":
-				opts = append(opts, kgo.SASL(scram.Auth{
-					User: options.SASL.User,
-					Pass: options.SASL.Password,
-				}.AsSha512Mechanism()))
+		// Validate SASL mechanism
+		if v.options.SASL != nil {
+			switch v.options.SASL.Mechanism {
+			case "PLAIN", "SCRAM-SHA-256", "SCRAM-SHA-512":
 			default:
-				return nil, fmt.Errorf("kafka pool '%s': unsupported SASL mechanism '%s'", k, options.SASL.Mechanism)
+				return nil, fmt.Errorf("kafka pool '%s': unsupported SASL mechanism '%s'", k, v.options.SASL.Mechanism)
 			}
 		}
-		client, err := kgo.NewClient(opts...)
+		ctx, cancel := context.WithCancel(context.Background())
+		opts := buildProducerKgoOpts(v)
+		opts = append(opts, kgo.WithContext(ctx))
+		producerClient, err := kgo.NewClient(opts...)
 		if err != nil {
-			return nil, err
+			cancel()
+			return nil, fmt.Errorf("kafka pool '%s': failed to create producer client: %w", k, err)
 		}
-		if err := client.Ping(context.Background()); err != nil {
-			client.Close()
-			return nil, fmt.Errorf("kafka pool '%s': failed to connect: %w", k, err)
+		if err := producerClient.Ping(context.Background()); err != nil {
+			producerClient.Close()
+			cancel()
+			return nil, fmt.Errorf("kafka pool '%s': failed to connect producer: %w", k, err)
 		}
-		v.(*kafkaConfig).client = client
-		e.kafkaServers[k] = &kafkaImplementation{config: v}
+		e.kafkaServers[k] = &kafkaPoolImplementation{
+			config:         v,
+			producerClient: producerClient,
+			producerCancel: cancel,
+		}
 	}
 	if e.localCacheServers == nil {
 		e.localCacheServers = make(map[string]LocalCache)
@@ -475,15 +429,87 @@ func (r *registry) RegisterClickhouseTable(table *ClickhouseTableBuilder) {
 	r.clickhouseTables = append(r.clickhouseTables, table)
 }
 
-func (r *registry) RegisterKafka(brokers []string, poolCode string, options *KafkaOptions) {
+func (r *registry) RegisterKafka(brokers []string, poolCode string, options *KafkaPoolOptions, consumerGroups ...KafkaConsumerGroupSettings) {
 	if options == nil {
-		options = &KafkaOptions{}
+		options = &KafkaPoolOptions{}
 	}
-	k := &kafkaConfig{code: poolCode, brokers: brokers, options: options}
+	cgSettings := make(map[string]*KafkaConsumerGroupSettings, len(consumerGroups))
+	for _, cg := range consumerGroups {
+		cgSettings[cg.Name] = &KafkaConsumerGroupSettings{
+			Name:               cg.Name,
+			Topics:             cg.Topics,
+			SessionTimeout:     cg.SessionTimeout,
+			RebalanceTimeout:   cg.RebalanceTimeout,
+			FetchMaxBytes:      cg.FetchMaxBytes,
+			AutoCommitInterval: cg.AutoCommitInterval,
+		}
+	}
+	k := &kafkaPoolConfig{code: poolCode, brokers: brokers, options: options, consumerGroups: cgSettings}
 	if r.kafkaPools == nil {
-		r.kafkaPools = make(map[string]KafkaConfig)
+		r.kafkaPools = make(map[string]*kafkaPoolConfig)
 	}
 	r.kafkaPools[poolCode] = k
+}
+
+func buildProducerKgoOpts(pool *kafkaPoolConfig) []kgo.Opt {
+	opts := []kgo.Opt{kgo.SeedBrokers(pool.brokers...), kgo.AllowAutoTopicCreation()}
+	poolOpts := pool.options
+	if poolOpts.ClientID != "" {
+		opts = append(opts, kgo.ClientID(poolOpts.ClientID))
+	}
+	if poolOpts.RequiredAcks != 0 {
+		switch poolOpts.RequiredAcks {
+		case 1:
+			opts = append(opts, kgo.RequiredAcks(kgo.LeaderAck()))
+		case -1:
+			opts = append(opts, kgo.RequiredAcks(kgo.AllISRAcks()))
+		case 0:
+			opts = append(opts, kgo.RequiredAcks(kgo.NoAck()))
+		}
+	}
+	if poolOpts.ProducerLinger > 0 {
+		opts = append(opts, kgo.ProducerLinger(poolOpts.ProducerLinger))
+	}
+	if poolOpts.MaxBufferedRecords > 0 {
+		opts = append(opts, kgo.MaxBufferedRecords(poolOpts.MaxBufferedRecords))
+	}
+	if poolOpts.SASL != nil {
+		switch poolOpts.SASL.Mechanism {
+		case "PLAIN":
+			opts = append(opts, kgo.SASL(plain.Auth{User: poolOpts.SASL.User, Pass: poolOpts.SASL.Password}.AsMechanism()))
+		case "SCRAM-SHA-256":
+			opts = append(opts, kgo.SASL(scram.Auth{User: poolOpts.SASL.User, Pass: poolOpts.SASL.Password}.AsSha256Mechanism()))
+		case "SCRAM-SHA-512":
+			opts = append(opts, kgo.SASL(scram.Auth{User: poolOpts.SASL.User, Pass: poolOpts.SASL.Password}.AsSha512Mechanism()))
+		}
+	}
+	return opts
+}
+
+func buildConsumerKgoOpts(pool *kafkaPoolConfig, settings *KafkaConsumerGroupSettings) []kgo.Opt {
+	opts := buildProducerKgoOpts(pool)
+	if settings.Name != "" {
+		opts = append(opts, kgo.ConsumerGroup(settings.Name))
+	}
+	if len(settings.Topics) > 0 {
+		opts = append(opts, kgo.ConsumeTopics(settings.Topics...))
+	}
+	if settings.SessionTimeout > 0 {
+		opts = append(opts, kgo.SessionTimeout(settings.SessionTimeout))
+	}
+	if settings.RebalanceTimeout > 0 {
+		opts = append(opts, kgo.RebalanceTimeout(settings.RebalanceTimeout))
+	}
+	if settings.FetchMaxBytes > 0 {
+		opts = append(opts, kgo.FetchMaxBytes(settings.FetchMaxBytes))
+	}
+	if settings.AutoCommitInterval > 0 {
+		opts = append(opts, kgo.AutoCommitInterval(settings.AutoCommitInterval))
+	} else if settings.Name != "" {
+		opts = append(opts, kgo.DisableAutoCommit())
+	}
+	opts = append(opts, kgo.MetadataMinAge(time.Second))
+	return opts
 }
 
 func (r *registry) RegisterLocalCache(code string, limit int) {

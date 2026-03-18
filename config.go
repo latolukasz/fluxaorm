@@ -48,22 +48,26 @@ type ConfigClickhouse struct {
 	IgnoredTables      []string `yaml:"ignoredTables"`
 }
 
-type ConfigKafka struct {
-	Code                 string   `yaml:"code" validate:"required"`
-	Brokers              []string `yaml:"brokers" validate:"required"`
-	ClientID             string   `yaml:"clientID"`
-	ConsumerGroup        string   `yaml:"consumerGroup"`
-	ConsumeTopics        []string `yaml:"consumeTopics"`
-	RequiredAcks         int      `yaml:"requiredAcks"`
-	ProducerLingerMs     int      `yaml:"producerLingerMs"`
-	MaxBufferedRecords   int      `yaml:"maxBufferedRecords"`
+type ConfigKafkaConsumerGroup struct {
+	Name                 string   `yaml:"name" validate:"required"`
+	Topics               []string `yaml:"topics" validate:"required"`
 	SessionTimeoutMs     int      `yaml:"sessionTimeoutMs"`
 	RebalanceTimeoutMs   int      `yaml:"rebalanceTimeoutMs"`
 	FetchMaxBytes        int      `yaml:"fetchMaxBytes"`
 	AutoCommitIntervalMs int      `yaml:"autoCommitIntervalMs"`
-	SASLMechanism        string   `yaml:"saslMechanism"`
-	SASLUser             string   `yaml:"saslUser"`
-	SASLPassword         string   `yaml:"saslPassword"`
+}
+
+type ConfigKafka struct {
+	Code               string                     `yaml:"code" validate:"required"`
+	Brokers            []string                   `yaml:"brokers" validate:"required"`
+	ClientID           string                     `yaml:"clientID"`
+	RequiredAcks       int                        `yaml:"requiredAcks"`
+	ProducerLingerMs   int                        `yaml:"producerLingerMs"`
+	MaxBufferedRecords int                        `yaml:"maxBufferedRecords"`
+	SASLMechanism      string                     `yaml:"saslMechanism"`
+	SASLUser           string                     `yaml:"saslUser"`
+	SASLPassword       string                     `yaml:"saslPassword"`
+	ConsumerGroups     []ConfigKafkaConsumerGroup `yaml:"consumerGroups"`
 }
 
 type Config struct {
@@ -124,27 +128,13 @@ func (r *registry) InitByConfig(config *Config) error {
 		r.RegisterClickhouse(pool.URI, pool.Code, options)
 	}
 	for _, pool := range config.KafkaPools {
-		options := &KafkaOptions{}
+		options := &KafkaPoolOptions{}
 		options.ClientID = pool.ClientID
-		options.ConsumerGroup = pool.ConsumerGroup
-		options.ConsumeTopics = pool.ConsumeTopics
 		options.RequiredAcks = pool.RequiredAcks
 		if pool.ProducerLingerMs > 0 {
 			options.ProducerLinger = time.Duration(pool.ProducerLingerMs) * time.Millisecond
 		}
 		options.MaxBufferedRecords = pool.MaxBufferedRecords
-		if pool.SessionTimeoutMs > 0 {
-			options.SessionTimeout = time.Duration(pool.SessionTimeoutMs) * time.Millisecond
-		}
-		if pool.RebalanceTimeoutMs > 0 {
-			options.RebalanceTimeout = time.Duration(pool.RebalanceTimeoutMs) * time.Millisecond
-		}
-		if pool.FetchMaxBytes > 0 {
-			options.FetchMaxBytes = int32(pool.FetchMaxBytes)
-		}
-		if pool.AutoCommitIntervalMs > 0 {
-			options.AutoCommitInterval = time.Duration(pool.AutoCommitIntervalMs) * time.Millisecond
-		}
 		if pool.SASLMechanism != "" {
 			options.SASL = &KafkaSASLConfig{
 				Mechanism: pool.SASLMechanism,
@@ -152,7 +142,27 @@ func (r *registry) InitByConfig(config *Config) error {
 				Password:  pool.SASLPassword,
 			}
 		}
-		r.RegisterKafka(pool.Brokers, pool.Code, options)
+		var consumerGroups []KafkaConsumerGroupSettings
+		for _, cg := range pool.ConsumerGroups {
+			settings := KafkaConsumerGroupSettings{
+				Name:   cg.Name,
+				Topics: cg.Topics,
+			}
+			if cg.SessionTimeoutMs > 0 {
+				settings.SessionTimeout = time.Duration(cg.SessionTimeoutMs) * time.Millisecond
+			}
+			if cg.RebalanceTimeoutMs > 0 {
+				settings.RebalanceTimeout = time.Duration(cg.RebalanceTimeoutMs) * time.Millisecond
+			}
+			if cg.FetchMaxBytes > 0 {
+				settings.FetchMaxBytes = int32(cg.FetchMaxBytes)
+			}
+			if cg.AutoCommitIntervalMs > 0 {
+				settings.AutoCommitInterval = time.Duration(cg.AutoCommitIntervalMs) * time.Millisecond
+			}
+			consumerGroups = append(consumerGroups, settings)
+		}
+		r.RegisterKafka(pool.Brokers, pool.Code, options, consumerGroups...)
 	}
 	return nil
 }

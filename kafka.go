@@ -1,54 +1,28 @@
 package fluxaorm
 
 import (
+	"context"
 	"fmt"
 	"time"
 
 	"github.com/twmb/franz-go/pkg/kgo"
 )
 
-type KafkaConfig interface {
-	GetCode() string
-	GetBrokers() []string
-	GetOptions() *KafkaOptions
-	getClient() *kgo.Client
-}
-
-type kafkaConfig struct {
-	code    string
-	brokers []string
-	client  *kgo.Client
-	options *KafkaOptions
-}
-
-func (p *kafkaConfig) GetCode() string {
-	return p.code
-}
-
-func (p *kafkaConfig) GetBrokers() []string {
-	return p.brokers
-}
-
-func (p *kafkaConfig) getClient() *kgo.Client {
-	return p.client
-}
-
-func (p *kafkaConfig) GetOptions() *KafkaOptions {
-	return p.options
-}
-
-type KafkaOptions struct {
+type KafkaPoolOptions struct {
 	ClientID           string
-	ConsumerGroup      string
-	ConsumeTopics      []string
-	RequiredAcks       int // 0=none, 1=leader, -1=all (default: -1)
+	RequiredAcks       int // 0=none, 1=leader, -1=all
 	ProducerLinger     time.Duration
 	MaxBufferedRecords int
+	SASL               *KafkaSASLConfig
+}
+
+type KafkaConsumerGroupSettings struct {
+	Name               string
+	Topics             []string
 	SessionTimeout     time.Duration
 	RebalanceTimeout   time.Duration
 	FetchMaxBytes      int32
 	AutoCommitInterval time.Duration // 0 = manual commit only
-	SASL               *KafkaSASLConfig
 }
 
 type KafkaSASLConfig struct {
@@ -98,36 +72,119 @@ func (f KafkaFetches) IsEmpty() bool {
 	return len(f.fetches) == 0
 }
 
+// Pool-level interface
 type Kafka interface {
-	GetConfig() KafkaConfig
-	GetKgoClient() *kgo.Client
+	GetCode() string
+	GetBrokers() []string
+	GetPoolOptions() *KafkaPoolOptions
 	ProduceSync(ctx Context, records ...*KafkaRecord) error
 	Produce(ctx Context, record *KafkaRecord, callback func(*KafkaRecord, error))
+	ConsumerGroup(name string) (KafkaConsumerGroup, error)
+	MustConsumerGroup(name string) KafkaConsumerGroup
+	ConsumerGroupNames() []string
+	Close()
+}
+
+// Consumer group interface
+type KafkaConsumerGroup interface {
+	GetName() string
+	GetSettings() *KafkaConsumerGroupSettings
+	GetKgoClient() *kgo.Client
 	PollFetches(ctx Context) KafkaFetches
 	CommitUncommittedOffsets(ctx Context) error
 	Close()
 }
 
-type kafkaImplementation struct {
-	config KafkaConfig
+// Internal config structs
+
+type kafkaPoolConfig struct {
+	code           string
+	brokers        []string
+	options        *KafkaPoolOptions
+	consumerGroups map[string]*KafkaConsumerGroupSettings
 }
 
-func (k *kafkaImplementation) GetConfig() KafkaConfig {
-	return k.config
+// Internal implementation structs
+
+type kafkaPoolImplementation struct {
+	config         *kafkaPoolConfig
+	producerClient *kgo.Client
+	producerCancel context.CancelFunc
 }
 
-func (k *kafkaImplementation) GetKgoClient() *kgo.Client {
-	return k.config.getClient()
+type kafkaConsumerGroupImplementation struct {
+	poolCode  string
+	settings  *KafkaConsumerGroupSettings
+	client    *kgo.Client
+	ctxCancel context.CancelFunc
+	pool      *kafkaPoolImplementation
 }
 
-func (k *kafkaImplementation) ProduceSync(ctx Context, records ...*KafkaRecord) error {
+// kafkaPoolImplementation implements Kafka
+
+func (k *kafkaPoolImplementation) GetCode() string {
+	return k.config.code
+}
+
+func (k *kafkaPoolImplementation) GetBrokers() []string {
+	return k.config.brokers
+}
+
+func (k *kafkaPoolImplementation) GetPoolOptions() *KafkaPoolOptions {
+	return k.config.options
+}
+
+func (k *kafkaPoolImplementation) ConsumerGroup(name string) (KafkaConsumerGroup, error) {
+	settings, ok := k.config.consumerGroups[name]
+	if !ok {
+		return nil, fmt.Errorf("kafka pool '%s': consumer group '%s' not registered", k.config.code, name)
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	opts := buildConsumerKgoOpts(k.config, settings)
+	opts = append(opts, kgo.WithContext(ctx))
+	client, err := kgo.NewClient(opts...)
+	if err != nil {
+		cancel()
+		return nil, fmt.Errorf("kafka pool '%s' consumer group '%s': %w", k.config.code, name, err)
+	}
+	if err := client.Ping(context.Background()); err != nil {
+		client.Close()
+		cancel()
+		return nil, fmt.Errorf("kafka pool '%s' consumer group '%s': failed to connect: %w", k.config.code, name, err)
+	}
+	return &kafkaConsumerGroupImplementation{
+		poolCode:  k.config.code,
+		settings:  settings,
+		client:    client,
+		ctxCancel: cancel,
+		pool:      k,
+	}, nil
+}
+
+func (k *kafkaPoolImplementation) MustConsumerGroup(name string) KafkaConsumerGroup {
+	cg, err := k.ConsumerGroup(name)
+	if err != nil {
+		panic(err)
+	}
+	return cg
+}
+
+func (k *kafkaPoolImplementation) ConsumerGroupNames() []string {
+	names := make([]string, 0, len(k.config.consumerGroups))
+	for name := range k.config.consumerGroups {
+		names = append(names, name)
+	}
+	return names
+}
+
+func (k *kafkaPoolImplementation) ProduceSync(ctx Context, records ...*KafkaRecord) error {
 	hasLogger, _ := ctx.getKafkaLoggers()
 	start := time.Now()
 	kgoRecords := make([]*kgo.Record, len(records))
 	for i, r := range records {
 		kgoRecords[i] = toKgoRecord(r)
 	}
-	results := k.config.getClient().ProduceSync(ctx.Context(), kgoRecords...)
+	results := k.producerClient.ProduceSync(ctx.Context(), kgoRecords...)
 	var err error
 	for _, r := range results {
 		if r.Err != nil {
@@ -147,10 +204,10 @@ func (k *kafkaImplementation) ProduceSync(ctx Context, records ...*KafkaRecord) 
 	return err
 }
 
-func (k *kafkaImplementation) Produce(ctx Context, record *KafkaRecord, callback func(*KafkaRecord, error)) {
+func (k *kafkaPoolImplementation) Produce(ctx Context, record *KafkaRecord, callback func(*KafkaRecord, error)) {
 	hasLogger, _ := ctx.getKafkaLoggers()
 	start := time.Now()
-	k.config.getClient().Produce(ctx.Context(), toKgoRecord(record), func(r *kgo.Record, err error) {
+	k.producerClient.Produce(ctx.Context(), toKgoRecord(record), func(r *kgo.Record, err error) {
 		duration := time.Since(start)
 		if hasLogger {
 			message := fmt.Sprintf("topic: %s", record.Topic)
@@ -163,10 +220,44 @@ func (k *kafkaImplementation) Produce(ctx Context, record *KafkaRecord, callback
 	})
 }
 
-func (k *kafkaImplementation) PollFetches(ctx Context) KafkaFetches {
+func (k *kafkaPoolImplementation) fillMetrics(ctx Context, duration time.Duration, operation string, err error) {
+	metrics, hasMetrics := ctx.Engine().Registry().getMetricsRegistry()
+	if hasMetrics {
+		metrics.queriesKafka.WithLabelValues(operation, k.config.code, ctx.getMetricsSourceTag(), "").Observe(duration.Seconds())
+		if err != nil {
+			metrics.queriesKafkaErrors.WithLabelValues(k.config.code, ctx.getMetricsSourceTag(), "").Inc()
+		}
+	}
+}
+
+func (k *kafkaPoolImplementation) fillLogFields(ctx Context, operation, message string, duration time.Duration, err error) {
+	_, loggers := ctx.getKafkaLoggers()
+	fillLogFields(ctx, loggers, k.config.code, sourceKafka, operation, message, &duration, false, err)
+}
+
+func (k *kafkaPoolImplementation) Close() {
+	k.producerCancel()
+	k.producerClient.Close()
+}
+
+// kafkaConsumerGroupImplementation implements KafkaConsumerGroup
+
+func (k *kafkaConsumerGroupImplementation) GetName() string {
+	return k.settings.Name
+}
+
+func (k *kafkaConsumerGroupImplementation) GetSettings() *KafkaConsumerGroupSettings {
+	return k.settings
+}
+
+func (k *kafkaConsumerGroupImplementation) GetKgoClient() *kgo.Client {
+	return k.client
+}
+
+func (k *kafkaConsumerGroupImplementation) PollFetches(ctx Context) KafkaFetches {
 	hasLogger, _ := ctx.getKafkaLoggers()
 	start := time.Now()
-	fetches := k.config.getClient().PollFetches(ctx.Context())
+	fetches := k.client.PollFetches(ctx.Context())
 	duration := time.Since(start)
 	var firstErr error
 	fetches.EachError(func(_ string, _ int32, err error) {
@@ -186,10 +277,10 @@ func (k *kafkaImplementation) PollFetches(ctx Context) KafkaFetches {
 	return KafkaFetches{fetches: fetches}
 }
 
-func (k *kafkaImplementation) CommitUncommittedOffsets(ctx Context) error {
+func (k *kafkaConsumerGroupImplementation) CommitUncommittedOffsets(ctx Context) error {
 	hasLogger, _ := ctx.getKafkaLoggers()
 	start := time.Now()
-	err := k.config.getClient().CommitUncommittedOffsets(ctx.Context())
+	err := k.client.CommitUncommittedOffsets(ctx.Context())
 	duration := time.Since(start)
 	if hasLogger {
 		k.fillLogFields(ctx, "COMMIT", "commit uncommitted offsets", duration, err)
@@ -198,23 +289,25 @@ func (k *kafkaImplementation) CommitUncommittedOffsets(ctx Context) error {
 	return err
 }
 
-func (k *kafkaImplementation) Close() {
-	k.config.getClient().Close()
+func (k *kafkaConsumerGroupImplementation) Close() {
+	k.ctxCancel()
+	k.client.Close()
 }
 
-func (k *kafkaImplementation) fillMetrics(ctx Context, duration time.Duration, operation string, err error) {
+func (k *kafkaConsumerGroupImplementation) fillMetrics(ctx Context, duration time.Duration, operation string, err error) {
 	metrics, hasMetrics := ctx.Engine().Registry().getMetricsRegistry()
 	if hasMetrics {
-		metrics.queriesKafka.WithLabelValues(operation, k.GetConfig().GetCode(), ctx.getMetricsSourceTag()).Observe(duration.Seconds())
+		metrics.queriesKafka.WithLabelValues(operation, k.poolCode, ctx.getMetricsSourceTag(), k.settings.Name).Observe(duration.Seconds())
 		if err != nil {
-			metrics.queriesKafkaErrors.WithLabelValues(k.GetConfig().GetCode(), ctx.getMetricsSourceTag()).Inc()
+			metrics.queriesKafkaErrors.WithLabelValues(k.poolCode, ctx.getMetricsSourceTag(), k.settings.Name).Inc()
 		}
 	}
 }
 
-func (k *kafkaImplementation) fillLogFields(ctx Context, operation, message string, duration time.Duration, err error) {
+func (k *kafkaConsumerGroupImplementation) fillLogFields(ctx Context, operation, message string, duration time.Duration, err error) {
 	_, loggers := ctx.getKafkaLoggers()
-	fillLogFields(ctx, loggers, k.GetConfig().GetCode(), sourceKafka, operation, message, &duration, false, err)
+	poolLabel := k.poolCode + "/" + k.settings.Name
+	fillLogFields(ctx, loggers, poolLabel, sourceKafka, operation, message, &duration, false, err)
 }
 
 func toKgoRecord(r *KafkaRecord) *kgo.Record {
