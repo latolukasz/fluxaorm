@@ -680,7 +680,7 @@ func (g *codeGenerator) generateEntityStruct(schema *entitySchema, names *entity
 		insertQueryLine += ",`" + columnName + "`"
 	}
 	insertQueryLine += fmt.Sprintf(") VALUES (?%s)\"\n", strings.Repeat(",?", len(schema.columnNames)-1))
-	insertQueryLine += fmt.Sprintf("\t\te.ctx.DatabasePipeLine(%s.dbCode).AddQuery(sqlQuery, e.originDatabaseValues.F0", names.providerName)
+	insertQueryLine += fmt.Sprintf("\t\te.ctx.DatabasePipeLine(%s.dbCode).AddQueryForTable(%s.tableName, sqlQuery, e.originDatabaseValues.F0", names.providerName, names.providerName)
 	for i := 1; i < len(schema.columnNames); i++ {
 		insertQueryLine += fmt.Sprintf(", e.originDatabaseValues.F%d", i)
 	}
@@ -755,7 +755,7 @@ func (g *codeGenerator) generateEntityStruct(schema *entitySchema, names *entity
 	// DELETE block
 	g.addLine("\tif e.deleted {")
 	g.addLine(fmt.Sprintf("\t\tsqlQuery := \"DELETE FROM `%s` WHERE `ID` = ?\"", schema.tableName))
-	g.addLine(fmt.Sprintf("\t\te.ctx.DatabasePipeLine(%s.dbCode).AddQuery(sqlQuery, e.GetID())", names.providerName))
+	g.addLine(fmt.Sprintf("\t\te.ctx.DatabasePipeLine(%s.dbCode).AddQueryForTable(%s.tableName, sqlQuery, e.GetID())", names.providerName, names.providerName))
 	if schema.hasRedisCache {
 		g.addLine(fmt.Sprintf("\t\te.ctx.RedisPipeLine(%s.redisCode).Del(%s.redisCachePrefix + strconv.FormatUint(e.GetID(), 10))", names.providerName, names.providerName))
 	}
@@ -862,7 +862,7 @@ func (g *codeGenerator) generateEntityStruct(schema *entitySchema, names *entity
 	g.addLine("\t\t}")
 	g.addImport("strconv")
 	g.addLine("\t\tsqlQuery += \" WHERE `ID`=\" + strconv.FormatUint(e.id, 10)")
-	g.addLine(fmt.Sprintf("\t\te.ctx.DatabasePipeLine(%s.dbCode).AddQuery(sqlQuery, updateParams...)", names.providerName))
+	g.addLine(fmt.Sprintf("\t\te.ctx.DatabasePipeLine(%s.dbCode).AddQueryForTable(%s.tableName, sqlQuery, updateParams...)", names.providerName, names.providerName))
 	if schema.hasRedisCache {
 		g.addLine(fmt.Sprintf("\t\tredisPipeLine := e.ctx.RedisPipeLine(%s.redisCode)", names.providerName))
 		g.addLine(fmt.Sprintf("\t\tredisKey := %s.redisCachePrefix + strconv.FormatUint(e.GetID(), 10)", names.providerName))

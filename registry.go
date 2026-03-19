@@ -40,8 +40,7 @@ type Registry interface {
 	RegisterKafka(brokers []string, poolCode string, options *KafkaPoolOptions)
 	RegisterKafkaTopic(topic *KafkaTopicBuilder)
 	RegisterKafkaConsumerGroup(consumerGroup *KafkaConsumerGroupBuilder)
-	RegisterRedisStream(name string, redisPool string)
-	RegisterAsyncSQLStream(redisPool string)
+	RegisterAsyncFlush(kafkaPool string, options *AsyncFlushOptions)
 	EnableMetrics(factory promauto.Factory)
 }
 
@@ -56,8 +55,8 @@ type registry struct {
 	kafkaConsumerGroups []*KafkaConsumerGroupBuilder
 	entities            map[string]reflect.Type
 	options             map[string]any
-	redisStreamGroups   map[string]map[string]string
-	redisStreamPools    map[string]string
+	asyncFlushKafkaPool string
+	asyncFlushOptions   *AsyncFlushOptions
 	metricsFactory      *promauto.Factory
 }
 
@@ -373,20 +372,6 @@ func (r *registry) Validate() (Engine, error) {
 		e.registry.entitySchemasByIndex[schema.index] = schema
 	}
 
-	// Auto-register dirty streams
-	for _, schema := range e.registry.entitySchemas {
-		if schema.hasDirtyStreams {
-			for _, ds := range schema.dirtyStreams {
-				if existingPool, already := r.redisStreamPools[ds.streamName]; already {
-					if existingPool != ds.redisPoolCode {
-						return nil, fmt.Errorf("dirty stream '%s' uses conflicting Redis pools: '%s' vs '%s'", ds.streamName, existingPool, ds.redisPoolCode)
-					}
-					continue
-				}
-				r.RegisterRedisStream(ds.streamName, ds.redisPoolCode)
-			}
-		}
-	}
 	e.registry.defaultQueryLogger = &defaultLogLogger{maxPoolLen: maxPoolLen, logger: log.New(os.Stderr, "", 0)}
 	for _, schema := range e.registry.entitySchemas {
 		_, err := checkStruct(e, schema, schema.t, make(map[string]*IndexSchemaDefinition), nil, "", -1)
@@ -398,36 +383,56 @@ func (r *registry) Validate() (Engine, error) {
 	for key, value := range r.options {
 		e.registry.options[key] = value
 	}
-	// Auto-register async SQL streams on the default Redis pool if not already configured.
-	if _, hasAsyncSQL := r.redisStreamPools[AsyncSQLStreamName]; !hasAsyncSQL {
-		if _, hasDefault := r.redisPools[DefaultPoolCode]; hasDefault {
-			r.RegisterRedisStream(AsyncSQLStreamName, DefaultPoolCode)
-			r.RegisterRedisStream(AsyncSQLDeadLetterStreamName, DefaultPoolCode)
+	// Auto-register async flush Kafka topics and consumer group
+	if r.asyncFlushKafkaPool != "" {
+		if _, exists := r.kafkaPools[r.asyncFlushKafkaPool]; !exists {
+			return nil, fmt.Errorf("kafka pool '%s' not registered for async flush", r.asyncFlushKafkaPool)
 		}
+		partitions := int32(1)
+		if r.asyncFlushOptions != nil && r.asyncFlushOptions.TopicPartitions > 0 {
+			partitions = r.asyncFlushOptions.TopicPartitions
+		}
+		// Auto-register topics if not already registered
+		hasAsyncTopic := false
+		hasDeadLetterTopic := false
+		for _, topic := range r.kafkaTopics {
+			if topic.poolCode == r.asyncFlushKafkaPool {
+				if topic.topicName == AsyncSQLTopicName {
+					hasAsyncTopic = true
+				}
+				if topic.topicName == AsyncSQLDeadLetterTopicName {
+					hasDeadLetterTopic = true
+				}
+			}
+		}
+		if !hasAsyncTopic {
+			r.RegisterKafkaTopic(NewKafkaTopic(AsyncSQLTopicName, r.asyncFlushKafkaPool).Partitions(partitions))
+		}
+		if !hasDeadLetterTopic {
+			r.RegisterKafkaTopic(NewKafkaTopic(AsyncSQLDeadLetterTopicName, r.asyncFlushKafkaPool).Partitions(1))
+		}
+		// Auto-register consumer group if not already registered
+		hasCG := false
+		for _, cg := range r.kafkaConsumerGroups {
+			if cg.poolCode == r.asyncFlushKafkaPool && cg.name == AsyncSQLTopicName {
+				hasCG = true
+				break
+			}
+		}
+		if !hasCG {
+			r.RegisterKafkaConsumerGroup(NewKafkaConsumerGroup(AsyncSQLTopicName, r.asyncFlushKafkaPool).Topics(AsyncSQLTopicName))
+		}
+		e.registry.asyncFlushKafkaPool = r.asyncFlushKafkaPool
 	}
-	e.registry.redisStreamGroups = r.redisStreamGroups
-	e.registry.redisStreamPools = r.redisStreamPools
 	if e.registry.hasMetrics {
 		e.registry.metricsRegistry = initMetricsRegistry(*r.metricsFactory)
 	}
 	return e, nil
 }
 
-func (r *registry) RegisterRedisStream(name string, redisPool string) {
-	if r.redisStreamGroups == nil {
-		r.redisStreamGroups = make(map[string]map[string]string)
-		r.redisStreamPools = make(map[string]string)
-	}
-	r.redisStreamPools[name] = redisPool
-	if r.redisStreamGroups[redisPool] == nil {
-		r.redisStreamGroups[redisPool] = make(map[string]string)
-	}
-	r.redisStreamGroups[redisPool][name] = consumerGroupName
-}
-
-func (r *registry) RegisterAsyncSQLStream(redisPool string) {
-	r.RegisterRedisStream(AsyncSQLStreamName, redisPool)
-	r.RegisterRedisStream(AsyncSQLDeadLetterStreamName, redisPool)
+func (r *registry) RegisterAsyncFlush(kafkaPool string, options *AsyncFlushOptions) {
+	r.asyncFlushKafkaPool = kafkaPool
+	r.asyncFlushOptions = options
 }
 
 func (r *registry) EnableMetrics(factory promauto.Factory) {

@@ -121,7 +121,8 @@ func TestAfterDeleteCallbackFakeDelete(t *testing.T) {
 }
 
 func TestAfterFlushCallbacksNotFiredForFlushAsync(t *testing.T) {
-	ctx := fluxaorm.PrepareTables(t, fluxaorm.NewRegistry(), generateEntityWithTimestampsRedis{})
+	ctx := fluxaorm.PrepareTablesWithKafka(t, fluxaorm.NewRegistry(), generateEntityWithTimestampsRedis{})
+	defer ctx.Engine().Kafka("kafka").Close()
 
 	var insertCalled bool
 	entities.GenerateEntityWithTimestampsRedisProvider.OnAfterInsert(ctx.Engine(), func(c fluxaorm.Context, entity *entities.GenerateEntityWithTimestampsRedis) error {
@@ -233,7 +234,8 @@ func TestAfterCallbackErrorPropagation(t *testing.T) {
 }
 
 func TestAfterInsertCallbackFiredByAsyncConsumer(t *testing.T) {
-	ctx := fluxaorm.PrepareTables(t, fluxaorm.NewRegistry(), generateEntityWithTimestampsRedis{})
+	ctx := fluxaorm.PrepareTablesWithKafka(t, fluxaorm.NewRegistry(), generateEntityWithTimestampsRedis{})
+	defer ctx.Engine().Kafka("kafka").Close()
 
 	var callbackEntity *entities.GenerateEntityWithTimestampsRedis
 	var insertCalled bool
@@ -253,7 +255,8 @@ func TestAfterInsertCallbackFiredByAsyncConsumer(t *testing.T) {
 	// Consume the async SQL event
 	consumer, err := ctx.GetAsyncSQLConsumer()
 	assert.NoError(t, err)
-	assert.NoError(t, consumer.Consume(10, time.Millisecond))
+	defer consumer.Close()
+	assert.NoError(t, consumer.Consume(10, 5*time.Second))
 
 	// Hook should have fired in the consumer
 	assert.True(t, insertCalled)
@@ -264,7 +267,8 @@ func TestAfterInsertCallbackFiredByAsyncConsumer(t *testing.T) {
 }
 
 func TestAfterUpdateCallbackFiredByAsyncConsumer(t *testing.T) {
-	ctx := fluxaorm.PrepareTables(t, fluxaorm.NewRegistry(), generateEntityWithTimestampsRedis{})
+	ctx := fluxaorm.PrepareTablesWithKafka(t, fluxaorm.NewRegistry(), generateEntityWithTimestampsRedis{})
+	defer ctx.Engine().Kafka("kafka").Close()
 
 	var callbackChanges map[string]any
 	var callbackName string
@@ -291,7 +295,8 @@ func TestAfterUpdateCallbackFiredByAsyncConsumer(t *testing.T) {
 	// Consume the async SQL event
 	consumer, err := ctx.GetAsyncSQLConsumer()
 	assert.NoError(t, err)
-	assert.NoError(t, consumer.Consume(10, time.Millisecond))
+	defer consumer.Close()
+	assert.NoError(t, consumer.Consume(10, 5*time.Second))
 
 	assert.True(t, updateCalled)
 	// Entity loaded from DB should have the NEW value
@@ -306,7 +311,8 @@ func TestAfterUpdateCallbackFiredByAsyncConsumer(t *testing.T) {
 }
 
 func TestAfterDeleteCallbackFiredByAsyncConsumer(t *testing.T) {
-	ctx := fluxaorm.PrepareTables(t, fluxaorm.NewRegistry(), generateEntityWithTimestampsRedis{})
+	ctx := fluxaorm.PrepareTablesWithKafka(t, fluxaorm.NewRegistry(), generateEntityWithTimestampsRedis{})
+	defer ctx.Engine().Kafka("kafka").Close()
 
 	var callbackEntity *entities.GenerateEntityWithTimestampsRedis
 	var deleteCalled bool
@@ -331,7 +337,8 @@ func TestAfterDeleteCallbackFiredByAsyncConsumer(t *testing.T) {
 	// Consume the async SQL event
 	consumer, err := ctx.GetAsyncSQLConsumer()
 	assert.NoError(t, err)
-	assert.NoError(t, consumer.Consume(10, time.Millisecond))
+	defer consumer.Close()
+	assert.NoError(t, consumer.Consume(10, 5*time.Second))
 
 	assert.True(t, deleteCalled)
 	assert.NotNil(t, callbackEntity)
@@ -339,7 +346,8 @@ func TestAfterDeleteCallbackFiredByAsyncConsumer(t *testing.T) {
 }
 
 func TestAfterDeleteCallbackFiredByAsyncConsumerFakeDelete(t *testing.T) {
-	ctx := fluxaorm.PrepareTables(t, fluxaorm.NewRegistry(), generateReferenceEntity{})
+	ctx := fluxaorm.PrepareTablesWithKafka(t, fluxaorm.NewRegistry(), generateReferenceEntity{})
+	defer ctx.Engine().Kafka("kafka").Close()
 
 	var callbackEntity *entities.GenerateReferenceEntity
 	var deleteCalled bool
@@ -368,7 +376,8 @@ func TestAfterDeleteCallbackFiredByAsyncConsumerFakeDelete(t *testing.T) {
 	// Consume the async SQL event
 	consumer, err := ctx.GetAsyncSQLConsumer()
 	assert.NoError(t, err)
-	assert.NoError(t, consumer.Consume(10, time.Millisecond))
+	defer consumer.Close()
+	assert.NoError(t, consumer.Consume(10, 5*time.Second))
 
 	// AfterDelete should fire, not AfterUpdate
 	assert.True(t, deleteCalled)
@@ -378,7 +387,8 @@ func TestAfterDeleteCallbackFiredByAsyncConsumerFakeDelete(t *testing.T) {
 }
 
 func TestAfterCallbackErrorInAsyncConsumer(t *testing.T) {
-	ctx := fluxaorm.PrepareTables(t, fluxaorm.NewRegistry(), generateEntityWithTimestampsRedis{})
+	ctx := fluxaorm.PrepareTablesWithKafka(t, fluxaorm.NewRegistry(), generateEntityWithTimestampsRedis{})
+	defer ctx.Engine().Kafka("kafka").Close()
 
 	expectedErr := fmt.Errorf("async callback error")
 	entities.GenerateEntityWithTimestampsRedisProvider.OnAfterInsert(ctx.Engine(), func(c fluxaorm.Context, entity *entities.GenerateEntityWithTimestampsRedis) error {
@@ -392,13 +402,9 @@ func TestAfterCallbackErrorInAsyncConsumer(t *testing.T) {
 	// Consume — hook error should be returned
 	consumer, err := ctx.GetAsyncSQLConsumer()
 	assert.NoError(t, err)
-	err = consumer.Consume(10, time.Millisecond)
+	defer consumer.Close()
+	err = consumer.Consume(10, 5*time.Second)
 	assert.Equal(t, expectedErr, err)
-
-	// Event was ACK'd (SQL committed), stream should be empty
-	streamLen, err := ctx.Engine().Redis(fluxaorm.DefaultPoolCode).XLen(ctx, fluxaorm.AsyncSQLStreamName)
-	assert.NoError(t, err)
-	assert.Equal(t, int64(0), streamLen)
 
 	// Entity should be in MySQL (SQL committed before hook ran)
 	freshCtx := ctx.Engine().NewContext(context.Background())

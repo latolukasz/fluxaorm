@@ -16,12 +16,11 @@ type ConfigMysql struct {
 }
 
 type ConfigRedis struct {
-	Code     string   `yaml:"code" validate:"required"`
-	URI      string   `yaml:"uri" validate:"required"`
-	Database int      `yaml:"database"`
-	User     string   `yaml:"user"`
-	Password string   `yaml:"password"`
-	Streams  []string `yaml:"streams"`
+	Code     string `yaml:"code" validate:"required"`
+	URI      string `yaml:"uri" validate:"required"`
+	Database int    `yaml:"database"`
+	User     string `yaml:"user"`
+	Password string `yaml:"password"`
 }
 
 type ConfigRedisSentinel struct {
@@ -31,7 +30,6 @@ type ConfigRedisSentinel struct {
 	Sentinels  []string `yaml:"sentinels"`
 	User       string   `yaml:"user"`
 	Password   string   `yaml:"password"`
-	Streams    []string `yaml:"streams"`
 }
 
 type ConfigLocalCache struct {
@@ -80,6 +78,11 @@ type ConfigKafka struct {
 	Topics                []ConfigKafkaTopic         `yaml:"topics"`
 }
 
+type ConfigAsyncFlush struct {
+	KafkaPool       string `yaml:"kafkaPool" validate:"required"`
+	TopicPartitions int32  `yaml:"topicPartitions"`
+}
+
 type Config struct {
 	MySQlPools         []ConfigMysql         `yaml:"mysqlPools"`
 	RedisPools         []ConfigRedis         `yaml:"redisPools"`
@@ -87,6 +90,7 @@ type Config struct {
 	LocalCachePools    []ConfigLocalCache    `yaml:"localCachePools"`
 	ClickhousePools    []ConfigClickhouse    `yaml:"clickhousePools"`
 	KafkaPools         []ConfigKafka         `yaml:"kafkaPools"`
+	AsyncFlush         *ConfigAsyncFlush     `yaml:"asyncFlush"`
 }
 
 func (r *registry) InitByConfig(config *Config) error {
@@ -109,9 +113,6 @@ func (r *registry) InitByConfig(config *Config) error {
 			options.Password = pool.Password
 		}
 		r.RegisterRedis(pool.URI, pool.Database, pool.Code, options)
-		for _, stream := range pool.Streams {
-			r.RegisterRedisStream(stream, pool.Code)
-		}
 	}
 	for _, pool := range config.RedisSentinelPools {
 		options := &RedisOptions{Master: pool.MasterName, Sentinels: pool.Sentinels}
@@ -122,9 +123,6 @@ func (r *registry) InitByConfig(config *Config) error {
 			options.Password = pool.Password
 		}
 		r.RegisterRedis("", pool.Database, pool.Code, options)
-		for _, stream := range pool.Streams {
-			r.RegisterRedisStream(stream, pool.Code)
-		}
 	}
 	for _, pool := range config.LocalCachePools {
 		r.RegisterLocalCache(pool.Code, pool.Limit)
@@ -184,6 +182,11 @@ func (r *registry) InitByConfig(config *Config) error {
 			}
 			r.RegisterKafkaTopic(builder)
 		}
+	}
+	if config.AsyncFlush != nil {
+		r.RegisterAsyncFlush(config.AsyncFlush.KafkaPool, &AsyncFlushOptions{
+			TopicPartitions: config.AsyncFlush.TopicPartitions,
+		})
 	}
 	return nil
 }

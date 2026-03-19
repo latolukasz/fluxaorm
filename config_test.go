@@ -13,9 +13,7 @@ func TestConfig(t *testing.T) {
 			{URI: "root:root@tcp(localhost:3397)/test", Code: "default"},
 		},
 		RedisPools: []ConfigRedis{
-			{URI: "localhost:6395", Code: "default", Database: 0, Streams: []string{
-				"test-stream", "test-group",
-			}},
+			{URI: "localhost:6395", Code: "default", Database: 0},
 			{URI: "localhost:6395", Code: "test", Database: 1},
 		},
 		LocalCachePools: []ConfigLocalCache{

@@ -41,7 +41,6 @@ type Context interface {
 	getKafkaLoggers() (bool, []LogHandler)
 	getRedisLoggers() (bool, []LogHandler)
 	Track(e Entity, cacheIndex uint64)
-	GetEventBroker() EventBroker
 	getMetricsSourceTag() string
 	GetFromContextCache(cacheIndex uint64, id uint64) Entity
 	SetInContextCache(cacheIndex uint64, id uint64, entity Entity)
@@ -71,7 +70,6 @@ type ormImplementation struct {
 	dbPipeLines              map[string]*DatabasePipeline
 	mutexFlush               sync.Mutex
 	mutexData                sync.Mutex
-	eventBroker              *eventBroker
 }
 
 func (orm *ormImplementation) Context() context.Context {

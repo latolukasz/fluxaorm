@@ -24,6 +24,12 @@ func PrepareTables(t *testing.T, registry Registry, entities ...any) (orm Contex
 	return prepareTables(t, registry, &MySQLOptions{}, entities...)
 }
 
+func PrepareTablesWithKafka(t *testing.T, registry Registry, entities ...any) (orm Context) {
+	registry.RegisterKafka([]string{"localhost:9944"}, "kafka", nil)
+	registry.RegisterAsyncFlush("kafka", nil)
+	return prepareTables(t, registry, &MySQLOptions{}, entities...)
+}
+
 func prepareTables(t *testing.T, registry Registry, mysqlOptions *MySQLOptions, entities ...any) (orm Context) {
 	registry.RegisterMySQL("root:root@tcp(localhost:3397)/test", DefaultPoolCode, mysqlOptions)
 	registry.RegisterRedis("localhost:6395", 0, DefaultPoolCode, nil)

@@ -32,7 +32,6 @@ type Engine interface {
 	Redis(code string) RedisCache
 	Registry() EngineRegistry
 	Option(key string) any
-	GetRedisStreams() map[string]map[string]string
 }
 
 type engineRegistryImplementation struct {
@@ -42,8 +41,7 @@ type engineRegistryImplementation struct {
 	defaultQueryLogger         *defaultLogLogger
 	dbTables                   map[string]map[string]bool
 	options                    map[string]any
-	redisStreamGroups          map[string]map[string]string
-	redisStreamPools           map[string]string
+	asyncFlushKafkaPool        string
 	clickhouseTables           []*ClickhouseTableBuilder
 	clickhouseIgnoredTables    map[string]map[string]bool
 	kafkaTopics                []*KafkaTopicBuilder
@@ -107,17 +105,6 @@ func (e *engineImplementation) LocalCache(code string) LocalCache {
 
 func (e *engineImplementation) Redis(code string) RedisCache {
 	return e.redisServers[code]
-}
-
-func (e *engineImplementation) GetRedisStreams() map[string]map[string]string {
-	res := make(map[string]map[string]string)
-	for redisPool, row := range e.registry.redisStreamGroups {
-		res[redisPool] = make(map[string]string)
-		for stream, group := range row {
-			res[redisPool][stream] = group
-		}
-	}
-	return res
 }
 
 func (er *engineRegistryImplementation) ClickhousePools() map[string]Clickhouse {

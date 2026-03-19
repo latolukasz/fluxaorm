@@ -1,6 +1,7 @@
 package fluxaorm
 
 import (
+	"context"
 	"database/sql"
 	"errors"
 	"fmt"
@@ -9,11 +10,12 @@ import (
 
 	"github.com/go-sql-driver/mysql"
 	"github.com/puzpuzpuz/xsync/v2"
+	"github.com/shamaton/msgpack"
 )
 
 const (
-	AsyncSQLStreamName           = "_fluxa_async_sql"
-	AsyncSQLDeadLetterStreamName = "_fluxa_async_sql_failed"
+	AsyncSQLTopicName           = "_fluxa_async_sql"
+	AsyncSQLDeadLetterTopicName = "_fluxa_async_sql_failed"
 )
 
 // AsyncSQLParam is a typed parameter envelope for serializing SQL params.
@@ -49,25 +51,15 @@ type AsyncRedisOp struct {
 	Args []string `msgpack:"a,omitempty"`
 }
 
-// AsyncDirtyStreamEvent holds a dirty stream event for deferred publishing.
-type AsyncDirtyStreamEvent struct {
-	Stream     string                      `msgpack:"s"`
-	EntityType string                      `msgpack:"et"`
-	EntityID   uint64                      `msgpack:"id"`
-	FlushType  uint8                       `msgpack:"ft"`
-	Changes    map[string]DirtyFieldChange `msgpack:"ch,omitempty"`
-}
-
-// AsyncSQLOperation holds one or more SQL queries for a single DB pool.
+// AsyncSQLOperation holds one or more SQL queries for a single DB pool and table.
 // Multiple queries are executed in a transaction.
-// This type is also used in the dead-letter stream so consumers can inspect
+// This type is also used in the dead-letter topic so consumers can inspect
 // and replay failed operations.
 type AsyncSQLOperation struct {
-	Pool              string                  `msgpack:"pool"`
-	Queries           []AsyncSQLQuery         `msgpack:"queries"`
-	Events            []AsyncEntityEvent      `msgpack:"events,omitempty"`
-	RedisOps          []AsyncRedisOp          `msgpack:"redis,omitempty"`
-	DirtyStreamEvents []AsyncDirtyStreamEvent `msgpack:"dirty,omitempty"`
+	Pool     string             `msgpack:"pool"`
+	Queries  []AsyncSQLQuery    `msgpack:"queries"`
+	Events   []AsyncEntityEvent `msgpack:"events,omitempty"`
+	RedisOps []AsyncRedisOp     `msgpack:"redis,omitempty"`
 }
 
 // convertParam converts a Go SQL parameter value to a typed AsyncSQLParam.
@@ -238,16 +230,16 @@ func deconvertChanges(m map[string]AsyncSQLParam) map[string]any {
 	return result
 }
 
-// AsyncSQLConsumer reads async SQL events from the stream and executes them against MySQL.
+// AsyncSQLConsumer reads async SQL events from Kafka and executes them against MySQL.
 type AsyncSQLConsumer interface {
 	Consume(count int, blockTime time.Duration) error
-	AutoClaim(count int, minIdle time.Duration) error
+	Close()
 }
 
 // FlushAsync is like Flush() but instead of executing SQL directly in MySQL,
-// it publishes the SQL queries to a Redis Stream. When immediateRedisUpdates
+// it publishes the SQL queries to a Kafka topic. When immediateRedisUpdates
 // is true, Redis cache and search indexes are updated immediately (optimistic
-// update). When false, Redis operations are serialized into the stream and
+// update). When false, Redis operations are serialized into the Kafka record and
 // executed by the consumer after SQL. Call GetAsyncSQLConsumer() to process
 // the queued SQL operations.
 func (orm *ormImplementation) FlushAsync(immediateRedisUpdates bool) error {
@@ -255,6 +247,15 @@ func (orm *ormImplementation) FlushAsync(immediateRedisUpdates bool) error {
 	defer orm.mutexFlush.Unlock()
 	if orm.trackedEntities == nil || orm.trackedEntities.Size() == 0 {
 		return nil
+	}
+
+	kafkaPoolCode := orm.engine.registry.asyncFlushKafkaPool
+	if kafkaPoolCode == "" {
+		return fmt.Errorf("async flush not configured: call RegisterAsyncFlush() during registry setup")
+	}
+	kafkaPool := orm.engine.Kafka(kafkaPoolCode)
+	if kafkaPool == nil {
+		return fmt.Errorf("kafka pool '%s' not found for async flush", kafkaPoolCode)
 	}
 
 	// Enable recording mode when deferring Redis updates
@@ -312,118 +313,79 @@ func (orm *ormImplementation) FlushAsync(immediateRedisUpdates bool) error {
 		})
 	}
 
-	// Step 2b: collect dirty stream events
-	var dirtyStreamEventsByPool map[string][]AsyncDirtyStreamEvent
-	for _, schema := range orm.engine.registry.entitySchemas {
-		if !schema.hasDirtyStreams {
-			continue
+	// Step 3: collect deferred Redis ops (if not immediate mode)
+	var allRedisOps []AsyncRedisOp
+	if !immediateRedisUpdates {
+		for _, redisPipeline := range orm.redisPipeLines {
+			allRedisOps = append(allRedisOps, redisPipeline.GetRecordedOps()...)
 		}
-		if orm.trackedEntities == nil {
-			break
-		}
-		entities, ok := orm.trackedEntities.Load(schema.index)
-		if !ok {
-			continue
-		}
-		entities.Range(func(_ uint64, e Entity) bool {
-			flushType, changes := e.PrivateFlushEvent()
-			if flushType == 0 {
-				return true
-			}
-			databaseBind := e.PrivateGetDatabaseBind()
-			pool, hasPool := orm.engine.entityDBPools[schema.index]
-			if !hasPool {
-				pool = schema.mysqlPoolCode
-			}
-			for _, ds := range schema.dirtyStreams {
-				publish := false
-				switch flushType {
-				case 1:
-					publish = ds.onInsert
-				case 2:
-					if ds.onUpdate {
-						publish = true
-					} else if len(ds.fieldTriggers) > 0 && changes != nil {
-						for _, ft := range ds.fieldTriggers {
-							if _, ok := changes[ft]; ok {
-								publish = true
-								break
-							}
-						}
-					}
-				case 3:
-					publish = ds.onDelete
-				}
-				if !publish {
-					continue
-				}
-				ev := AsyncDirtyStreamEvent{
-					Stream:     ds.streamName,
-					EntityType: schema.tableName,
-					EntityID:   e.GetID(),
-					FlushType:  flushType,
-				}
-				if flushType == 2 && changes != nil {
-					ev.Changes = make(map[string]DirtyFieldChange, len(changes))
-					for field, oldVal := range changes {
-						newVal := databaseBind[field]
-						ev.Changes[field] = DirtyFieldChange{
-							Old: convertChangeValue(oldVal),
-							New: convertChangeValue(newVal),
-						}
-					}
-				}
-				if dirtyStreamEventsByPool == nil {
-					dirtyStreamEventsByPool = make(map[string][]AsyncDirtyStreamEvent)
-				}
-				dirtyStreamEventsByPool[pool] = append(dirtyStreamEventsByPool[pool], ev)
-			}
-			return true
-		})
 	}
 
-	// Step 3: serialize each non-empty DatabasePipeline into AsyncSQLOperation events
-	broker := orm.GetEventBroker()
-	eventFlusher := broker.NewFlusher()
-	firstPool := true
+	// Step 4: group queries by (pool, tableName) and produce Kafka records
+	type tableGroup struct {
+		queryIndexes []int
+	}
+	var records []*KafkaRecord
+	firstRecord := true
 	for pool, dbPipeline := range orm.dbPipeLines {
 		if len(dbPipeline.queries) == 0 {
 			continue
 		}
-		queries := make([]AsyncSQLQuery, len(dbPipeline.queries))
-		for i, q := range dbPipeline.queries {
-			params := make([]AsyncSQLParam, len(dbPipeline.parameters[i]))
-			for j, p := range dbPipeline.parameters[i] {
-				params[j] = convertParam(p)
+		// Group queries by table name
+		groups := make(map[string]*tableGroup)
+		for i, table := range dbPipeline.tables {
+			if table == "" {
+				table = "_default"
 			}
-			queries[i] = AsyncSQLQuery{Q: q, P: params}
+			g, ok := groups[table]
+			if !ok {
+				g = &tableGroup{}
+				groups[table] = g
+			}
+			g.queryIndexes = append(g.queryIndexes, i)
 		}
-		op := AsyncSQLOperation{Pool: pool, Queries: queries, Events: entityEventsByPool[pool], DirtyStreamEvents: dirtyStreamEventsByPool[pool]}
-
-		// Attach deferred Redis ops to the first operation
-		if !immediateRedisUpdates && firstPool {
-			var allRedisOps []AsyncRedisOp
-			for _, redisPipeline := range orm.redisPipeLines {
-				allRedisOps = append(allRedisOps, redisPipeline.GetRecordedOps()...)
+		for table, group := range groups {
+			queries := make([]AsyncSQLQuery, len(group.queryIndexes))
+			for qi, idx := range group.queryIndexes {
+				q := dbPipeline.queries[idx]
+				params := make([]AsyncSQLParam, len(dbPipeline.parameters[idx]))
+				for j, p := range dbPipeline.parameters[idx] {
+					params[j] = convertParam(p)
+				}
+				queries[qi] = AsyncSQLQuery{Q: q, P: params}
 			}
-			if len(allRedisOps) > 0 {
+			op := AsyncSQLOperation{Pool: pool, Queries: queries, Events: entityEventsByPool[pool]}
+
+			// Attach deferred Redis ops to the first record
+			if firstRecord && len(allRedisOps) > 0 {
 				op.RedisOps = allRedisOps
+				allRedisOps = nil
+				firstRecord = false
 			}
-			firstPool = false
-		}
 
-		if err := eventFlusher.Publish(AsyncSQLStreamName, op); err != nil {
-			if !immediateRedisUpdates {
-				orm.redisRecordMode = false
+			value, err := msgpack.Marshal(op)
+			if err != nil {
+				if !immediateRedisUpdates {
+					orm.redisRecordMode = false
+				}
+				return err
 			}
-			return err
+			key := []byte(table)
+			if table == "_default" {
+				key = []byte(pool)
+			}
+			records = append(records, &KafkaRecord{
+				Topic: AsyncSQLTopicName,
+				Key:   key,
+				Value: value,
+			})
 		}
 	}
 
-	// Step 4: clear DB pipelines — queries will go to the stream, not MySQL directly
+	// Step 5: clear DB pipelines — queries will go to Kafka, not MySQL directly
 	orm.dbPipeLines = nil
 
-	// Step 5: execute Redis pipelines (only in immediate mode)
+	// Step 6: execute Redis pipelines (only in immediate mode)
 	if immediateRedisUpdates {
 		for _, redisPipeline := range orm.redisPipeLines {
 			if _, err := redisPipeline.Exec(orm); err != nil {
@@ -435,12 +397,14 @@ func (orm *ormImplementation) FlushAsync(immediateRedisUpdates bool) error {
 		orm.redisPipeLines = nil
 	}
 
-	// Step 6: publish the serialized SQL events to the async stream
-	if err := eventFlusher.Flush(); err != nil {
-		return err
+	// Step 7: produce records to Kafka
+	if len(records) > 0 {
+		if err := kafkaPool.ProduceSync(orm, records...); err != nil {
+			return err
+		}
 	}
 
-	// Step 7: mark entities as flushed and clear tracked set
+	// Step 8: mark entities as flushed and clear tracked set
 	orm.trackedEntities.Range(func(_ uint64, value *xsync.MapOf[uint64, Entity]) bool {
 		value.Range(func(_ uint64, e Entity) bool {
 			e.PrivateFlushed()
@@ -452,29 +416,123 @@ func (orm *ormImplementation) FlushAsync(immediateRedisUpdates bool) error {
 	return nil
 }
 
-// GetAsyncSQLConsumer returns a consumer that reads SQL events from the async stream
+// GetAsyncSQLConsumer returns a consumer that reads SQL events from Kafka
 // and executes them against MySQL. Permanent MySQL errors are moved to the dead-letter
-// stream. Transient errors stop processing and are returned to the caller.
+// topic. Transient errors stop processing and are returned to the caller.
 func (orm *ormImplementation) GetAsyncSQLConsumer() (AsyncSQLConsumer, error) {
-	broker := orm.GetEventBroker()
-	consumer, err := broker.ConsumerSingle(orm, AsyncSQLStreamName)
+	kafkaPoolCode := orm.engine.registry.asyncFlushKafkaPool
+	if kafkaPoolCode == "" {
+		return nil, fmt.Errorf("async flush not configured: call RegisterAsyncFlush() during registry setup")
+	}
+	kafkaPool := orm.engine.Kafka(kafkaPoolCode)
+	if kafkaPool == nil {
+		return nil, fmt.Errorf("kafka pool '%s' not found for async flush", kafkaPoolCode)
+	}
+	cg, err := kafkaPool.ConsumerGroup(AsyncSQLTopicName)
 	if err != nil {
 		return nil, err
 	}
-	return &asyncSQLConsumerImpl{inner: consumer, ctx: orm}, nil
+	return &asyncSQLConsumerImpl{cg: cg, kafkaPool: kafkaPool, ctx: orm}, nil
 }
 
 type asyncSQLConsumerImpl struct {
-	inner EventsConsumer
-	ctx   *ormImplementation
+	cg        KafkaConsumerGroup
+	kafkaPool Kafka
+	ctx       *ormImplementation
 }
 
 func (c *asyncSQLConsumerImpl) Consume(count int, blockTime time.Duration) error {
-	return c.inner.Consume(count, blockTime, c.handleEvents)
+	ctx, cancel := context.WithTimeout(c.ctx.context, blockTime)
+	defer cancel()
+	consumeCtx := c.ctx.engine.NewContext(ctx)
+	fetches := c.cg.PollFetches(consumeCtx)
+	if fetches.IsEmpty() {
+		return nil
+	}
+	processed := 0
+	var processErr error
+	fetches.EachRecord(func(record *KafkaRecord) {
+		if processErr != nil || (count > 0 && processed >= count) {
+			return
+		}
+		var op AsyncSQLOperation
+		if err := msgpack.Unmarshal(record.Value, &op); err != nil {
+			// Bad format: move to dead-letter
+			c.deadLetter(record, err.Error())
+			processed++
+			return
+		}
+
+		// Pre-load entities for DELETE before SQL execution
+		var preLoadedDeleteEntities map[uint64]Entity
+		if len(op.Events) > 0 && c.ctx.engine.entityLoaders != nil {
+			for _, entityEvent := range op.Events {
+				if entityEvent.FlushType != 3 {
+					continue
+				}
+				loader, hasLoader := c.ctx.engine.entityLoaders[entityEvent.CacheIndex]
+				if !hasLoader {
+					continue
+				}
+				loadCtx := c.ctx.engine.NewContext(c.ctx.context)
+				entity, found, err := loader(loadCtx, entityEvent.EntityID)
+				if err != nil || !found {
+					continue
+				}
+				if preLoadedDeleteEntities == nil {
+					preLoadedDeleteEntities = make(map[uint64]Entity)
+				}
+				preLoadedDeleteEntities[entityEvent.EntityID] = entity
+			}
+		}
+
+		if err := c.executeOperation(op); err != nil {
+			if isPermanentMySQLError(err) {
+				c.deadLetter(record, err.Error())
+				processed++
+				return
+			}
+			processErr = err
+			return
+		}
+
+		// Execute deferred Redis ops after SQL success
+		if len(op.RedisOps) > 0 {
+			if err := c.executeRedisOps(op.RedisOps); err != nil {
+				processErr = err
+				return
+			}
+		}
+
+		// Fire hooks after SQL execution
+		if len(op.Events) > 0 {
+			if err := c.fireEntityHooks(op.Events, preLoadedDeleteEntities); err != nil {
+				processErr = err
+				return
+			}
+		}
+
+		processed++
+	})
+	if processErr != nil {
+		return processErr
+	}
+	return c.cg.CommitUncommittedOffsets(c.ctx)
 }
 
-func (c *asyncSQLConsumerImpl) AutoClaim(count int, minIdle time.Duration) error {
-	return c.inner.AutoClaim(count, minIdle, c.handleEvents)
+func (c *asyncSQLConsumerImpl) Close() {
+	c.cg.Close()
+}
+
+func (c *asyncSQLConsumerImpl) deadLetter(record *KafkaRecord, errMsg string) {
+	_ = c.kafkaPool.ProduceSync(c.ctx, &KafkaRecord{
+		Topic: AsyncSQLDeadLetterTopicName,
+		Key:   record.Key,
+		Value: record.Value,
+		Headers: []KafkaRecordHeader{
+			{Key: "error", Value: []byte(errMsg)},
+		},
+	})
 }
 
 func (c *asyncSQLConsumerImpl) executeRedisOps(ops []AsyncRedisOp) error {
@@ -532,75 +590,6 @@ func (c *asyncSQLConsumerImpl) executeRedisOps(ops []AsyncRedisOp) error {
 	return nil
 }
 
-func (c *asyncSQLConsumerImpl) handleEvents(events []Event) error {
-	broker := c.ctx.GetEventBroker()
-	for _, ev := range events {
-		var op AsyncSQLOperation
-		if err := ev.Unserialize(&op); err != nil {
-			// Bad format: move to dead-letter and acknowledge
-			_, _ = broker.Publish(AsyncSQLDeadLetterStreamName, op, "error", err.Error())
-			_ = ev.Ack()
-			continue
-		}
-
-		// Pre-load entities for DELETE before SQL execution (they'll be gone after hard delete)
-		var preLoadedDeleteEntities map[uint64]Entity
-		if len(op.Events) > 0 && c.ctx.engine.entityLoaders != nil {
-			for _, entityEvent := range op.Events {
-				if entityEvent.FlushType != 3 {
-					continue
-				}
-				loader, hasLoader := c.ctx.engine.entityLoaders[entityEvent.CacheIndex]
-				if !hasLoader {
-					continue
-				}
-				loadCtx := c.ctx.engine.NewContext(c.ctx.context)
-				entity, found, err := loader(loadCtx, entityEvent.EntityID)
-				if err != nil || !found {
-					continue
-				}
-				if preLoadedDeleteEntities == nil {
-					preLoadedDeleteEntities = make(map[uint64]Entity)
-				}
-				preLoadedDeleteEntities[entityEvent.EntityID] = entity
-			}
-		}
-
-		if err := c.executeOperation(op); err != nil {
-			if isPermanentMySQLError(err) {
-				_, _ = broker.Publish(AsyncSQLDeadLetterStreamName, op, "error", err.Error())
-				_ = ev.Ack()
-				continue
-			}
-			// Transient error: stop processing, leave event in pending
-			return err
-		}
-		_ = ev.Ack()
-
-		// Execute deferred Redis ops after SQL success
-		if len(op.RedisOps) > 0 {
-			if err := c.executeRedisOps(op.RedisOps); err != nil {
-				return err
-			}
-		}
-
-		// Fire hooks after SQL execution and ACK
-		if len(op.Events) > 0 {
-			if err := c.fireEntityHooks(op.Events, preLoadedDeleteEntities); err != nil {
-				return err
-			}
-		}
-
-		// Publish dirty stream events after SQL execution
-		if len(op.DirtyStreamEvents) > 0 {
-			if err := c.publishDirtyStreamEvents(op.DirtyStreamEvents); err != nil {
-				return err
-			}
-		}
-	}
-	return nil
-}
-
 func (c *asyncSQLConsumerImpl) fireEntityHooks(events []AsyncEntityEvent, preLoadedDeleteEntities map[uint64]Entity) error {
 	for _, entityEvent := range events {
 		switch entityEvent.FlushType {
@@ -650,7 +639,6 @@ func (c *asyncSQLConsumerImpl) fireEntityHooks(events []AsyncEntityEvent, preLoa
 			if !ok {
 				continue
 			}
-			// Try loading from DB first (works for FakeDelete/soft-delete, entity still exists)
 			loader, hasLoader := c.ctx.engine.entityLoaders[entityEvent.CacheIndex]
 			if !hasLoader {
 				continue
@@ -661,7 +649,6 @@ func (c *asyncSQLConsumerImpl) fireEntityHooks(events []AsyncEntityEvent, preLoa
 				return err
 			}
 			if !found {
-				// Hard delete: use pre-loaded entity
 				entity = preLoadedDeleteEntities[entityEvent.EntityID]
 				if entity == nil {
 					continue
@@ -673,23 +660,6 @@ func (c *asyncSQLConsumerImpl) fireEntityHooks(events []AsyncEntityEvent, preLoa
 		}
 	}
 	return nil
-}
-
-func (c *asyncSQLConsumerImpl) publishDirtyStreamEvents(events []AsyncDirtyStreamEvent) error {
-	broker := c.ctx.GetEventBroker()
-	flusher := broker.NewFlusher()
-	for _, ev := range events {
-		dsEvent := DirtyStreamEvent{
-			EntityType: ev.EntityType,
-			EntityID:   ev.EntityID,
-			FlushType:  ev.FlushType,
-			Changes:    ev.Changes,
-		}
-		if err := flusher.Publish(ev.Stream, dsEvent); err != nil {
-			return err
-		}
-	}
-	return flusher.Flush()
 }
 
 func (c *asyncSQLConsumerImpl) executeOperation(op AsyncSQLOperation) error {

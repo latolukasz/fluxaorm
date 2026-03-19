@@ -100,24 +100,6 @@ func Generate(engine Engine, outputDirectory string) error {
 		}
 	}
 
-	// Generate dirty streams helper file
-	allDirtyStreams := make(map[string]bool)
-	for _, schema := range engine.Registry().(*engineRegistryImplementation).entitySchemas {
-		if schema.hasDirtyStreams {
-			for _, ds := range schema.dirtyStreams {
-				allDirtyStreams[ds.streamName] = true
-			}
-		}
-	}
-	if len(allDirtyStreams) > 0 {
-		generator.body = ""
-		generator.imports = make(map[string]bool)
-		err = generator.generateDirtyStreamsFile(allDirtyStreams)
-		if err != nil {
-			return err
-		}
-	}
-
 	// Generate providers registry file
 	generator.body = ""
 	generator.imports = make(map[string]bool)

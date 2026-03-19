@@ -137,11 +137,6 @@ func (rp *RedisPipeLine) HDel(key string, values ...string) {
 	rp.pipeLine.HDel(rp.ctx.Context(), key, values...)
 }
 
-func (rp *RedisPipeLine) XAdd(stream string, values []string) *PipeLineString {
-	rp.commands++
-	return &PipeLineString{p: rp, cmd: rp.pipeLine.XAdd(rp.ctx.Context(), &redis.XAddArgs{Stream: stream, Values: values})}
-}
-
 func (rp *RedisPipeLine) Exec(ctx Context) (response []redis.Cmder, err error) {
 	if rp.commands == 0 {
 		return make([]redis.Cmder, 0), nil

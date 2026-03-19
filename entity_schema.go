@@ -94,15 +94,6 @@ func enumValueToFieldName(value string) string {
 	return result
 }
 
-type dirtyStreamDef struct {
-	streamName    string
-	redisPoolCode string
-	onInsert      bool
-	onUpdate      bool
-	onDelete      bool
-	fieldTriggers []string
-}
-
 type entitySchema struct {
 	index                   uint64
 	cacheTTL                int
@@ -142,8 +133,6 @@ type entitySchema struct {
 	cachedUniqueIndexes     map[string]bool
 	hasCachedUniqueIndexes  bool
 	uniqueIndexFIndexes     map[string][]int
-	hasDirtyStreams         bool
-	dirtyStreams            []dirtyStreamDef
 }
 
 type tableFields struct {
@@ -437,65 +426,6 @@ func (e *entitySchema) init(registry *registry, entityType reflect.Type) error {
 	err = e.validateIndexes()
 	if err != nil {
 		return err
-	}
-	// Parse dirty stream tags
-	dirtyStreamTag := e.getTag("dirtyStream", "", "")
-	if dirtyStreamTag != "" {
-		streamSpecs := strings.Split(dirtyStreamTag, ",")
-		streamMap := make(map[string]int) // stream name -> index in e.dirtyStreams
-		for _, spec := range streamSpecs {
-			parts := strings.SplitN(spec, "/", 3)
-			name := parts[0]
-			if name == "" {
-				return fmt.Errorf("empty dirty stream name in entity '%s'", entityType.Name())
-			}
-			poolCode := e.getForcedRedisCode()
-			ops := "IUD"
-			if len(parts) >= 2 && parts[1] != "" {
-				poolCode = parts[1]
-			}
-			if len(parts) >= 3 && parts[2] != "" {
-				ops = parts[2]
-			}
-			_, hasPool := registry.redisPools[poolCode]
-			if !hasPool {
-				return fmt.Errorf("redis pool '%s' not found for dirty stream '%s' in entity '%s'", poolCode, name, entityType.Name())
-			}
-			for _, c := range ops {
-				if c != 'I' && c != 'U' && c != 'D' {
-					return fmt.Errorf("invalid dirty stream ops '%s' for stream '%s' in entity '%s': only I, U, D allowed", ops, name, entityType.Name())
-				}
-			}
-			def := dirtyStreamDef{
-				streamName:    name,
-				redisPoolCode: poolCode,
-				onInsert:      strings.ContainsRune(ops, 'I'),
-				onUpdate:      strings.ContainsRune(ops, 'U'),
-				onDelete:      strings.ContainsRune(ops, 'D'),
-			}
-			streamMap[name] = len(e.dirtyStreams)
-			e.dirtyStreams = append(e.dirtyStreams, def)
-		}
-		// Parse field-level dirtyStream tags
-		for fieldName, fieldTags := range e.tags {
-			if fieldName == "ID" {
-				continue
-			}
-			fieldDirtyTag, has := fieldTags["dirtyStream"]
-			if !has {
-				continue
-			}
-			fieldStreamNames := strings.Split(fieldDirtyTag, ",")
-			for _, fsn := range fieldStreamNames {
-				fsn = strings.TrimSpace(fsn)
-				idx, ok := streamMap[fsn]
-				if !ok {
-					return fmt.Errorf("field '%s' references undeclared dirty stream '%s' in entity '%s'", fieldName, fsn, entityType.Name())
-				}
-				e.dirtyStreams[idx].fieldTriggers = append(e.dirtyStreams[idx].fieldTriggers, fieldName)
-			}
-		}
-		e.hasDirtyStreams = true
 	}
 	return nil
 }

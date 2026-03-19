@@ -6,11 +6,19 @@ type DatabasePipeline struct {
 	pool       string
 	queries    []string
 	parameters [][]any
+	tables     []string
 }
 
 func (dp *DatabasePipeline) AddQuery(query string, parameters ...any) {
 	dp.queries = append(dp.queries, query)
 	dp.parameters = append(dp.parameters, parameters)
+	dp.tables = append(dp.tables, "")
+}
+
+func (dp *DatabasePipeline) AddQueryForTable(table, query string, parameters ...any) {
+	dp.queries = append(dp.queries, query)
+	dp.parameters = append(dp.parameters, parameters)
+	dp.tables = append(dp.tables, table)
 }
 
 func (dp *DatabasePipeline) Exec(ctx Context) error {
@@ -20,6 +28,7 @@ func (dp *DatabasePipeline) Exec(ctx Context) error {
 	defer func() {
 		dp.queries = dp.queries[:0]
 		dp.parameters = dp.parameters[:0]
+		dp.tables = dp.tables[:0]
 	}()
 	if len(dp.queries) == 1 {
 		_, err := dp.db.Exec(ctx, dp.queries[0], dp.parameters[0]...)

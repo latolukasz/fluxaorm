@@ -8,6 +8,10 @@ import (
 	"github.com/twmb/franz-go/pkg/kgo"
 )
 
+type AsyncFlushOptions struct {
+	TopicPartitions int32 // default: 1
+}
+
 type KafkaPoolOptions struct {
 	ClientID              string
 	RequiredAcks          int // 0=none, 1=leader, -1=all

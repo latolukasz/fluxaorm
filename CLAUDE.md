@@ -104,7 +104,7 @@ Entities opt in to Redis Search (FT.SEARCH) indexing via struct tags on the ID f
 - `flush.go` — batches entity inserts/updates via dirty tracking; `ctx.Flush()`
 - `db.go` — MySQL abstraction (`DB` interface, `DBTransaction`, metrics)
 - `schema.go` — DDL operations (CREATE/ALTER TABLE, index management)
-- `event_broker.go` — Redis Stream-based pub/sub for entity change events
+- `flush_async.go` — Kafka-based async SQL flush and consumer
 - `locker.go` — distributed locking via `bsm/redislock`
 - `metrics.go` — Prometheus metrics for queries, cache hits/misses
 - `where.go` — typed WHERE clause builder

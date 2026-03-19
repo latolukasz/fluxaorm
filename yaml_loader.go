@@ -58,11 +58,6 @@ func (r *registry) InitByYaml(yaml any) error {
 					return err
 				}
 				r.RegisterLocalCache(key, limit)
-			case "streams":
-				err = validateStreams(r, value, key)
-				if err != nil {
-					return err
-				}
 			}
 		}
 	}
@@ -240,18 +235,6 @@ func validateSentinel(registry *registry, value any, key string) error {
 			}
 		}
 		registry.RegisterRedis("", db, key, options)
-	}
-	return nil
-}
-
-func validateStreams(registry *registry, value interface{}, key string) error {
-	def, err := validateOrmStrings(value, key)
-	if err != nil {
-		return err
-	}
-	for _, name := range def {
-		registry.RegisterRedisStream(name, key)
-
 	}
 	return nil
 }

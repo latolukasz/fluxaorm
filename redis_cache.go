@@ -97,7 +97,6 @@ type RedisCache interface {
 	XClaimJustID(ctx Context, a *redis.XClaimArgs) ([]string, error)
 	XAck(ctx Context, stream, group string, ids ...string) (int64, error)
 	XAckDel(ctx Context, stream, group string, ids ...string) ([]interface{}, error)
-	xAdd(ctx Context, stream string, values interface{}) (id string, err error)
 	FlushAll(ctx Context) error
 	FlushDB(ctx Context) error
 	Scan(ctx Context, cursor uint64, match string, count int64) (keys []string, cursorNext uint64, err error)
@@ -1185,20 +1184,6 @@ func (r *redisCache) XAckDel(ctx Context, stream, group string, ids ...string) (
 	}
 	r.fillMetrics(ctx, end, metricsOperationStream, true, false, err)
 	return res, err
-}
-
-func (r *redisCache) xAdd(ctx Context, stream string, values interface{}) (id string, err error) {
-	a := &redis.XAddArgs{Stream: stream, ID: "*", Values: values}
-	hasLogger, _ := ctx.getRedisLoggers()
-	start := time.Now()
-	req := r.client.XAdd(context.Background(), a)
-	id, err = req.Result()
-	end := time.Since(start)
-	r.fillMetrics(ctx, end, metricsOperationStream, true, false, err)
-	if hasLogger {
-		r.fillLogFields(ctx, req, end, false, err)
-	}
-	return id, err
 }
 
 func (r *redisCache) FTList(ctx Context) ([]string, error) {
