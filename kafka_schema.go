@@ -5,6 +5,7 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/twmb/franz-go/pkg/kadm"
 )
@@ -95,14 +96,87 @@ func (b *KafkaTopicBuilder) validate() error {
 	return nil
 }
 
-// KafkaAlter holds a pending Kafka topic operation.
+// KafkaConsumerGroupBuilder defines a Kafka consumer group using a fluent API.
+type KafkaConsumerGroupBuilder struct {
+	name               string
+	poolCode           string
+	topics             []string
+	sessionTimeout     time.Duration
+	rebalanceTimeout   time.Duration
+	fetchMaxBytes      int32
+	autoCommitInterval time.Duration
+}
+
+// NewKafkaConsumerGroup creates a new Kafka consumer group builder.
+func NewKafkaConsumerGroup(name, poolCode string) *KafkaConsumerGroupBuilder {
+	return &KafkaConsumerGroupBuilder{
+		name:     name,
+		poolCode: poolCode,
+	}
+}
+
+// Topics sets the topics for this consumer group.
+func (b *KafkaConsumerGroupBuilder) Topics(topics ...string) *KafkaConsumerGroupBuilder {
+	b.topics = topics
+	return b
+}
+
+// SessionTimeout sets the session timeout.
+func (b *KafkaConsumerGroupBuilder) SessionTimeout(d time.Duration) *KafkaConsumerGroupBuilder {
+	b.sessionTimeout = d
+	return b
+}
+
+// RebalanceTimeout sets the rebalance timeout.
+func (b *KafkaConsumerGroupBuilder) RebalanceTimeout(d time.Duration) *KafkaConsumerGroupBuilder {
+	b.rebalanceTimeout = d
+	return b
+}
+
+// FetchMaxBytes sets the maximum fetch bytes.
+func (b *KafkaConsumerGroupBuilder) FetchMaxBytes(n int32) *KafkaConsumerGroupBuilder {
+	b.fetchMaxBytes = n
+	return b
+}
+
+// AutoCommitInterval sets the auto-commit interval (0 = manual commit only).
+func (b *KafkaConsumerGroupBuilder) AutoCommitInterval(d time.Duration) *KafkaConsumerGroupBuilder {
+	b.autoCommitInterval = d
+	return b
+}
+
+func (b *KafkaConsumerGroupBuilder) validate() error {
+	if b.name == "" {
+		return fmt.Errorf("kafka consumer group name is required")
+	}
+	if b.poolCode == "" {
+		return fmt.Errorf("kafka pool code is required for consumer group '%s'", b.name)
+	}
+	if len(b.topics) == 0 {
+		return fmt.Errorf("kafka consumer group '%s' must have at least one topic", b.name)
+	}
+	return nil
+}
+
+func (b *KafkaConsumerGroupBuilder) toSettings() *KafkaConsumerGroupSettings {
+	return &KafkaConsumerGroupSettings{
+		Name:               b.name,
+		Topics:             b.topics,
+		SessionTimeout:     b.sessionTimeout,
+		RebalanceTimeout:   b.rebalanceTimeout,
+		FetchMaxBytes:      b.fetchMaxBytes,
+		AutoCommitInterval: b.autoCommitInterval,
+	}
+}
+
+// KafkaAlter holds a pending Kafka operation.
 type KafkaAlter struct {
 	Description string
 	Pool        string
 	execFunc    func(ctx Context) error
 }
 
-// Exec executes the Kafka topic operation.
+// Exec executes the Kafka operation.
 func (a KafkaAlter) Exec(ctx Context) error {
 	return a.execFunc(ctx)
 }
@@ -229,6 +303,40 @@ func GetKafkaAlters(ctx Context) ([]KafkaAlter, error) {
 				continue
 			}
 			alters = append(alters, buildDeleteTopicAlter(poolCode, topicName, pool, adminClient))
+		}
+	}
+
+	// Delete orphaned consumer groups
+	cgsByPool := make(map[string]map[string]bool)
+	for _, cg := range registry.kafkaConsumerGroups {
+		if cgsByPool[cg.poolCode] == nil {
+			cgsByPool[cg.poolCode] = make(map[string]bool)
+		}
+		cgsByPool[cg.poolCode][cg.name] = true
+	}
+
+	for poolCode, kafka := range registry.engine.kafkaServers {
+		pool := kafka.(*kafkaPoolImplementation)
+		adminClient := kadm.NewClient(pool.producerClient)
+
+		listedGroups, err := adminClient.ListGroups(ctx.Context())
+		if err != nil {
+			return nil, fmt.Errorf("kafka pool '%s': failed to list consumer groups: %w", poolCode, err)
+		}
+
+		registeredCGs := cgsByPool[poolCode]
+		ignoredCGs := registry.kafkaIgnoredConsumerGroups[poolCode]
+		for _, groupName := range listedGroups.Groups() {
+			if registeredCGs != nil && registeredCGs[groupName] {
+				continue
+			}
+			if strings.HasPrefix(groupName, "__") {
+				continue
+			}
+			if ignoredCGs != nil && ignoredCGs[groupName] {
+				continue
+			}
+			alters = append(alters, buildDeleteConsumerGroupAlter(poolCode, groupName, pool, adminClient))
 		}
 	}
 
@@ -381,6 +489,25 @@ func buildDeleteTopicAlter(poolCode string, topicName string, pool *kafkaPoolImp
 			for _, r := range resp {
 				if r.Err != nil {
 					return fmt.Errorf("failed to delete topic '%s': %w", topicName, r.Err)
+				}
+			}
+			return nil
+		},
+	}
+}
+
+func buildDeleteConsumerGroupAlter(poolCode string, groupName string, pool *kafkaPoolImplementation, adminClient *kadm.Client) KafkaAlter {
+	return KafkaAlter{
+		Description: fmt.Sprintf("DELETE consumer group '%s'", groupName),
+		Pool:        poolCode,
+		execFunc: func(ctx Context) error {
+			resp, err := adminClient.DeleteGroups(ctx.Context(), groupName)
+			if err != nil {
+				return fmt.Errorf("failed to delete consumer group '%s': %w", groupName, err)
+			}
+			for _, r := range resp {
+				if r.Err != nil {
+					return fmt.Errorf("failed to delete consumer group '%s': %w", groupName, r.Err)
 				}
 			}
 			return nil

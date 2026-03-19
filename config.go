@@ -65,18 +65,19 @@ type ConfigKafkaTopic struct {
 }
 
 type ConfigKafka struct {
-	Code               string                     `yaml:"code" validate:"required"`
-	Brokers            []string                   `yaml:"brokers" validate:"required"`
-	ClientID           string                     `yaml:"clientID"`
-	RequiredAcks       int                        `yaml:"requiredAcks"`
-	ProducerLingerMs   int                        `yaml:"producerLingerMs"`
-	MaxBufferedRecords int                        `yaml:"maxBufferedRecords"`
-	SASLMechanism      string                     `yaml:"saslMechanism"`
-	SASLUser           string                     `yaml:"saslUser"`
-	SASLPassword       string                     `yaml:"saslPassword"`
-	ConsumerGroups     []ConfigKafkaConsumerGroup `yaml:"consumerGroups"`
-	IgnoredTopics      []string                   `yaml:"ignoredTopics"`
-	Topics             []ConfigKafkaTopic         `yaml:"topics"`
+	Code                  string                     `yaml:"code" validate:"required"`
+	Brokers               []string                   `yaml:"brokers" validate:"required"`
+	ClientID              string                     `yaml:"clientID"`
+	RequiredAcks          int                        `yaml:"requiredAcks"`
+	ProducerLingerMs      int                        `yaml:"producerLingerMs"`
+	MaxBufferedRecords    int                        `yaml:"maxBufferedRecords"`
+	SASLMechanism         string                     `yaml:"saslMechanism"`
+	SASLUser              string                     `yaml:"saslUser"`
+	SASLPassword          string                     `yaml:"saslPassword"`
+	ConsumerGroups        []ConfigKafkaConsumerGroup `yaml:"consumerGroups"`
+	IgnoredTopics         []string                   `yaml:"ignoredTopics"`
+	IgnoredConsumerGroups []string                   `yaml:"ignoredConsumerGroups"`
+	Topics                []ConfigKafkaTopic         `yaml:"topics"`
 }
 
 type Config struct {
@@ -145,6 +146,7 @@ func (r *registry) InitByConfig(config *Config) error {
 		}
 		options.MaxBufferedRecords = pool.MaxBufferedRecords
 		options.IgnoredTopics = pool.IgnoredTopics
+		options.IgnoredConsumerGroups = pool.IgnoredConsumerGroups
 		if pool.SASLMechanism != "" {
 			options.SASL = &KafkaSASLConfig{
 				Mechanism: pool.SASLMechanism,
@@ -152,27 +154,23 @@ func (r *registry) InitByConfig(config *Config) error {
 				Password:  pool.SASLPassword,
 			}
 		}
-		var consumerGroups []KafkaConsumerGroupSettings
+		r.RegisterKafka(pool.Brokers, pool.Code, options)
 		for _, cg := range pool.ConsumerGroups {
-			settings := KafkaConsumerGroupSettings{
-				Name:   cg.Name,
-				Topics: cg.Topics,
-			}
+			builder := NewKafkaConsumerGroup(cg.Name, pool.Code).Topics(cg.Topics...)
 			if cg.SessionTimeoutMs > 0 {
-				settings.SessionTimeout = time.Duration(cg.SessionTimeoutMs) * time.Millisecond
+				builder.SessionTimeout(time.Duration(cg.SessionTimeoutMs) * time.Millisecond)
 			}
 			if cg.RebalanceTimeoutMs > 0 {
-				settings.RebalanceTimeout = time.Duration(cg.RebalanceTimeoutMs) * time.Millisecond
+				builder.RebalanceTimeout(time.Duration(cg.RebalanceTimeoutMs) * time.Millisecond)
 			}
 			if cg.FetchMaxBytes > 0 {
-				settings.FetchMaxBytes = int32(cg.FetchMaxBytes)
+				builder.FetchMaxBytes(int32(cg.FetchMaxBytes))
 			}
 			if cg.AutoCommitIntervalMs > 0 {
-				settings.AutoCommitInterval = time.Duration(cg.AutoCommitIntervalMs) * time.Millisecond
+				builder.AutoCommitInterval(time.Duration(cg.AutoCommitIntervalMs) * time.Millisecond)
 			}
-			consumerGroups = append(consumerGroups, settings)
+			r.RegisterKafkaConsumerGroup(builder)
 		}
-		r.RegisterKafka(pool.Brokers, pool.Code, options, consumerGroups...)
 		for _, topic := range pool.Topics {
 			builder := NewKafkaTopic(topic.Name, pool.Code)
 			if topic.Partitions > 0 {

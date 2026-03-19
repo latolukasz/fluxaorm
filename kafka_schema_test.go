@@ -2,6 +2,7 @@ package fluxaorm
 
 import (
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 )
@@ -65,6 +66,73 @@ func TestKafkaTopicValidation(t *testing.T) {
 	topic = NewKafkaTopic("orders", "default").Partitions(6).ReplicationFactor(3)
 	err = topic.validate()
 	assert.NoError(t, err)
+}
+
+func TestKafkaConsumerGroupBuilder(t *testing.T) {
+	cg := NewKafkaConsumerGroup("my-group", "default").
+		Topics("t1", "t2").
+		SessionTimeout(30 * time.Second).
+		RebalanceTimeout(60 * time.Second).
+		FetchMaxBytes(1048576).
+		AutoCommitInterval(5 * time.Second)
+
+	assert.Equal(t, "my-group", cg.name)
+	assert.Equal(t, "default", cg.poolCode)
+	assert.Equal(t, []string{"t1", "t2"}, cg.topics)
+	assert.Equal(t, 30*time.Second, cg.sessionTimeout)
+	assert.Equal(t, 60*time.Second, cg.rebalanceTimeout)
+	assert.Equal(t, int32(1048576), cg.fetchMaxBytes)
+	assert.Equal(t, 5*time.Second, cg.autoCommitInterval)
+
+	assert.NoError(t, cg.validate())
+
+	settings := cg.toSettings()
+	assert.Equal(t, "my-group", settings.Name)
+	assert.Equal(t, []string{"t1", "t2"}, settings.Topics)
+	assert.Equal(t, 30*time.Second, settings.SessionTimeout)
+	assert.Equal(t, 60*time.Second, settings.RebalanceTimeout)
+	assert.Equal(t, int32(1048576), settings.FetchMaxBytes)
+	assert.Equal(t, 5*time.Second, settings.AutoCommitInterval)
+}
+
+func TestKafkaConsumerGroupBuilderValidation(t *testing.T) {
+	// Empty name
+	cg := NewKafkaConsumerGroup("", "default").Topics("t1")
+	err := cg.validate()
+	assert.EqualError(t, err, "kafka consumer group name is required")
+
+	// Empty pool code
+	cg = NewKafkaConsumerGroup("my-group", "").Topics("t1")
+	err = cg.validate()
+	assert.EqualError(t, err, "kafka pool code is required for consumer group 'my-group'")
+
+	// No topics
+	cg = NewKafkaConsumerGroup("my-group", "default")
+	err = cg.validate()
+	assert.EqualError(t, err, "kafka consumer group 'my-group' must have at least one topic")
+
+	// Valid
+	cg = NewKafkaConsumerGroup("my-group", "default").Topics("t1")
+	err = cg.validate()
+	assert.NoError(t, err)
+}
+
+func TestKafkaConsumerGroupRegistrationDuplicate(t *testing.T) {
+	r := NewRegistry().(*registry)
+	r.RegisterKafka([]string{"localhost:9092"}, "default", nil)
+	r.RegisterKafkaConsumerGroup(NewKafkaConsumerGroup("my-group", "default").Topics("t1"))
+	r.RegisterKafkaConsumerGroup(NewKafkaConsumerGroup("my-group", "default").Topics("t1"))
+
+	assert.Len(t, r.kafkaConsumerGroups, 2)
+	// Duplicate detection happens in Validate()
+}
+
+func TestKafkaConsumerGroupRegistrationPoolNotFound(t *testing.T) {
+	r := NewRegistry().(*registry)
+	r.RegisterKafkaConsumerGroup(NewKafkaConsumerGroup("my-group", "nonexistent").Topics("t1"))
+
+	// We can't call Validate() without real connections, but we can verify CGs are stored
+	assert.Len(t, r.kafkaConsumerGroups, 1)
 }
 
 func TestKafkaTopicRegistrationDuplicate(t *testing.T) {

@@ -37,26 +37,28 @@ type Registry interface {
 	SetOption(key string, value any)
 	RegisterClickhouse(dataSourceName string, poolCode string, poolOptions *ClickhouseOptions)
 	RegisterClickhouseTable(table *ClickhouseTableBuilder)
-	RegisterKafka(brokers []string, poolCode string, options *KafkaPoolOptions, consumerGroups ...KafkaConsumerGroupSettings)
+	RegisterKafka(brokers []string, poolCode string, options *KafkaPoolOptions)
 	RegisterKafkaTopic(topic *KafkaTopicBuilder)
+	RegisterKafkaConsumerGroup(consumerGroup *KafkaConsumerGroupBuilder)
 	RegisterRedisStream(name string, redisPool string)
 	RegisterAsyncSQLStream(redisPool string)
 	EnableMetrics(factory promauto.Factory)
 }
 
 type registry struct {
-	mysqlPools        map[string]MySQLConfig
-	localCaches       map[string]LocalCache
-	redisPools        map[string]RedisPoolConfig
-	clickhousePools   map[string]ClickhouseConfig
-	clickhouseTables  []*ClickhouseTableBuilder
-	kafkaPools        map[string]*kafkaPoolConfig
-	kafkaTopics       []*KafkaTopicBuilder
-	entities          map[string]reflect.Type
-	options           map[string]any
-	redisStreamGroups map[string]map[string]string
-	redisStreamPools  map[string]string
-	metricsFactory    *promauto.Factory
+	mysqlPools          map[string]MySQLConfig
+	localCaches         map[string]LocalCache
+	redisPools          map[string]RedisPoolConfig
+	clickhousePools     map[string]ClickhouseConfig
+	clickhouseTables    []*ClickhouseTableBuilder
+	kafkaPools          map[string]*kafkaPoolConfig
+	kafkaTopics         []*KafkaTopicBuilder
+	kafkaConsumerGroups []*KafkaConsumerGroupBuilder
+	entities            map[string]reflect.Type
+	options             map[string]any
+	redisStreamGroups   map[string]map[string]string
+	redisStreamPools    map[string]string
+	metricsFactory      *promauto.Factory
 }
 
 func NewRegistry() Registry {
@@ -227,6 +229,38 @@ func (r *registry) Validate() (Engine, error) {
 				}
 				for _, ignoredTopic := range poolConfig.options.IgnoredTopics {
 					e.registry.kafkaIgnoredTopics[poolCode][ignoredTopic] = true
+				}
+			}
+		}
+	}
+	// Validate and register Kafka consumer group definitions
+	if len(r.kafkaConsumerGroups) > 0 {
+		seenCGNames := make(map[string]string) // poolCode.name -> poolCode
+		for _, cg := range r.kafkaConsumerGroups {
+			if err := cg.validate(); err != nil {
+				return nil, err
+			}
+			pool, exists := r.kafkaPools[cg.poolCode]
+			if !exists {
+				return nil, fmt.Errorf("kafka pool '%s' not registered for consumer group '%s'", cg.poolCode, cg.name)
+			}
+			key := cg.poolCode + "." + cg.name
+			if existingPool, exists := seenCGNames[key]; exists {
+				return nil, fmt.Errorf("duplicate kafka consumer group '%s' in pool '%s' (already registered in pool '%s')", cg.name, cg.poolCode, existingPool)
+			}
+			seenCGNames[key] = cg.poolCode
+			pool.consumerGroups[cg.name] = cg.toSettings()
+		}
+		e.registry.kafkaConsumerGroups = r.kafkaConsumerGroups
+		// Build ignored consumer groups map from KafkaPoolOptions
+		e.registry.kafkaIgnoredConsumerGroups = make(map[string]map[string]bool)
+		for poolCode, poolConfig := range r.kafkaPools {
+			if len(poolConfig.options.IgnoredConsumerGroups) > 0 {
+				if e.registry.kafkaIgnoredConsumerGroups[poolCode] == nil {
+					e.registry.kafkaIgnoredConsumerGroups[poolCode] = make(map[string]bool)
+				}
+				for _, ignoredCG := range poolConfig.options.IgnoredConsumerGroups {
+					e.registry.kafkaIgnoredConsumerGroups[poolCode][ignoredCG] = true
 				}
 			}
 		}
@@ -471,26 +505,19 @@ func (r *registry) RegisterKafkaTopic(topic *KafkaTopicBuilder) {
 	r.kafkaTopics = append(r.kafkaTopics, topic)
 }
 
-func (r *registry) RegisterKafka(brokers []string, poolCode string, options *KafkaPoolOptions, consumerGroups ...KafkaConsumerGroupSettings) {
+func (r *registry) RegisterKafka(brokers []string, poolCode string, options *KafkaPoolOptions) {
 	if options == nil {
 		options = &KafkaPoolOptions{}
 	}
-	cgSettings := make(map[string]*KafkaConsumerGroupSettings, len(consumerGroups))
-	for _, cg := range consumerGroups {
-		cgSettings[cg.Name] = &KafkaConsumerGroupSettings{
-			Name:               cg.Name,
-			Topics:             cg.Topics,
-			SessionTimeout:     cg.SessionTimeout,
-			RebalanceTimeout:   cg.RebalanceTimeout,
-			FetchMaxBytes:      cg.FetchMaxBytes,
-			AutoCommitInterval: cg.AutoCommitInterval,
-		}
-	}
-	k := &kafkaPoolConfig{code: poolCode, brokers: brokers, options: options, consumerGroups: cgSettings}
+	k := &kafkaPoolConfig{code: poolCode, brokers: brokers, options: options, consumerGroups: make(map[string]*KafkaConsumerGroupSettings)}
 	if r.kafkaPools == nil {
 		r.kafkaPools = make(map[string]*kafkaPoolConfig)
 	}
 	r.kafkaPools[poolCode] = k
+}
+
+func (r *registry) RegisterKafkaConsumerGroup(consumerGroup *KafkaConsumerGroupBuilder) {
+	r.kafkaConsumerGroups = append(r.kafkaConsumerGroups, consumerGroup)
 }
 
 func buildProducerKgoOpts(pool *kafkaPoolConfig, hasRegisteredTopics bool) []kgo.Opt {

@@ -278,7 +278,7 @@ func validateOrmKafkaConfig(registry *registry, value any, key string) error {
 	}
 	var brokers []string
 	options := &KafkaPoolOptions{}
-	var consumerGroups []KafkaConsumerGroupSettings
+	var consumerGroupBuilders []*KafkaConsumerGroupBuilder
 	for k, v := range def {
 		switch k {
 		case "brokers":
@@ -335,12 +335,17 @@ func validateOrmKafkaConfig(registry *registry, value any, key string) error {
 			}
 			options.SASL.Password = password
 		case "consumerGroups":
-			consumerGroups, err = validateOrmKafkaConsumerGroups(v)
+			consumerGroupBuilders, err = validateOrmKafkaConsumerGroupBuilders(v, key)
 			if err != nil {
 				return err
 			}
 		case "ignoredTopics":
 			options.IgnoredTopics, err = validateOrmStrings(v, "ignoredTopics")
+			if err != nil {
+				return err
+			}
+		case "ignoredConsumerGroups":
+			options.IgnoredConsumerGroups, err = validateOrmStrings(v, "ignoredConsumerGroups")
 			if err != nil {
 				return err
 			}
@@ -357,7 +362,10 @@ func validateOrmKafkaConfig(registry *registry, value any, key string) error {
 	if len(brokers) == 0 {
 		return fmt.Errorf("kafka pool '%s': brokers are required", key)
 	}
-	registry.RegisterKafka(brokers, key, options, consumerGroups...)
+	registry.RegisterKafka(brokers, key, options)
+	for _, cgBuilder := range consumerGroupBuilders {
+		registry.RegisterKafkaConsumerGroup(cgBuilder)
+	}
 	return nil
 }
 
@@ -429,65 +437,76 @@ func validateOrmKafkaTopics(value any) ([]*KafkaTopicBuilder, error) {
 	return topics, nil
 }
 
-func validateOrmKafkaConsumerGroups(value any) ([]KafkaConsumerGroupSettings, error) {
+func validateOrmKafkaConsumerGroupBuilders(value any, poolCode string) ([]*KafkaConsumerGroupBuilder, error) {
 	asSlice, ok := value.([]any)
 	if !ok {
 		return nil, fmt.Errorf("orm value for consumerGroups is not valid: expected a list")
 	}
-	var groups []KafkaConsumerGroupSettings
+	var builders []*KafkaConsumerGroupBuilder
 	for i, item := range asSlice {
 		itemMap, err := fixYamlMap(item, fmt.Sprintf("consumerGroups[%d]", i))
 		if err != nil {
 			return nil, err
 		}
-		var settings KafkaConsumerGroupSettings
+		var name string
+		var topics []string
+		var sessionTimeoutMs, rebalanceTimeoutMs, fetchMaxBytes, autoCommitIntervalMs int
 		for k, v := range itemMap {
 			switch k {
 			case "name":
-				settings.Name, err = validateOrmString(v, "name")
+				name, err = validateOrmString(v, "name")
 				if err != nil {
 					return nil, err
 				}
 			case "topics":
-				settings.Topics, err = validateOrmStrings(v, "topics")
+				topics, err = validateOrmStrings(v, "topics")
 				if err != nil {
 					return nil, err
 				}
 			case "sessionTimeoutMs":
-				ms, err := validateOrmInt(v, "sessionTimeoutMs")
+				sessionTimeoutMs, err = validateOrmInt(v, "sessionTimeoutMs")
 				if err != nil {
 					return nil, err
 				}
-				settings.SessionTimeout = time.Duration(ms) * time.Millisecond
 			case "rebalanceTimeoutMs":
-				ms, err := validateOrmInt(v, "rebalanceTimeoutMs")
+				rebalanceTimeoutMs, err = validateOrmInt(v, "rebalanceTimeoutMs")
 				if err != nil {
 					return nil, err
 				}
-				settings.RebalanceTimeout = time.Duration(ms) * time.Millisecond
 			case "fetchMaxBytes":
-				fb, err := validateOrmInt(v, "fetchMaxBytes")
+				fetchMaxBytes, err = validateOrmInt(v, "fetchMaxBytes")
 				if err != nil {
 					return nil, err
 				}
-				settings.FetchMaxBytes = int32(fb)
 			case "autoCommitIntervalMs":
-				ms, err := validateOrmInt(v, "autoCommitIntervalMs")
+				autoCommitIntervalMs, err = validateOrmInt(v, "autoCommitIntervalMs")
 				if err != nil {
 					return nil, err
 				}
-				settings.AutoCommitInterval = time.Duration(ms) * time.Millisecond
 			}
 		}
-		if settings.Name == "" {
+		if name == "" {
 			return nil, fmt.Errorf("consumer group at index %d: name is required", i)
 		}
-		if len(settings.Topics) == 0 {
-			return nil, fmt.Errorf("consumer group '%s': topics are required", settings.Name)
+		if len(topics) == 0 {
+			return nil, fmt.Errorf("consumer group '%s': topics are required", name)
 		}
-		groups = append(groups, settings)
+		builder := NewKafkaConsumerGroup(name, poolCode).Topics(topics...)
+		if sessionTimeoutMs > 0 {
+			builder.SessionTimeout(time.Duration(sessionTimeoutMs) * time.Millisecond)
+		}
+		if rebalanceTimeoutMs > 0 {
+			builder.RebalanceTimeout(time.Duration(rebalanceTimeoutMs) * time.Millisecond)
+		}
+		if fetchMaxBytes > 0 {
+			builder.FetchMaxBytes(int32(fetchMaxBytes))
+		}
+		if autoCommitIntervalMs > 0 {
+			builder.AutoCommitInterval(time.Duration(autoCommitIntervalMs) * time.Millisecond)
+		}
+		builders = append(builders, builder)
 	}
-	return groups, nil
+	return builders, nil
 }
 
 func validateOrmInt(value any, key string) (int, error) {

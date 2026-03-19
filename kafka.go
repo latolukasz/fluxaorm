@@ -9,12 +9,13 @@ import (
 )
 
 type KafkaPoolOptions struct {
-	ClientID           string
-	RequiredAcks       int // 0=none, 1=leader, -1=all
-	ProducerLinger     time.Duration
-	MaxBufferedRecords int
-	SASL               *KafkaSASLConfig
-	IgnoredTopics      []string
+	ClientID              string
+	RequiredAcks          int // 0=none, 1=leader, -1=all
+	ProducerLinger        time.Duration
+	MaxBufferedRecords    int
+	SASL                  *KafkaSASLConfig
+	IgnoredTopics         []string
+	IgnoredConsumerGroups []string
 }
 
 type KafkaConsumerGroupSettings struct {

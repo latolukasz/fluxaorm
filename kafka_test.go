@@ -32,8 +32,9 @@ func TestKafkaProduceSync(t *testing.T) {
 	topic := fmt.Sprintf("test_"+t.Name()+"_%d", time.Now().UnixNano())
 	groupName := topic + "_group"
 	registry := NewRegistry()
-	registry.RegisterKafka([]string{"localhost:9944"}, DefaultPoolCode, nil,
-		KafkaConsumerGroupSettings{Name: groupName, Topics: []string{topic}},
+	registry.RegisterKafka([]string{"localhost:9944"}, DefaultPoolCode, nil)
+	registry.RegisterKafkaConsumerGroup(
+		NewKafkaConsumerGroup(groupName, DefaultPoolCode).Topics(topic),
 	)
 	registry.RegisterRedis("localhost:6395", 15, "redis", nil)
 	engine, err := registry.Validate()
@@ -80,8 +81,9 @@ func TestKafkaProduceSync(t *testing.T) {
 func TestKafkaProduceAsync(t *testing.T) {
 	topic := "test_" + t.Name()
 	registry := NewRegistry()
-	registry.RegisterKafka([]string{"localhost:9944"}, DefaultPoolCode, nil,
-		KafkaConsumerGroupSettings{Name: "test_group_" + t.Name(), Topics: []string{topic}},
+	registry.RegisterKafka([]string{"localhost:9944"}, DefaultPoolCode, nil)
+	registry.RegisterKafkaConsumerGroup(
+		NewKafkaConsumerGroup("test_group_"+t.Name(), DefaultPoolCode).Topics(topic),
 	)
 	registry.RegisterRedis("localhost:6395", 15, "redis", nil)
 	engine, err := registry.Validate()
@@ -132,8 +134,9 @@ func TestKafkaConsumerGroup(t *testing.T) {
 
 	// Consumer pool — topic already exists
 	registryConsumer := NewRegistry()
-	registryConsumer.RegisterKafka([]string{"localhost:9944"}, "consumer", nil,
-		KafkaConsumerGroupSettings{Name: group, Topics: []string{topic}},
+	registryConsumer.RegisterKafka([]string{"localhost:9944"}, "consumer", nil)
+	registryConsumer.RegisterKafkaConsumerGroup(
+		NewKafkaConsumerGroup(group, "consumer").Topics(topic),
 	)
 	registryConsumer.RegisterRedis("localhost:6395", 15, "redis", nil)
 	engineConsumer, err := registryConsumer.Validate()
@@ -166,15 +169,14 @@ func TestKafkaPoolOptions(t *testing.T) {
 		ProducerLinger:     10 * time.Millisecond,
 		MaxBufferedRecords: 1000,
 	}
-	registry.RegisterKafka([]string{"localhost:9944"}, DefaultPoolCode, opts,
-		KafkaConsumerGroupSettings{
-			Name:               "test-group",
-			Topics:             []string{"topic1", "topic2"},
-			SessionTimeout:     30 * time.Second,
-			RebalanceTimeout:   60 * time.Second,
-			FetchMaxBytes:      1048576,
-			AutoCommitInterval: 5 * time.Second,
-		},
+	registry.RegisterKafka([]string{"localhost:9944"}, DefaultPoolCode, opts)
+	registry.RegisterKafkaConsumerGroup(
+		NewKafkaConsumerGroup("test-group", DefaultPoolCode).
+			Topics("topic1", "topic2").
+			SessionTimeout(30 * time.Second).
+			RebalanceTimeout(60 * time.Second).
+			FetchMaxBytes(1048576).
+			AutoCommitInterval(5 * time.Second),
 	)
 	registry.RegisterRedis("localhost:6395", 15, "redis", nil)
 	engine, err := registry.Validate()
@@ -200,8 +202,9 @@ func TestKafkaPoolOptions(t *testing.T) {
 func TestKafkaLogging(t *testing.T) {
 	topic := "test_" + t.Name()
 	registry := NewRegistry()
-	registry.RegisterKafka([]string{"localhost:9944"}, DefaultPoolCode, nil,
-		KafkaConsumerGroupSettings{Name: "log_group", Topics: []string{topic}},
+	registry.RegisterKafka([]string{"localhost:9944"}, DefaultPoolCode, nil)
+	registry.RegisterKafkaConsumerGroup(
+		NewKafkaConsumerGroup("log_group", DefaultPoolCode).Topics(topic),
 	)
 	registry.RegisterRedis("localhost:6395", 15, "redis", nil)
 	engine, err := registry.Validate()
@@ -227,8 +230,9 @@ func TestKafkaLogging(t *testing.T) {
 
 func TestKafkaClose(t *testing.T) {
 	registry := NewRegistry()
-	registry.RegisterKafka([]string{"localhost:9944"}, DefaultPoolCode, nil,
-		KafkaConsumerGroupSettings{Name: "close_group", Topics: []string{"test_topic"}},
+	registry.RegisterKafka([]string{"localhost:9944"}, DefaultPoolCode, nil)
+	registry.RegisterKafkaConsumerGroup(
+		NewKafkaConsumerGroup("close_group", DefaultPoolCode).Topics("test_topic"),
 	)
 	registry.RegisterRedis("localhost:6395", 15, "redis", nil)
 	engine, err := registry.Validate()
@@ -271,9 +275,12 @@ func TestKafkaMustConsumerGroupPanics(t *testing.T) {
 
 func TestKafkaConsumerGroupNames(t *testing.T) {
 	registry := NewRegistry()
-	registry.RegisterKafka([]string{"localhost:9944"}, DefaultPoolCode, nil,
-		KafkaConsumerGroupSettings{Name: "group1", Topics: []string{"topic1"}},
-		KafkaConsumerGroupSettings{Name: "group2", Topics: []string{"topic2"}},
+	registry.RegisterKafka([]string{"localhost:9944"}, DefaultPoolCode, nil)
+	registry.RegisterKafkaConsumerGroup(
+		NewKafkaConsumerGroup("group1", DefaultPoolCode).Topics("topic1"),
+	)
+	registry.RegisterKafkaConsumerGroup(
+		NewKafkaConsumerGroup("group2", DefaultPoolCode).Topics("topic2"),
 	)
 	registry.RegisterRedis("localhost:6395", 15, "redis", nil)
 	engine, err := registry.Validate()
