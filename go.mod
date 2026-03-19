@@ -15,6 +15,7 @@ require (
 	github.com/shamaton/msgpack v1.2.1
 	github.com/stretchr/testify v1.11.1
 	github.com/twmb/franz-go v1.20.7
+	github.com/twmb/franz-go/pkg/kadm v1.17.2
 	gopkg.in/yaml.v2 v2.4.0
 )
 

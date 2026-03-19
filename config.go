@@ -57,6 +57,13 @@ type ConfigKafkaConsumerGroup struct {
 	AutoCommitIntervalMs int      `yaml:"autoCommitIntervalMs"`
 }
 
+type ConfigKafkaTopic struct {
+	Name              string            `yaml:"name" validate:"required"`
+	Partitions        int32             `yaml:"partitions"`
+	ReplicationFactor int16             `yaml:"replicationFactor"`
+	Configs           map[string]string `yaml:"configs"`
+}
+
 type ConfigKafka struct {
 	Code               string                     `yaml:"code" validate:"required"`
 	Brokers            []string                   `yaml:"brokers" validate:"required"`
@@ -68,6 +75,8 @@ type ConfigKafka struct {
 	SASLUser           string                     `yaml:"saslUser"`
 	SASLPassword       string                     `yaml:"saslPassword"`
 	ConsumerGroups     []ConfigKafkaConsumerGroup `yaml:"consumerGroups"`
+	IgnoredTopics      []string                   `yaml:"ignoredTopics"`
+	Topics             []ConfigKafkaTopic         `yaml:"topics"`
 }
 
 type Config struct {
@@ -135,6 +144,7 @@ func (r *registry) InitByConfig(config *Config) error {
 			options.ProducerLinger = time.Duration(pool.ProducerLingerMs) * time.Millisecond
 		}
 		options.MaxBufferedRecords = pool.MaxBufferedRecords
+		options.IgnoredTopics = pool.IgnoredTopics
 		if pool.SASLMechanism != "" {
 			options.SASL = &KafkaSASLConfig{
 				Mechanism: pool.SASLMechanism,
@@ -163,6 +173,19 @@ func (r *registry) InitByConfig(config *Config) error {
 			consumerGroups = append(consumerGroups, settings)
 		}
 		r.RegisterKafka(pool.Brokers, pool.Code, options, consumerGroups...)
+		for _, topic := range pool.Topics {
+			builder := NewKafkaTopic(topic.Name, pool.Code)
+			if topic.Partitions > 0 {
+				builder.Partitions(topic.Partitions)
+			}
+			if topic.ReplicationFactor > 0 {
+				builder.ReplicationFactor(topic.ReplicationFactor)
+			}
+			for k, v := range topic.Configs {
+				builder.Config(k, v)
+			}
+			r.RegisterKafkaTopic(builder)
+		}
 	}
 	return nil
 }

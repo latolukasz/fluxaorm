@@ -339,6 +339,19 @@ func validateOrmKafkaConfig(registry *registry, value any, key string) error {
 			if err != nil {
 				return err
 			}
+		case "ignoredTopics":
+			options.IgnoredTopics, err = validateOrmStrings(v, "ignoredTopics")
+			if err != nil {
+				return err
+			}
+		case "topics":
+			topics, err := validateOrmKafkaTopics(v)
+			if err != nil {
+				return err
+			}
+			for _, topic := range topics {
+				registry.RegisterKafkaTopic(topic)
+			}
 		}
 	}
 	if len(brokers) == 0 {
@@ -346,6 +359,74 @@ func validateOrmKafkaConfig(registry *registry, value any, key string) error {
 	}
 	registry.RegisterKafka(brokers, key, options, consumerGroups...)
 	return nil
+}
+
+func validateOrmKafkaTopics(value any) ([]*KafkaTopicBuilder, error) {
+	asSlice, ok := value.([]any)
+	if !ok {
+		return nil, fmt.Errorf("orm value for topics is not valid: expected a list")
+	}
+	var topics []*KafkaTopicBuilder
+	for i, item := range asSlice {
+		itemMap, err := fixYamlMap(item, fmt.Sprintf("topics[%d]", i))
+		if err != nil {
+			return nil, err
+		}
+		name := ""
+		poolCode := ""
+		var partitions int32
+		var replicationFactor int16
+		configs := make(map[string]string)
+		for k, v := range itemMap {
+			switch k {
+			case "name":
+				name, err = validateOrmString(v, "name")
+				if err != nil {
+					return nil, err
+				}
+			case "poolCode":
+				poolCode, err = validateOrmString(v, "poolCode")
+				if err != nil {
+					return nil, err
+				}
+			case "partitions":
+				p, err := validateOrmInt(v, "partitions")
+				if err != nil {
+					return nil, err
+				}
+				partitions = int32(p)
+			case "replicationFactor":
+				rf, err := validateOrmInt(v, "replicationFactor")
+				if err != nil {
+					return nil, err
+				}
+				replicationFactor = int16(rf)
+			case "configs":
+				configMap, err := fixYamlMap(v, "configs")
+				if err != nil {
+					return nil, err
+				}
+				for ck, cv := range configMap {
+					configs[ck] = fmt.Sprintf("%v", cv)
+				}
+			}
+		}
+		if name == "" {
+			return nil, fmt.Errorf("kafka topic at index %d: name is required", i)
+		}
+		builder := NewKafkaTopic(name, poolCode)
+		if partitions > 0 {
+			builder.Partitions(partitions)
+		}
+		if replicationFactor > 0 {
+			builder.ReplicationFactor(replicationFactor)
+		}
+		for ck, cv := range configs {
+			builder.Config(ck, cv)
+		}
+		topics = append(topics, builder)
+	}
+	return topics, nil
 }
 
 func validateOrmKafkaConsumerGroups(value any) ([]KafkaConsumerGroupSettings, error) {

@@ -14,6 +14,7 @@ type KafkaPoolOptions struct {
 	ProducerLinger     time.Duration
 	MaxBufferedRecords int
 	SASL               *KafkaSASLConfig
+	IgnoredTopics      []string
 }
 
 type KafkaConsumerGroupSettings struct {
@@ -107,9 +108,10 @@ type kafkaPoolConfig struct {
 // Internal implementation structs
 
 type kafkaPoolImplementation struct {
-	config         *kafkaPoolConfig
-	producerClient *kgo.Client
-	producerCancel context.CancelFunc
+	config              *kafkaPoolConfig
+	producerClient      *kgo.Client
+	producerCancel      context.CancelFunc
+	hasRegisteredTopics bool
 }
 
 type kafkaConsumerGroupImplementation struct {
@@ -140,7 +142,7 @@ func (k *kafkaPoolImplementation) ConsumerGroup(name string) (KafkaConsumerGroup
 		return nil, fmt.Errorf("kafka pool '%s': consumer group '%s' not registered", k.config.code, name)
 	}
 	ctx, cancel := context.WithCancel(context.Background())
-	opts := buildConsumerKgoOpts(k.config, settings)
+	opts := buildConsumerKgoOpts(k.config, settings, k.hasRegisteredTopics)
 	opts = append(opts, kgo.WithContext(ctx))
 	client, err := kgo.NewClient(opts...)
 	if err != nil {

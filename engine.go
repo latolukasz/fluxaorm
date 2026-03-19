@@ -46,6 +46,8 @@ type engineRegistryImplementation struct {
 	redisStreamPools        map[string]string
 	clickhouseTables        []*ClickhouseTableBuilder
 	clickhouseIgnoredTables map[string]map[string]bool
+	kafkaTopics             []*KafkaTopicBuilder
+	kafkaIgnoredTopics      map[string]map[string]bool
 	hasMetrics              bool
 	metricsRegistry         *metricsRegistry
 }

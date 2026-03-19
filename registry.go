@@ -38,6 +38,7 @@ type Registry interface {
 	RegisterClickhouse(dataSourceName string, poolCode string, poolOptions *ClickhouseOptions)
 	RegisterClickhouseTable(table *ClickhouseTableBuilder)
 	RegisterKafka(brokers []string, poolCode string, options *KafkaPoolOptions, consumerGroups ...KafkaConsumerGroupSettings)
+	RegisterKafkaTopic(topic *KafkaTopicBuilder)
 	RegisterRedisStream(name string, redisPool string)
 	RegisterAsyncSQLStream(redisPool string)
 	EnableMetrics(factory promauto.Factory)
@@ -50,6 +51,7 @@ type registry struct {
 	clickhousePools   map[string]ClickhouseConfig
 	clickhouseTables  []*ClickhouseTableBuilder
 	kafkaPools        map[string]*kafkaPoolConfig
+	kafkaTopics       []*KafkaTopicBuilder
 	entities          map[string]reflect.Type
 	options           map[string]any
 	redisStreamGroups map[string]map[string]string
@@ -199,6 +201,41 @@ func (r *registry) Validate() (Engine, error) {
 			}
 		}
 	}
+	// Validate and register Kafka topic definitions
+	if len(r.kafkaTopics) > 0 {
+		seenTopicNames := make(map[string]string) // topicName -> poolCode
+		for _, topic := range r.kafkaTopics {
+			if err := topic.validate(); err != nil {
+				return nil, err
+			}
+			if _, exists := r.kafkaPools[topic.poolCode]; !exists {
+				return nil, fmt.Errorf("kafka pool '%s' not registered for topic '%s'", topic.poolCode, topic.topicName)
+			}
+			key := topic.poolCode + "." + topic.topicName
+			if existingPool, exists := seenTopicNames[key]; exists {
+				return nil, fmt.Errorf("duplicate kafka topic '%s' in pool '%s' (already registered in pool '%s')", topic.topicName, topic.poolCode, existingPool)
+			}
+			seenTopicNames[key] = topic.poolCode
+		}
+		e.registry.kafkaTopics = r.kafkaTopics
+		// Build ignored topics map from KafkaPoolOptions
+		e.registry.kafkaIgnoredTopics = make(map[string]map[string]bool)
+		for poolCode, poolConfig := range r.kafkaPools {
+			if len(poolConfig.options.IgnoredTopics) > 0 {
+				if e.registry.kafkaIgnoredTopics[poolCode] == nil {
+					e.registry.kafkaIgnoredTopics[poolCode] = make(map[string]bool)
+				}
+				for _, ignoredTopic := range poolConfig.options.IgnoredTopics {
+					e.registry.kafkaIgnoredTopics[poolCode][ignoredTopic] = true
+				}
+			}
+		}
+	}
+	// Determine which pools have registered topics (for disabling auto-creation)
+	poolsWithTopics := make(map[string]bool)
+	for _, topic := range r.kafkaTopics {
+		poolsWithTopics[topic.poolCode] = true
+	}
 	if e.kafkaServers == nil {
 		e.kafkaServers = make(map[string]Kafka)
 	}
@@ -215,7 +252,7 @@ func (r *registry) Validate() (Engine, error) {
 			}
 		}
 		ctx, cancel := context.WithCancel(context.Background())
-		opts := buildProducerKgoOpts(v)
+		opts := buildProducerKgoOpts(v, poolsWithTopics[k])
 		opts = append(opts, kgo.WithContext(ctx))
 		producerClient, err := kgo.NewClient(opts...)
 		if err != nil {
@@ -228,9 +265,10 @@ func (r *registry) Validate() (Engine, error) {
 			return nil, fmt.Errorf("kafka pool '%s': failed to connect producer: %w", k, err)
 		}
 		e.kafkaServers[k] = &kafkaPoolImplementation{
-			config:         v,
-			producerClient: producerClient,
-			producerCancel: cancel,
+			config:              v,
+			producerClient:      producerClient,
+			producerCancel:      cancel,
+			hasRegisteredTopics: poolsWithTopics[k],
 		}
 	}
 	if e.localCacheServers == nil {
@@ -429,6 +467,10 @@ func (r *registry) RegisterClickhouseTable(table *ClickhouseTableBuilder) {
 	r.clickhouseTables = append(r.clickhouseTables, table)
 }
 
+func (r *registry) RegisterKafkaTopic(topic *KafkaTopicBuilder) {
+	r.kafkaTopics = append(r.kafkaTopics, topic)
+}
+
 func (r *registry) RegisterKafka(brokers []string, poolCode string, options *KafkaPoolOptions, consumerGroups ...KafkaConsumerGroupSettings) {
 	if options == nil {
 		options = &KafkaPoolOptions{}
@@ -451,8 +493,11 @@ func (r *registry) RegisterKafka(brokers []string, poolCode string, options *Kaf
 	r.kafkaPools[poolCode] = k
 }
 
-func buildProducerKgoOpts(pool *kafkaPoolConfig) []kgo.Opt {
-	opts := []kgo.Opt{kgo.SeedBrokers(pool.brokers...), kgo.AllowAutoTopicCreation()}
+func buildProducerKgoOpts(pool *kafkaPoolConfig, hasRegisteredTopics bool) []kgo.Opt {
+	opts := []kgo.Opt{kgo.SeedBrokers(pool.brokers...)}
+	if !hasRegisteredTopics {
+		opts = append(opts, kgo.AllowAutoTopicCreation())
+	}
 	poolOpts := pool.options
 	if poolOpts.ClientID != "" {
 		opts = append(opts, kgo.ClientID(poolOpts.ClientID))
@@ -486,8 +531,8 @@ func buildProducerKgoOpts(pool *kafkaPoolConfig) []kgo.Opt {
 	return opts
 }
 
-func buildConsumerKgoOpts(pool *kafkaPoolConfig, settings *KafkaConsumerGroupSettings) []kgo.Opt {
-	opts := buildProducerKgoOpts(pool)
+func buildConsumerKgoOpts(pool *kafkaPoolConfig, settings *KafkaConsumerGroupSettings, hasRegisteredTopics bool) []kgo.Opt {
+	opts := buildProducerKgoOpts(pool, hasRegisteredTopics)
 	if settings.Name != "" {
 		opts = append(opts, kgo.ConsumerGroup(settings.Name))
 	}
