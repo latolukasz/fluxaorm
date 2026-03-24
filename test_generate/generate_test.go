@@ -8,6 +8,7 @@ import (
 	"github.com/latolukasz/fluxaorm/v2"
 	"github.com/latolukasz/fluxaorm/v2/test_generate/entities"
 	"github.com/latolukasz/fluxaorm/v2/test_generate/entities/enums"
+	"github.com/latolukasz/fluxaorm/v2/test_generate/models"
 	"github.com/stretchr/testify/assert"
 )
 
@@ -39,7 +40,8 @@ type generateEntity struct {
 	ReferenceRequired fluxaorm.Reference[generateReferenceEntity] `orm:"required"`
 	ReferenceOptional fluxaorm.Reference[generateReferenceEntity]
 	generateSubStruct
-	TestSub generateSubStruct
+	TestSub     generateSubStruct
+	JsonAddress *models.GenerateJsonAddress
 }
 
 type generateEntityNoRedis struct {
@@ -66,7 +68,8 @@ type generateEntityNoRedis struct {
 	ReferenceRequired fluxaorm.Reference[generateReferenceEntity] `orm:"required"`
 	ReferenceOptional fluxaorm.Reference[generateReferenceEntity]
 	generateSubStruct
-	TestSub generateSubStruct
+	TestSub     generateSubStruct
+	JsonAddress *models.GenerateJsonAddress
 }
 
 type generateReferenceEntity struct {
@@ -172,6 +175,7 @@ func TestGenerate(t *testing.T) {
 	assert.Equal(t, time.Time{}, e.GetDate())
 	assert.Equal(t, uint64(0), e.GetReferenceRequiredID())
 	assert.Equal(t, uint64(0), e.GetReferenceOptionalID())
+	assert.Nil(t, e.GetJsonAddress())
 	assert.NotNil(t, e)
 
 	e2 := entities.GenerateEntityNoRedisProvider.New(ctx)
@@ -197,6 +201,7 @@ func TestGenerate(t *testing.T) {
 	assert.Equal(t, time.Time{}, e2.GetDate())
 	assert.Equal(t, uint64(0), e2.GetReferenceRequiredID())
 	assert.Equal(t, uint64(0), e2.GetReferenceOptionalID())
+	assert.Nil(t, e2.GetJsonAddress())
 	assert.NotNil(t, e2)
 
 	now := time.Now().UTC()
@@ -235,6 +240,7 @@ func TestGenerate(t *testing.T) {
 	assert.Equal(t, now.Truncate(time.Hour*24).Unix(), e.GetDate().Unix())
 	assert.Equal(t, uint64(0), e.GetReferenceOptionalID())
 	assert.Equal(t, uint64(0), e.GetReferenceRequiredID())
+	assert.Nil(t, e.GetJsonAddress())
 
 	id = e2.GetID()
 	e2, found, err = entities.GenerateEntityNoRedisProvider.GetByID(ctx, id)
@@ -263,6 +269,7 @@ func TestGenerate(t *testing.T) {
 	assert.Equal(t, now.Truncate(time.Hour*24).Unix(), e2.GetDate().Unix())
 	assert.Equal(t, uint64(0), e2.GetReferenceOptionalID())
 	assert.Equal(t, uint64(0), e2.GetReferenceRequiredID())
+	assert.Nil(t, e2.GetJsonAddress())
 
 	e.SetAge(0)
 	e2.SetAge(0)
@@ -398,6 +405,9 @@ func TestGenerate(t *testing.T) {
 	e2.SetReferenceRequired(ref.GetID())
 	e.SetReferenceOptional(ref.GetID())
 	e2.SetReferenceOptional(ref.GetID())
+	jsonAddr := &models.GenerateJsonAddress{Street: "123 Main St", City: "Springfield", Zip: "62701"}
+	e.SetJsonAddress(jsonAddr)
+	e2.SetJsonAddress(jsonAddr)
 	assert.NoError(t, ctx.Flush())
 
 	e, found, err = entities.GenerateEntityProvider.GetByID(ctx, e.GetID())
@@ -449,6 +459,8 @@ func TestGenerate(t *testing.T) {
 	assert.Equal(t, ref.GetID(), e2.GetReferenceRequiredID())
 	assert.Equal(t, ref.GetID(), e.GetReferenceOptionalID())
 	assert.Equal(t, ref.GetID(), e2.GetReferenceOptionalID())
+	assert.Equal(t, jsonAddr, e.GetJsonAddress())
+	assert.Equal(t, jsonAddr, e2.GetJsonAddress())
 
 	e.SetAge(1)
 	e2.SetAge(1)
@@ -493,7 +505,22 @@ func TestGenerate(t *testing.T) {
 	e2.SetReferenceRequired(ref.GetID())
 	e.SetReferenceOptional(ref.GetID())
 	e2.SetReferenceOptional(ref.GetID())
+	e.SetJsonAddress(jsonAddr)
+	e2.SetJsonAddress(jsonAddr)
 	assert.NoError(t, ctx.Flush())
+
+	// Set JsonAddress back to nil
+	e.SetJsonAddress(nil)
+	e2.SetJsonAddress(nil)
+	assert.NoError(t, ctx.Flush())
+	e, found, err = entities.GenerateEntityProvider.GetByID(ctx, e.GetID())
+	assert.NoError(t, err)
+	assert.True(t, found)
+	assert.Nil(t, e.GetJsonAddress())
+	e2, found, err = entities.GenerateEntityNoRedisProvider.GetByID(ctx, e2.GetID())
+	assert.NoError(t, err)
+	assert.True(t, found)
+	assert.Nil(t, e2.GetJsonAddress())
 
 	// SearchIDs: generateEntityNoRedis (no FakeDelete)
 	var ids []uint64
@@ -1018,7 +1045,7 @@ func TestGenerate(t *testing.T) {
 
 	redisCacheProvider = &entities.GenerateEntityProvider
 	assert.Equal(t, "default", redisCacheProvider.RedisCode())
-	assert.Equal(t, "5ff3a:", redisCacheProvider.RedisCachePrefix())
+	assert.Equal(t, "54849:", redisCacheProvider.RedisCachePrefix())
 	assert.NotNil(t, redisCacheProvider.ClearRedisCache)
 
 	redisCacheProvider = &entities.GenerateEntityCachedUniqueProvider

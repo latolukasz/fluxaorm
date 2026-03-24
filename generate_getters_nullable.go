@@ -666,6 +666,79 @@ func (g *codeGenerator) createGetterSetterBytesNullable(schema *entitySchema, fi
 	g.filedIndex++
 }
 
+func (g *codeGenerator) createGetterSetterJsonStruct(schema *entitySchema, fieldName, entityName, providerName, goTypeName string) {
+	g.addLine(fmt.Sprintf("func (e *%s) Get%s() *%s {", entityName, fieldName, goTypeName))
+	g.addLine("\tif !e.new {")
+	g.addLine("\t\tif e.databaseBind != nil {")
+	g.addLine(fmt.Sprintf("\t\t\tv, hasInDB := e.databaseBind[\"%s\"]", fieldName))
+	g.addLine("\t\t\tif hasInDB {")
+	g.addLine("\t\t\t\tvNullable := v.(sql.NullString)")
+	g.addLine("\t\t\t\tif vNullable.Valid {")
+	g.addLine(fmt.Sprintf("\t\t\t\t\tvar result %s", goTypeName))
+	g.addLine("\t\t\t\t\t_ = fluxaorm.JsonUnmarshalFromString(vNullable.String, &result)")
+	g.addLine("\t\t\t\t\treturn &result")
+	g.addLine("\t\t\t\t}")
+	g.addLine("\t\t\t\treturn nil")
+	g.addLine("\t\t\t}")
+	g.addLine("\t\t}")
+	if schema.hasRedisCache {
+		g.addLine("\t\tif e.originRedisValues != nil {")
+		g.addLine(fmt.Sprintf("\t\t\tif e.originRedisValues[%d] == \"\" {", g.filedIndex))
+		g.addLine("\t\t\t\treturn nil")
+		g.addLine("\t\t\t}")
+		g.addLine(fmt.Sprintf("\t\t\tvar result %s", goTypeName))
+		g.addLine(fmt.Sprintf("\t\t\t_ = fluxaorm.JsonUnmarshalFromString(e.originRedisValues[%d], &result)", g.filedIndex))
+		g.addLine("\t\t\treturn &result")
+		g.addLine("\t\t}")
+	}
+	g.addLine("\t}")
+	g.addLine(fmt.Sprintf("\tif e.originDatabaseValues.F%d.Valid {", g.filedIndex))
+	g.addLine(fmt.Sprintf("\t\tvar result %s", goTypeName))
+	g.addLine(fmt.Sprintf("\t\t_ = fluxaorm.JsonUnmarshalFromString(e.originDatabaseValues.F%d.String, &result)", g.filedIndex))
+	g.addLine("\t\treturn &result")
+	g.addLine("\t}")
+	g.addLine("\treturn nil")
+	g.addLine("}")
+	g.addLine("")
+
+	g.addLine(fmt.Sprintf("func (e *%s) Set%s(value *%s) {", entityName, fieldName, goTypeName))
+	g.addLine("\tbindValue := sql.NullString{}")
+	g.addLine("\tif value != nil {")
+	g.addLine("\t\tjsonStr, _ := fluxaorm.JsonMarshalToString(*value)")
+	g.addLine("\t\tbindValue.Valid = true")
+	g.addLine("\t\tbindValue.String = jsonStr")
+	g.addLine("\t}")
+	g.addLine("\tif e.new {")
+	g.addLine(fmt.Sprintf("\t\te.originDatabaseValues.F%d = bindValue", g.filedIndex))
+	g.addLine("\t\treturn")
+	g.addLine("\t}")
+	if schema.hasRedisCache {
+		g.addLine("\tsame := false")
+		g.addLine("\tif e.originRedisValues != nil {")
+		g.addLine(fmt.Sprintf("\t\tsame = e.originRedisValues[%d] == bindValue.String", g.filedIndex))
+		g.addLine("\t} else {")
+		g.addLine(fmt.Sprintf("\t\tsame = e.originDatabaseValues.F%d == bindValue", g.filedIndex))
+		g.addLine("\t}")
+		g.addLine("\tif same {")
+		g.addLine(fmt.Sprintf("\t\tdelete(e.databaseBind, \"%s\")", fieldName))
+		g.addLine(fmt.Sprintf("\t\tdelete(e.redisBind, %d)", g.filedIndex+1))
+		g.addLine("\t\treturn")
+		g.addLine("\t}")
+	} else {
+		g.addLine(fmt.Sprintf("\tif e.originDatabaseValues.F%d == bindValue {", g.filedIndex))
+		g.addLine(fmt.Sprintf("\t\tdelete(e.databaseBind, \"%s\")", fieldName))
+		g.addLine("\t\treturn")
+		g.addLine("\t}")
+	}
+	g.addLine(fmt.Sprintf("\te.addToDatabaseBind(\"%s\", bindValue)", fieldName))
+	if schema.hasRedisCache {
+		g.addLine(fmt.Sprintf("\te.addToRedisBind(%d, bindValue.String)", g.filedIndex+1))
+	}
+	g.addLine("}")
+	g.addLine("")
+	g.filedIndex++
+}
+
 func (g *codeGenerator) createGetterSetterEnumNullable(schema *entitySchema, fieldName, entityName, enumName, providerName string) {
 	g.addLine(fmt.Sprintf("func (e *%s) Get%s() *%s {", entityName, fieldName, enumName))
 	g.addLine("\tif !e.new {")

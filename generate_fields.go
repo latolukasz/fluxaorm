@@ -174,6 +174,12 @@ func (g *codeGenerator) generateGettersSetters(entityName, providerName string, 
 		fieldName := fields.prefix + fields.fields[i].Name
 		g.createGetterSetterTimeNullable(schema, fieldName, entityName, providerName, true)
 	}
+	for k, i := range fields.jsonStructs {
+		fieldName := fields.prefix + fields.fields[i].Name
+		g.addImport("database/sql")
+		g.addImport(fields.jsonStructImports[k])
+		g.createGetterSetterJsonStruct(schema, fieldName, entityName, providerName, fields.jsonStructTypes[k])
+	}
 	for _, subFields := range fields.structsFields {
 		err := g.generateGettersSetters(entityName, providerName, schema, subFields)
 		if err != nil {
@@ -269,6 +275,10 @@ func (g *codeGenerator) addSQLRowLines(fields *tableFields) string {
 	}
 	for range fields.datesNullable {
 		result += fmt.Sprintf("\tF%d sql.NullTime\n", g.filedIndex)
+		g.filedIndex++
+	}
+	for range fields.jsonStructs {
+		result += fmt.Sprintf("\tF%d sql.NullString\n", g.filedIndex)
 		g.filedIndex++
 	}
 	for _, subFields := range fields.structsFields {
@@ -406,6 +416,14 @@ func (g *codeGenerator) addRedisBindSetLines(schema *entitySchema, fields *table
 		g.addLine(fmt.Sprintf("\t\tredisListValues[%d] = \"\"", g.filedIndex+1))
 		g.addLine("\t} else {")
 		g.addLine(fmt.Sprintf("\t\tredisListValues[%d] = strconv.FormatInt(r.F%d.Time.Unix(), 10)", g.filedIndex+1, g.filedIndex))
+		g.addLine("\t}")
+		g.filedIndex++
+	}
+	for range fields.jsonStructs {
+		g.addLine(fmt.Sprintf("\tif !r.F%d.Valid { ", g.filedIndex))
+		g.addLine(fmt.Sprintf("\t\tredisListValues[%d] = \"\"", g.filedIndex+1))
+		g.addLine("\t} else {")
+		g.addLine(fmt.Sprintf("\t\tredisListValues[%d] = r.F%d.String", g.filedIndex+1, g.filedIndex))
 		g.addLine("\t}")
 		g.filedIndex++
 	}

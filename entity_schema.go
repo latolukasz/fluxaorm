@@ -172,6 +172,9 @@ type tableFields struct {
 	datesNullable             []int
 	times                     []int
 	dates                     []int
+	jsonStructs               []int
+	jsonStructTypes           []string
+	jsonStructImports         []string
 	structs                   []int
 	structsFields             []*tableFields
 }
@@ -768,6 +771,13 @@ func (e *entitySchema) buildTableFields(t reflect.Type, registry *registry,
 				if err != nil {
 					return nil, err
 				}
+			} else if k == "ptr" && fType.Elem().Kind() == reflect.Struct {
+				elemName := fType.Elem().String()
+				if _, isEntity := registry.entities[elemName]; !isEntity {
+					e.buildJsonStructField(attributes)
+				} else {
+					return nil, fmt.Errorf("%s field %s type %s is not supported", e.t.String(), f.Name, f.Type.String())
+				}
 			} else if fType.Implements(reflect.TypeOf((*referenceInterface)(nil)).Elem()) {
 				e.buildReferenceField(attributes)
 			} else {
@@ -1125,6 +1135,16 @@ func (e *entitySchema) buildStructField(attributes schemaFieldAttributes, regist
 	return nil
 }
 
+func (e *entitySchema) buildJsonStructField(attributes schemaFieldAttributes) {
+	elemType := attributes.Field.Type.Elem()
+	attributes.Fields.jsonStructs = append(attributes.Fields.jsonStructs, attributes.Index)
+	attributes.Fields.jsonStructTypes = append(attributes.Fields.jsonStructTypes, elemType.String())
+	attributes.Fields.jsonStructImports = append(attributes.Fields.jsonStructImports, elemType.PkgPath())
+	for _, columnName := range attributes.GetColumnNames() {
+		e.fieldDefinitions[columnName] = attributes
+	}
+}
+
 func extractTags(registry *registry, entityType reflect.Type, prefix string) (fields map[string]map[string]string) {
 	fields = make(map[string]map[string]string)
 	for i := 0; i < entityType.NumField(); i++ {
@@ -1223,6 +1243,7 @@ func (fields *tableFields) buildColumnNames(subFieldPrefix string) []string {
 	ids = append(ids, fields.floatsNullable...)
 	ids = append(ids, fields.timesNullable...)
 	ids = append(ids, fields.datesNullable...)
+	ids = append(ids, fields.jsonStructs...)
 	for _, index := range ids {
 		name := subFieldPrefix + fields.fields[index].Name
 		columns = append(columns, name)
