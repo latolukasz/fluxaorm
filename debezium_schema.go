@@ -11,6 +11,17 @@ import (
 	"strings"
 )
 
+// DebeziumOptions holds optional overrides for Debezium connector configuration.
+// Useful when Debezium Connect runs in Docker and needs different addresses than the Go application.
+type DebeziumOptions struct {
+	// MySQLHost overrides the MySQL hostname used in connector configs.
+	MySQLHost string
+	// MySQLPort overrides the MySQL port used in connector configs.
+	MySQLPort string
+	// KafkaBrokers overrides the Kafka bootstrap servers used for schema history.
+	KafkaBrokers []string
+}
+
 // DebeziumAlter holds a pending Debezium connector operation.
 type DebeziumAlter struct {
 	Description string
@@ -71,19 +82,35 @@ func GetDebeziumAlters(ctx Context) ([]DebeziumAlter, error) {
 		topicPrefix := "fluxa_" + key.mysqlPool
 		brokers := ctx.Engine().Kafka(key.kafkaPool).GetBrokers()
 
+		if opts, ok := registry.debeziumOptions[key.kafkaPool]; ok && opts != nil {
+			if opts.MySQLHost != "" {
+				host = opts.MySQLHost
+			}
+			if opts.MySQLPort != "" {
+				port = opts.MySQLPort
+			}
+			if len(opts.KafkaBrokers) > 0 {
+				brokers = opts.KafkaBrokers
+			}
+		}
+
 		config := map[string]string{
-			"connector.class":       "io.debezium.connector.mysql.MySqlConnector",
-			"database.hostname":     host,
-			"database.port":         port,
-			"database.user":         user,
-			"database.password":     pass,
-			"database.server.id":    generateServerID(key.mysqlPool),
-			"topic.prefix":          topicPrefix,
-			"database.include.list": mysqlConfig.GetDatabaseName(),
-			"table.include.list":    strings.Join(tables, ","),
+			"connector.class":                "io.debezium.connector.mysql.MySqlConnector",
+			"database.hostname":              host,
+			"database.port":                  port,
+			"database.user":                  user,
+			"database.password":              pass,
+			"database.server.id":             generateServerID(key.mysqlPool),
+			"topic.prefix":                   topicPrefix,
+			"database.include.list":          mysqlConfig.GetDatabaseName(),
+			"table.include.list":             strings.Join(tables, ","),
+			"include.schema.changes":         "false",
+			"key.converter":                  "org.apache.kafka.connect.json.JsonConverter",
+			"key.converter.schemas.enable":   "false",
+			"value.converter":                "org.apache.kafka.connect.json.JsonConverter",
+			"value.converter.schemas.enable": "false",
 			"schema.history.internal.kafka.bootstrap.servers": strings.Join(brokers, ","),
 			"schema.history.internal.kafka.topic":             topicPrefix + "_schema_history",
-			"include.schema.changes":                          "false",
 		}
 
 		desiredByPool[key.kafkaPool] = append(desiredByPool[key.kafkaPool], desiredConnector{

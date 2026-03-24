@@ -41,7 +41,7 @@ type Registry interface {
 	RegisterKafkaTopic(topic *KafkaTopicBuilder)
 	RegisterKafkaConsumerGroup(consumerGroup *KafkaConsumerGroupBuilder)
 	RegisterAsyncFlush(kafkaPool string, options *AsyncFlushOptions)
-	RegisterDebeziumConnectURL(url string, kafkaPool string)
+	RegisterDebeziumConnectURL(url string, kafkaPool string, options *DebeziumOptions)
 	EnableMetrics(factory promauto.Factory)
 }
 
@@ -59,6 +59,7 @@ type registry struct {
 	asyncFlushKafkaPool string
 	asyncFlushOptions   *AsyncFlushOptions
 	debeziumConnectURLs map[string]string
+	debeziumOptions     map[string]*DebeziumOptions
 	metricsFactory      *promauto.Factory
 }
 
@@ -234,6 +235,45 @@ func (r *registry) Validate() (Engine, error) {
 			}
 		}
 	}
+	// Auto-register async flush Kafka topics and consumer group (before consumer group validation)
+	if r.asyncFlushKafkaPool != "" {
+		if _, exists := r.kafkaPools[r.asyncFlushKafkaPool]; !exists {
+			return nil, fmt.Errorf("kafka pool '%s' not registered for async flush", r.asyncFlushKafkaPool)
+		}
+		partitions := int32(1)
+		if r.asyncFlushOptions != nil && r.asyncFlushOptions.TopicPartitions > 0 {
+			partitions = r.asyncFlushOptions.TopicPartitions
+		}
+		hasAsyncTopic := false
+		hasDeadLetterTopic := false
+		for _, topic := range r.kafkaTopics {
+			if topic.poolCode == r.asyncFlushKafkaPool {
+				if topic.topicName == AsyncSQLTopicName {
+					hasAsyncTopic = true
+				}
+				if topic.topicName == AsyncSQLDeadLetterTopicName {
+					hasDeadLetterTopic = true
+				}
+			}
+		}
+		if !hasAsyncTopic {
+			r.RegisterKafkaTopic(NewKafkaTopic(AsyncSQLTopicName, r.asyncFlushKafkaPool).Partitions(partitions))
+		}
+		if !hasDeadLetterTopic {
+			r.RegisterKafkaTopic(NewKafkaTopic(AsyncSQLDeadLetterTopicName, r.asyncFlushKafkaPool).Partitions(1))
+		}
+		hasCG := false
+		for _, cg := range r.kafkaConsumerGroups {
+			if cg.poolCode == r.asyncFlushKafkaPool && cg.name == AsyncSQLTopicName {
+				hasCG = true
+				break
+			}
+		}
+		if !hasCG {
+			r.RegisterKafkaConsumerGroup(NewKafkaConsumerGroup(AsyncSQLTopicName, r.asyncFlushKafkaPool).Topics(AsyncSQLTopicName))
+		}
+		e.registry.asyncFlushKafkaPool = r.asyncFlushKafkaPool
+	}
 	// Validate and register Kafka consumer group definitions
 	if len(r.kafkaConsumerGroups) > 0 {
 		seenCGNames := make(map[string]string) // poolCode.name -> poolCode
@@ -385,50 +425,10 @@ func (r *registry) Validate() (Engine, error) {
 	for key, value := range r.options {
 		e.registry.options[key] = value
 	}
-	// Auto-register async flush Kafka topics and consumer group
-	if r.asyncFlushKafkaPool != "" {
-		if _, exists := r.kafkaPools[r.asyncFlushKafkaPool]; !exists {
-			return nil, fmt.Errorf("kafka pool '%s' not registered for async flush", r.asyncFlushKafkaPool)
-		}
-		partitions := int32(1)
-		if r.asyncFlushOptions != nil && r.asyncFlushOptions.TopicPartitions > 0 {
-			partitions = r.asyncFlushOptions.TopicPartitions
-		}
-		// Auto-register topics if not already registered
-		hasAsyncTopic := false
-		hasDeadLetterTopic := false
-		for _, topic := range r.kafkaTopics {
-			if topic.poolCode == r.asyncFlushKafkaPool {
-				if topic.topicName == AsyncSQLTopicName {
-					hasAsyncTopic = true
-				}
-				if topic.topicName == AsyncSQLDeadLetterTopicName {
-					hasDeadLetterTopic = true
-				}
-			}
-		}
-		if !hasAsyncTopic {
-			r.RegisterKafkaTopic(NewKafkaTopic(AsyncSQLTopicName, r.asyncFlushKafkaPool).Partitions(partitions))
-		}
-		if !hasDeadLetterTopic {
-			r.RegisterKafkaTopic(NewKafkaTopic(AsyncSQLDeadLetterTopicName, r.asyncFlushKafkaPool).Partitions(1))
-		}
-		// Auto-register consumer group if not already registered
-		hasCG := false
-		for _, cg := range r.kafkaConsumerGroups {
-			if cg.poolCode == r.asyncFlushKafkaPool && cg.name == AsyncSQLTopicName {
-				hasCG = true
-				break
-			}
-		}
-		if !hasCG {
-			r.RegisterKafkaConsumerGroup(NewKafkaConsumerGroup(AsyncSQLTopicName, r.asyncFlushKafkaPool).Topics(AsyncSQLTopicName))
-		}
-		e.registry.asyncFlushKafkaPool = r.asyncFlushKafkaPool
-	}
 	// Auto-register ignored Kafka topics for Debezium CDC
 	if len(r.debeziumConnectURLs) > 0 {
 		e.registry.debeziumConnectURLs = r.debeziumConnectURLs
+		e.registry.debeziumOptions = r.debeziumOptions
 		// Collect Debezium data topics and internal topics to ignore in GetKafkaAlters
 		debeziumIgnoredTopics := make(map[string][]string) // kafkaPool -> topics
 		mysqlPoolsSeen := make(map[string]bool)
@@ -477,11 +477,17 @@ func (r *registry) RegisterAsyncFlush(kafkaPool string, options *AsyncFlushOptio
 	r.asyncFlushOptions = options
 }
 
-func (r *registry) RegisterDebeziumConnectURL(url string, kafkaPool string) {
+func (r *registry) RegisterDebeziumConnectURL(url string, kafkaPool string, options *DebeziumOptions) {
 	if r.debeziumConnectURLs == nil {
 		r.debeziumConnectURLs = make(map[string]string)
 	}
 	r.debeziumConnectURLs[kafkaPool] = url
+	if options != nil {
+		if r.debeziumOptions == nil {
+			r.debeziumOptions = make(map[string]*DebeziumOptions)
+		}
+		r.debeziumOptions[kafkaPool] = options
+	}
 }
 
 func (r *registry) EnableMetrics(factory promauto.Factory) {

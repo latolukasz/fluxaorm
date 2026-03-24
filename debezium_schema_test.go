@@ -15,7 +15,7 @@ type debeziumTestEntity struct {
 func TestDebeziumTagRegistration(t *testing.T) {
 	registry := NewRegistry()
 	registry.RegisterKafka([]string{"localhost:9944"}, "kafka", nil)
-	registry.RegisterDebeziumConnectURL("http://localhost:8183", "kafka")
+	registry.RegisterDebeziumConnectURL("http://localhost:9945", "kafka", nil)
 	ctx := PrepareTables(t, registry, &debeziumTestEntity{})
 
 	// Verify entity schema has debezium enabled
@@ -71,7 +71,7 @@ func TestDebeziumAlterDescription(t *testing.T) {
 func TestDebeziumTopicName(t *testing.T) {
 	registry := NewRegistry()
 	registry.RegisterKafka([]string{"localhost:9944"}, "kafka", nil)
-	registry.RegisterDebeziumConnectURL("http://localhost:8183", "kafka")
+	registry.RegisterDebeziumConnectURL("http://localhost:9945", "kafka", nil)
 	ctx := PrepareTables(t, registry, &debeziumTestEntity{})
 
 	topicName := DebeziumTopicName(ctx, &debeziumTestEntity{})

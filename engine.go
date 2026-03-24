@@ -51,6 +51,7 @@ type engineRegistryImplementation struct {
 	hasMetrics                 bool
 	metricsRegistry            *metricsRegistry
 	debeziumConnectURLs        map[string]string
+	debeziumOptions            map[string]*DebeziumOptions
 }
 
 type engineImplementation struct {

@@ -120,6 +120,12 @@ type generateEntityEnumRef struct {
 	Status string `orm:"enumName=TestEnum"`
 }
 
+type generateEntityDebezium struct {
+	ID   uint64 `orm:"debezium=kafka"`
+	Name string `orm:"required;length=100"`
+	Age  uint16
+}
+
 //func BenchmarkGenerate(b *testing.B) {
 //	b.ReportAllocs()
 //	v := struct {
@@ -131,7 +137,8 @@ type generateEntityEnumRef struct {
 //}
 
 func TestGenerate(t *testing.T) {
-	ctx := fluxaorm.PrepareTables(t, fluxaorm.NewRegistry(), generateEntity{}, generateEntityNoRedis{}, generateReferenceEntity{}, generateEntityWithSearch{}, generateEntityWithTimestamps{}, generateEntityWithTimestampsRedis{}, generateEntityCachedUnique{}, generateEntityCachedUniqueNoRedis{}, generateEntityCachedUniqueFakeDelete{}, generateEntityEnumRef{})
+	ctx := fluxaorm.PrepareTablesWithDebezium(t, fluxaorm.NewRegistry(), generateEntity{}, generateEntityNoRedis{}, generateReferenceEntity{}, generateEntityWithSearch{}, generateEntityWithTimestamps{}, generateEntityWithTimestampsRedis{}, generateEntityCachedUnique{}, generateEntityCachedUniqueNoRedis{}, generateEntityCachedUniqueFakeDelete{}, generateEntityEnumRef{}, generateEntityDebezium{})
+	defer ctx.Engine().Kafka("kafka").Close()
 	_ = os.MkdirAll("entities", 0755)
 
 	err := fluxaorm.Generate(ctx.Engine(), "entities")

@@ -32,7 +32,11 @@ func PrepareTablesWithKafka(t *testing.T, registry Registry, entities ...any) (o
 
 func PrepareTablesWithDebezium(t *testing.T, registry Registry, entities ...any) (orm Context) {
 	registry.RegisterKafka([]string{"localhost:9944"}, "kafka", nil)
-	registry.RegisterDebeziumConnectURL("http://localhost:8183", "kafka")
+	registry.RegisterDebeziumConnectURL("http://localhost:9945", "kafka", &DebeziumOptions{
+		MySQLHost:    "host.docker.internal",
+		MySQLPort:    "3397",
+		KafkaBrokers: []string{"kafka:9094"},
+	})
 	registry.RegisterAsyncFlush("kafka", nil)
 	return prepareTables(t, registry, &MySQLOptions{}, entities...)
 }
