@@ -130,6 +130,7 @@ type entitySchema struct {
 	redisSearchPrefix       string
 	searchableFields        []searchableFieldDef
 	pendingSearchableFields map[string]pendingSearchableField
+	debeziumKafkaPool       string
 	cachedUniqueIndexes     map[string]bool
 	hasCachedUniqueIndexes  bool
 	uniqueIndexFIndexes     map[string][]int
@@ -317,6 +318,13 @@ func (e *entitySchema) init(registry *registry, entityType reflect.Type) error {
 			return fmt.Errorf("redis pool '%s' not found for redisSearch in entity '%s'", redisSearchPoolCode, entityType.Name())
 		}
 		e.redisSearchPoolCode = redisSearchPoolCode
+	}
+	debeziumKafkaPool := e.getTag("debezium", DefaultPoolCode, "")
+	if debeziumKafkaPool != "" {
+		if _, has := registry.kafkaPools[debeziumKafkaPool]; !has {
+			return fmt.Errorf("kafka pool '%s' not found for debezium in entity '%s'", debeziumKafkaPool, entityType.Name())
+		}
+		e.debeziumKafkaPool = debeziumKafkaPool
 	}
 	e.tableName = e.getTag("table", entityType.Name(), entityType.Name())
 	redisCacheName := e.getTag("redisCache", DefaultPoolCode, "")

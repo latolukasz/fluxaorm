@@ -41,6 +41,7 @@ type Registry interface {
 	RegisterKafkaTopic(topic *KafkaTopicBuilder)
 	RegisterKafkaConsumerGroup(consumerGroup *KafkaConsumerGroupBuilder)
 	RegisterAsyncFlush(kafkaPool string, options *AsyncFlushOptions)
+	RegisterDebeziumConnectURL(url string, kafkaPool string)
 	EnableMetrics(factory promauto.Factory)
 }
 
@@ -57,6 +58,7 @@ type registry struct {
 	options             map[string]any
 	asyncFlushKafkaPool string
 	asyncFlushOptions   *AsyncFlushOptions
+	debeziumConnectURLs map[string]string
 	metricsFactory      *promauto.Factory
 }
 
@@ -424,6 +426,46 @@ func (r *registry) Validate() (Engine, error) {
 		}
 		e.registry.asyncFlushKafkaPool = r.asyncFlushKafkaPool
 	}
+	// Auto-register ignored Kafka topics for Debezium CDC
+	if len(r.debeziumConnectURLs) > 0 {
+		e.registry.debeziumConnectURLs = r.debeziumConnectURLs
+		// Collect Debezium data topics and internal topics to ignore in GetKafkaAlters
+		debeziumIgnoredTopics := make(map[string][]string) // kafkaPool -> topics
+		mysqlPoolsSeen := make(map[string]bool)
+		for _, schema := range e.registry.entitySchemas {
+			if schema.debeziumKafkaPool == "" {
+				continue
+			}
+			kafkaPool := schema.debeziumKafkaPool
+			mysqlPool := schema.mysqlPoolCode
+			db := e.dbServers[mysqlPool]
+			dbName := db.GetConfig().GetDatabaseName()
+			topicPrefix := "fluxa_" + mysqlPool
+			dataTopicName := topicPrefix + "." + dbName + "." + schema.tableName
+			debeziumIgnoredTopics[kafkaPool] = append(debeziumIgnoredTopics[kafkaPool], dataTopicName)
+			if !mysqlPoolsSeen[mysqlPool] {
+				mysqlPoolsSeen[mysqlPool] = true
+				debeziumIgnoredTopics[kafkaPool] = append(debeziumIgnoredTopics[kafkaPool], topicPrefix+"_schema_history")
+			}
+		}
+		// Add Debezium internal topics
+		for kafkaPool := range r.debeziumConnectURLs {
+			debeziumIgnoredTopics[kafkaPool] = append(debeziumIgnoredTopics[kafkaPool],
+				"fluxa_connect_configs", "fluxa_connect_offsets", "fluxa_connect_status")
+		}
+		// Merge into kafkaIgnoredTopics
+		for kafkaPool, topics := range debeziumIgnoredTopics {
+			if e.registry.kafkaIgnoredTopics == nil {
+				e.registry.kafkaIgnoredTopics = make(map[string]map[string]bool)
+			}
+			if e.registry.kafkaIgnoredTopics[kafkaPool] == nil {
+				e.registry.kafkaIgnoredTopics[kafkaPool] = make(map[string]bool)
+			}
+			for _, topic := range topics {
+				e.registry.kafkaIgnoredTopics[kafkaPool][topic] = true
+			}
+		}
+	}
 	if e.registry.hasMetrics {
 		e.registry.metricsRegistry = initMetricsRegistry(*r.metricsFactory)
 	}
@@ -433,6 +475,13 @@ func (r *registry) Validate() (Engine, error) {
 func (r *registry) RegisterAsyncFlush(kafkaPool string, options *AsyncFlushOptions) {
 	r.asyncFlushKafkaPool = kafkaPool
 	r.asyncFlushOptions = options
+}
+
+func (r *registry) RegisterDebeziumConnectURL(url string, kafkaPool string) {
+	if r.debeziumConnectURLs == nil {
+		r.debeziumConnectURLs = make(map[string]string)
+	}
+	r.debeziumConnectURLs[kafkaPool] = url
 }
 
 func (r *registry) EnableMetrics(factory promauto.Factory) {

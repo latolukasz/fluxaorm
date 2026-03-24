@@ -50,6 +50,7 @@ type engineRegistryImplementation struct {
 	kafkaIgnoredConsumerGroups map[string]map[string]bool
 	hasMetrics                 bool
 	metricsRegistry            *metricsRegistry
+	debeziumConnectURLs        map[string]string
 }
 
 type engineImplementation struct {

@@ -1,6 +1,7 @@
 services:
   mysql:
     image: mysql/mysql-server:8.0
+    command: --server-id=1 --log-bin=mysql-bin --binlog-format=ROW --binlog-row-image=FULL
     volumes:
       - orm_volume_mysql:/var/lib/mysql
     ports:
@@ -40,6 +41,22 @@ services:
       CLUSTER_ID: "ORM-kafka-test-cluster-1"
     volumes:
       - orm_volume_kafka:/var/kafka/kafka-logs
+  connect:
+    image: quay.io/debezium/connect:2.7
+    ports:
+      - ${LOCAL_IP}:${DEBEZIUM_PORT}:8083
+    environment:
+      BOOTSTRAP_SERVERS: kafka:9092
+      GROUP_ID: fluxa-connect
+      CONFIG_STORAGE_TOPIC: fluxa_connect_configs
+      OFFSET_STORAGE_TOPIC: fluxa_connect_offsets
+      STATUS_STORAGE_TOPIC: fluxa_connect_status
+      CONFIG_STORAGE_REPLICATION_FACTOR: 1
+      OFFSET_STORAGE_REPLICATION_FACTOR: 1
+      STATUS_STORAGE_REPLICATION_FACTOR: 1
+    depends_on:
+      - kafka
+      - mysql
 volumes:
   orm_volume_mysql: {}
   orm_volume_redis: {}
