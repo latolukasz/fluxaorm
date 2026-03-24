@@ -1093,4 +1093,8 @@ func TestGenerate(t *testing.T) {
 	cacheKeys, _, errScan = redisClient.Scan(ctx, 0, entities.GenerateEntityProvider.RedisCachePrefix()+"*", 1000)
 	assert.NoError(t, errScan)
 	assert.Len(t, cacheKeys, 0)
+
+	// Verify DebeziumTopicName on debezium-enabled provider
+	topicName := entities.GenerateEntityDebeziumProvider.DebeziumTopicName(ctx)
+	assert.Equal(t, "fluxa_default.test.generateEntityDebezium", topicName)
 }

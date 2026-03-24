@@ -68,16 +68,6 @@ func TestDebeziumAlterDescription(t *testing.T) {
 	assert.NoError(t, alter.Exec(nil))
 }
 
-func TestDebeziumTopicName(t *testing.T) {
-	registry := NewRegistry()
-	registry.RegisterKafka([]string{"localhost:9944"}, "kafka", nil)
-	registry.RegisterDebeziumConnectURL("http://localhost:9945", "kafka", nil)
-	ctx := PrepareTables(t, registry, &debeziumTestEntity{})
-
-	topicName := DebeziumTopicName(ctx, &debeziumTestEntity{})
-	assert.Equal(t, "fluxa_default.test.debeziumTestEntity", topicName)
-}
-
 func TestParseMySQLDSN(t *testing.T) {
 	host, port, user, pass := parseMySQLDSN("root:root@tcp(localhost:3397)/test")
 	assert.Equal(t, "localhost", host)

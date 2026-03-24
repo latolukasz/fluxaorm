@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
-	"reflect"
 )
 
 // DebeziumOperation represents the type of CDC operation.
@@ -83,23 +82,4 @@ func ParseDebeziumKey(record *KafkaRecord) (uint64, error) {
 	default:
 		return 0, fmt.Errorf("unexpected ID type: %T", id)
 	}
-}
-
-// DebeziumTopicName returns the Kafka topic name that Debezium uses for the given entity.
-// Format: fluxa_{mysqlPoolCode}.{database}.{tableName}
-// Panics if the entity type is not registered.
-func DebeziumTopicName(ctx Context, entity any) string {
-	t := reflect.TypeOf(entity)
-	if t.Kind() == reflect.Ptr {
-		t = t.Elem()
-	}
-	schema, ok := ctx.Engine().Registry().(*engineRegistryImplementation).entitySchemas[t]
-	if !ok || schema == nil {
-		panic(fmt.Sprintf("entity type '%s' is not registered", t.Name()))
-	}
-	if schema.debeziumKafkaPool == "" {
-		panic(fmt.Sprintf("entity '%s' does not have debezium tag", t.Name()))
-	}
-	db := ctx.Engine().DB(schema.mysqlPoolCode)
-	return "fluxa_" + schema.mysqlPoolCode + "." + db.GetConfig().GetDatabaseName() + "." + schema.tableName
 }
