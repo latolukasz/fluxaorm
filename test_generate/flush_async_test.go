@@ -136,7 +136,7 @@ func TestFlushAsyncDeferredCache(t *testing.T) {
 	// Entity should NOT be in MySQL
 	freshCtx := ctx.Engine().NewContext(context.Background())
 	freshCtx.DisableContextCache()
-	_, found, err := entities.GenerateEntityWithTimestampsRedisProvider.SearchOne(freshCtx, fluxaorm.NewWhere("`ID` = ?", id))
+	_, found, err := entities.GenerateEntityWithTimestampsRedisProvider.SearchOne(freshCtx, fluxaorm.NewQuery().FilterWhere(fluxaorm.NewWhere("`ID` = ?", id)))
 	assert.NoError(t, err)
 	assert.False(t, found, "entity should not be in MySQL before consumer runs")
 
