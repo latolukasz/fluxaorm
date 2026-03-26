@@ -26,6 +26,10 @@ func (g *codeGenerator) generateProviderAndSQLRow(schema *entitySchema, names *e
 		g.addLine("\tredisSearchIndex  string")
 		g.addLine("\tredisSearchPrefix string")
 	}
+	g.addLine(fmt.Sprintf("\tFields %sFields", names.entityPrivate))
+	if schema.hasRedisSearch {
+		g.addLine(fmt.Sprintf("\tFieldsRedisSearch %sFieldsRedisSearch", names.entityPrivate))
+	}
 	g.addLine("}")
 	g.addLine("")
 
@@ -47,6 +51,8 @@ func (g *codeGenerator) generateProviderAndSQLRow(schema *entitySchema, names *e
 		g.addLine(fmt.Sprintf("\tredisSearchPrefix: \"%s\",", schema.redisSearchPrefix))
 	}
 	g.addLine(fmt.Sprintf("\tuuidRedisKeyMutex: &sync.Mutex{},"))
+	g.generateTypedFieldsInit(schema, names)
+	g.generateRedisSearchFieldsInit(schema, names)
 	g.addLine("}")
 	g.addLine("")
 

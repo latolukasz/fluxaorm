@@ -30,6 +30,8 @@ func (g *codeGenerator) generateCodeForEntity(schema *entitySchema) error {
 
 	g.addImport("github.com/latolukasz/fluxaorm/v2")
 
+	g.generateTypedFields(schema, names)
+	g.generateRedisSearchFields(schema, names)
 	g.generateProviderAndSQLRow(schema, names)
 	g.generateGetByID(schema, names)
 	g.generateMustGetByID(names)
