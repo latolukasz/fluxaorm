@@ -19,6 +19,7 @@ type Field interface {
 // EqCondition is exposed for generated code to type-assert and extract values for cached unique index detection.
 type EqCondition interface {
 	Condition
+	ColumnName() string
 	EqValue() any
 }
 
@@ -31,8 +32,9 @@ func (c eqCondition) ToSQL() (string, []any) {
 	return "`" + c.column + "` = ?", []any{c.value}
 }
 
-func (c eqCondition) columnName() string { return c.column }
-func (c eqCondition) EqValue() any       { return c.value }
+func (c eqCondition) columnName() string  { return c.column }
+func (c eqCondition) ColumnName() string  { return c.column }
+func (c eqCondition) EqValue() any        { return c.value }
 
 type compCondition struct {
 	column   string

@@ -45,6 +45,15 @@ func (q *RedisSearchQuery) Filter(conditions ...RedisSearchCondition) *RedisSear
 	return q
 }
 
+// GetPagerOffsetCount returns the offset and count for pagination.
+// If no pager is set, returns offset=0 and count=10000.
+func (q *RedisSearchQuery) GetPagerOffsetCount() (offset int, count int) {
+	if q.pager == nil {
+		return 0, 10000
+	}
+	return (q.pager.CurrentPage - 1) * q.pager.PageSize, q.pager.PageSize
+}
+
 // BuildQueryString returns the FT.SEARCH query string. Returns "*" if no conditions.
 func (q *RedisSearchQuery) BuildQueryString() string {
 	if len(q.conditions) == 0 {
