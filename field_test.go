@@ -265,6 +265,48 @@ func TestFieldNullableFloatField(t *testing.T) {
 	assert.Nil(t, params)
 }
 
+func TestFieldNullableEnumField(t *testing.T) {
+	f := NullableEnumField{Column: "Status"}
+	assert.Equal(t, "Status", f.ColumnName())
+
+	clause, params := f.Is("active").ToSQL()
+	assert.Equal(t, "`Status` = ?", clause)
+	assert.Equal(t, []any{"active"}, params)
+
+	clause, params = f.In("active", "pending").ToSQL()
+	assert.Equal(t, "`Status` IN (?,?)", clause)
+	assert.Equal(t, []any{"active", "pending"}, params)
+
+	clause, params = f.IsNull().ToSQL()
+	assert.Equal(t, "`Status` IS NULL", clause)
+	assert.Nil(t, params)
+
+	clause, params = f.IsNotNull().ToSQL()
+	assert.Equal(t, "`Status` IS NOT NULL", clause)
+	assert.Nil(t, params)
+}
+
+func TestFieldNullableReferenceField(t *testing.T) {
+	f := NullableReferenceField{Column: "UserID"}
+	assert.Equal(t, "UserID", f.ColumnName())
+
+	clause, params := f.Eq(42).ToSQL()
+	assert.Equal(t, "`UserID` = ?", clause)
+	assert.Equal(t, []any{uint64(42)}, params)
+
+	clause, params = f.In(1, 2, 3).ToSQL()
+	assert.Equal(t, "`UserID` IN (?,?,?)", clause)
+	assert.Equal(t, []any{uint64(1), uint64(2), uint64(3)}, params)
+
+	clause, params = f.IsNull().ToSQL()
+	assert.Equal(t, "`UserID` IS NULL", clause)
+	assert.Nil(t, params)
+
+	clause, params = f.IsNotNull().ToSQL()
+	assert.Equal(t, "`UserID` IS NOT NULL", clause)
+	assert.Nil(t, params)
+}
+
 func TestFieldNullableTimeField(t *testing.T) {
 	f := NullableTimeField{Column: "DeletedAt"}
 	assert.Equal(t, "DeletedAt", f.ColumnName())
@@ -326,9 +368,11 @@ func TestFieldColumnName(t *testing.T) {
 		NullableBoolField{Column: "l"},
 		NullableFloatField{Column: "m"},
 		NullableTimeField{Column: "n"},
+		NullableEnumField{Column: "o"},
+		NullableReferenceField{Column: "p"},
 	)
 
-	expected := []string{"a", "b", "c", "d", "e", "f", "g", "h", "i", "j", "k", "l", "m", "n"}
+	expected := []string{"a", "b", "c", "d", "e", "f", "g", "h", "i", "j", "k", "l", "m", "n", "o", "p"}
 	for i, f := range fields {
 		assert.Equal(t, expected[i], f.ColumnName())
 	}

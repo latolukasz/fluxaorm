@@ -274,6 +274,36 @@ func (f NullableFloatField) In(values ...float64) Condition {
 func (f NullableFloatField) IsNull() Condition    { return nullCondition{column: f.Column, isNull: true} }
 func (f NullableFloatField) IsNotNull() Condition { return nullCondition{column: f.Column, isNull: false} }
 
+// NullableEnumField represents a nullable enum column stored as a string.
+type NullableEnumField struct{ Column string }
+
+func (f NullableEnumField) ColumnName() string             { return f.Column }
+func (f NullableEnumField) Is(v string) Condition           { return eqCondition{column: f.Column, value: v} }
+func (f NullableEnumField) In(values ...string) Condition {
+	v := make([]any, len(values))
+	for i, val := range values {
+		v[i] = val
+	}
+	return inCondition{column: f.Column, values: v}
+}
+func (f NullableEnumField) IsNull() Condition    { return nullCondition{column: f.Column, isNull: true} }
+func (f NullableEnumField) IsNotNull() Condition { return nullCondition{column: f.Column, isNull: false} }
+
+// NullableReferenceField represents a nullable foreign key reference column.
+type NullableReferenceField struct{ Column string }
+
+func (f NullableReferenceField) ColumnName() string             { return f.Column }
+func (f NullableReferenceField) Eq(v uint64) Condition           { return eqCondition{column: f.Column, value: v} }
+func (f NullableReferenceField) In(values ...uint64) Condition {
+	v := make([]any, len(values))
+	for i, val := range values {
+		v[i] = val
+	}
+	return inCondition{column: f.Column, values: v}
+}
+func (f NullableReferenceField) IsNull() Condition    { return nullCondition{column: f.Column, isNull: true} }
+func (f NullableReferenceField) IsNotNull() Condition { return nullCondition{column: f.Column, isNull: false} }
+
 // NullableTimeField represents a nullable time.Time column.
 type NullableTimeField struct{ Column string }
 
