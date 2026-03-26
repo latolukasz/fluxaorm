@@ -103,7 +103,8 @@ func (g *codeGenerator) resolveFieldType(schema *entitySchema, columnName string
 		return "TimeField"
 	case typeName == "string":
 		_, hasEnum := tags["enum"]
-		if hasEnum {
+		_, hasEnumName := tags["enumName"]
+		if hasEnum || hasEnumName {
 			if tags["required"] == "true" {
 				return "EnumField"
 			}
