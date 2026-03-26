@@ -108,6 +108,8 @@ type entitySchema struct {
 	fieldDefinitions        map[string]schemaFieldAttributes
 	uniqueIndexes           map[string]indexDefinition
 	uniqueIndexesColumns    map[string][]string
+	indexes                 map[string]indexDefinition
+	indexesColumns          map[string][]string
 	references              map[string]referenceDefinition
 	options                 map[string]any
 	hasLocalCache           bool
@@ -259,6 +261,10 @@ func (e *entitySchema) GetUniqueIndexes() map[string][]string {
 	return e.uniqueIndexesColumns
 }
 
+func (e *entitySchema) GetIndexes() map[string][]string {
+	return e.indexesColumns
+}
+
 func (e *entitySchema) GetSchemaChanges(ctx Context) (alters []Alter, has bool, err error) {
 	pre, alters, post, err := getSchemaChanges(ctx, e)
 	if err != nil {
@@ -298,6 +304,7 @@ func (e *entitySchema) init(registry *registry, entityType reflect.Type) error {
 	e.options = make(map[string]any)
 	e.references = make(map[string]referenceDefinition)
 	e.uniqueIndexes = make(map[string]indexDefinition)
+	e.indexes = make(map[string]indexDefinition)
 	e.cachedUniqueIndexes = make(map[string]bool)
 	fakeDeleteField, foundFakeDeleteField := e.t.FieldByName("FakeDelete")
 	e.hasFakeDelete = foundFakeDeleteField && fakeDeleteField.Type.Kind() == reflect.Bool
@@ -344,6 +351,7 @@ func (e *entitySchema) init(registry *registry, entityType reflect.Type) error {
 	cacheKey += e.tableName
 	e.fieldDefinitions = make(map[string]schemaFieldAttributes)
 	e.uniqueIndexesColumns = make(map[string][]string)
+	e.indexesColumns = make(map[string][]string)
 	err := e.initIndexes()
 	if err != nil {
 		return err
@@ -442,56 +450,57 @@ func (e *entitySchema) init(registry *registry, entityType reflect.Type) error {
 }
 
 func (e *entitySchema) initIndexes() error {
-	type pendingCol struct {
-		fieldName string
-		position  int
-	}
-	pending := make(map[string][]pendingCol)
-	for fieldName, tags := range e.tags {
-		uniqueVal, hasUnique := tags["unique"]
-		if !hasUnique {
-			continue
+	// Try both pointer and value receivers
+	ptrInstance := reflect.New(e.t).Interface()
+	valInstance := reflect.New(e.t).Elem().Interface()
+
+	// Check EntityUniqueIndexes
+	if impl, ok := ptrInstance.(EntityUniqueIndexes); ok {
+		for name, columns := range impl.UniqueIndexes() {
+			e.uniqueIndexes[name] = indexDefinition{Columns: columns}
+			e.uniqueIndexesColumns[name] = columns
 		}
-		indexName := fieldName
-		position := 1
-		if uniqueVal != "true" {
-			parts := strings.SplitN(uniqueVal, ":", 2)
-			indexName = parts[0]
-			if len(parts) == 2 {
-				pos, err := strconv.Atoi(parts[1])
-				if err != nil || pos < 1 {
-					return fmt.Errorf("invalid unique index position '%s' for field '%s' in entity '%s'", parts[1], fieldName, e.t.String())
-				}
-				position = pos
-			}
-		}
-		pending[indexName] = append(pending[indexName], pendingCol{fieldName, position})
-	}
-	for indexName, cols := range pending {
-		posMap := make(map[int]string, len(cols))
-		for _, col := range cols {
-			if _, exists := posMap[col.position]; exists {
-				return fmt.Errorf("unique index '%s' in entity '%s' has duplicate position %d", indexName, e.t.String(), col.position)
-			}
-			posMap[col.position] = col.fieldName
-		}
-		columns := make([]string, len(posMap))
-		for pos, fieldName := range posMap {
-			if pos < 1 || pos > len(posMap) {
-				return fmt.Errorf("unique index '%s' in entity '%s' has invalid position %d (must be between 1 and %d)", indexName, e.t.String(), pos, len(posMap))
-			}
-			columns[pos-1] = fieldName
-		}
-		e.uniqueIndexes[indexName] = indexDefinition{Columns: columns}
-		e.uniqueIndexesColumns[indexName] = columns
-		firstCol := columns[0]
-		if tags, ok := e.tags[firstCol]; ok {
-			if _, hasCached := tags["cached"]; hasCached {
-				e.cachedUniqueIndexes[indexName] = true
-				e.hasCachedUniqueIndexes = true
-			}
+	} else if impl, ok := valInstance.(EntityUniqueIndexes); ok {
+		for name, columns := range impl.UniqueIndexes() {
+			e.uniqueIndexes[name] = indexDefinition{Columns: columns}
+			e.uniqueIndexesColumns[name] = columns
 		}
 	}
+
+	// Check EntityIndexes (non-unique)
+	if impl, ok := ptrInstance.(EntityIndexes); ok {
+		for name, columns := range impl.Indexes() {
+			e.indexes[name] = indexDefinition{Columns: columns}
+			e.indexesColumns[name] = columns
+		}
+	} else if impl, ok := valInstance.(EntityIndexes); ok {
+		for name, columns := range impl.Indexes() {
+			e.indexes[name] = indexDefinition{Columns: columns}
+			e.indexesColumns[name] = columns
+		}
+	}
+
+	// Check EntityCachedUniqueIndexes
+	if impl, ok := ptrInstance.(EntityCachedUniqueIndexes); ok {
+		cachedIndexes := impl.CachedUniqueIndexes()
+		for name := range cachedIndexes {
+			if _, exists := e.uniqueIndexes[name]; !exists {
+				return fmt.Errorf("cached unique index '%s' in entity '%s' is not defined in UniqueIndexes()", name, e.t.String())
+			}
+			e.cachedUniqueIndexes[name] = true
+			e.hasCachedUniqueIndexes = true
+		}
+	} else if impl, ok := valInstance.(EntityCachedUniqueIndexes); ok {
+		cachedIndexes := impl.CachedUniqueIndexes()
+		for name := range cachedIndexes {
+			if _, exists := e.uniqueIndexes[name]; !exists {
+				return fmt.Errorf("cached unique index '%s' in entity '%s' is not defined in UniqueIndexes()", name, e.t.String())
+			}
+			e.cachedUniqueIndexes[name] = true
+			e.hasCachedUniqueIndexes = true
+		}
+	}
+
 	return nil
 }
 
@@ -502,6 +511,15 @@ func (e *entitySchema) validateIndexes() error {
 		for i, columnName := range def.Columns {
 			if !slices.Contains(e.columnNames, columnName) {
 				return fmt.Errorf("unique index column '%s' not found in entity '%s'", columnName, e.t.String())
+			}
+			all[indexName][i+1] = columnName
+		}
+	}
+	for indexName, def := range e.indexes {
+		all[indexName] = make(map[int]string)
+		for i, columnName := range def.Columns {
+			if !slices.Contains(e.columnNames, columnName) {
+				return fmt.Errorf("index column '%s' not found in entity '%s'", columnName, e.t.String())
 			}
 			all[indexName][i+1] = columnName
 		}

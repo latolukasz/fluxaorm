@@ -18,8 +18,8 @@ type generateSubStruct struct {
 
 type generateEntity struct {
 	ID                uint64 `orm:"redisCache"`
-	Age               uint32 `orm:"unique=AgeBalance"`
-	Balance           int8   `orm:"unique=AgeBalance:2"`
+	Age               uint32
+	Balance           int8
 	AgeNullable       *uint8
 	BalanceNullable   *int8
 	Name              string `orm:"required"`
@@ -101,21 +101,31 @@ type generateEntityWithTimestampsRedis struct {
 
 type generateEntityCachedUnique struct {
 	ID    uint64 `orm:"redisCache"`
-	Name  string `orm:"unique=NameAge;cached"`
-	Age   uint8  `orm:"unique=NameAge:2"`
-	Email string `orm:"unique=Email;cached"`
+	Name  string
+	Age   uint8
+	Email string
 }
 
 type generateEntityCachedUniqueNoRedis struct {
 	ID    uint64
-	Code  string `orm:"unique=Code;cached"`
-	Value int32  `orm:"unique=Code:2"`
+	Code  string
+	Value int32
 }
 
 type generateEntityCachedUniqueFakeDelete struct {
 	ID         uint64 `orm:"redisCache"`
 	FakeDelete bool
-	Name       string `orm:"unique=Name;cached"`
+	Name       string
+}
+
+type generateEntityWithIndex struct {
+	ID   uint64
+	Age  uint32
+	Name string `orm:"required"`
+}
+
+func (e generateEntityWithIndex) Indexes() map[string][]string {
+	return map[string][]string{"AgeIndex": {"Age"}, "NameAge": {"Name", "Age"}}
 }
 
 type generateEntityEnumRef struct {
@@ -129,6 +139,40 @@ type generateEntityDebezium struct {
 	Age  uint16
 }
 
+func (e generateEntity) UniqueIndexes() map[string][]string {
+	return map[string][]string{"AgeBalance": {"Age", "Balance"}}
+}
+
+func (e generateEntityCachedUnique) UniqueIndexes() map[string][]string {
+	return map[string][]string{
+		"NameAge": {"Name", "Age"},
+		"Email":   {"Email"},
+	}
+}
+
+func (e generateEntityCachedUnique) CachedUniqueIndexes() map[string][]string {
+	return map[string][]string{
+		"NameAge": {"Name", "Age"},
+		"Email":   {"Email"},
+	}
+}
+
+func (e generateEntityCachedUniqueNoRedis) UniqueIndexes() map[string][]string {
+	return map[string][]string{"Code": {"Code", "Value"}}
+}
+
+func (e generateEntityCachedUniqueNoRedis) CachedUniqueIndexes() map[string][]string {
+	return map[string][]string{"Code": {"Code", "Value"}}
+}
+
+func (e generateEntityCachedUniqueFakeDelete) UniqueIndexes() map[string][]string {
+	return map[string][]string{"Name": {"Name"}}
+}
+
+func (e generateEntityCachedUniqueFakeDelete) CachedUniqueIndexes() map[string][]string {
+	return map[string][]string{"Name": {"Name"}}
+}
+
 //func BenchmarkGenerate(b *testing.B) {
 //	b.ReportAllocs()
 //	v := struct {
@@ -140,7 +184,7 @@ type generateEntityDebezium struct {
 //}
 
 func TestGenerate(t *testing.T) {
-	ctx := fluxaorm.PrepareTablesWithDebezium(t, fluxaorm.NewRegistry(), generateEntity{}, generateEntityNoRedis{}, generateReferenceEntity{}, generateEntityWithSearch{}, generateEntityWithTimestamps{}, generateEntityWithTimestampsRedis{}, generateEntityCachedUnique{}, generateEntityCachedUniqueNoRedis{}, generateEntityCachedUniqueFakeDelete{}, generateEntityEnumRef{}, generateEntityDebezium{})
+	ctx := fluxaorm.PrepareTablesWithDebezium(t, fluxaorm.NewRegistry(), generateEntity{}, generateEntityNoRedis{}, generateReferenceEntity{}, generateEntityWithSearch{}, generateEntityWithTimestamps{}, generateEntityWithTimestampsRedis{}, generateEntityCachedUnique{}, generateEntityCachedUniqueNoRedis{}, generateEntityCachedUniqueFakeDelete{}, generateEntityWithIndex{}, generateEntityEnumRef{}, generateEntityDebezium{})
 	defer ctx.Engine().Kafka("kafka").Close()
 	_ = os.MkdirAll("entities", 0755)
 

@@ -507,6 +507,16 @@ func checkColumn(engine Engine, schema *entitySchema, field *reflect.StructField
 				indexes[indexName] = current
 			}
 		}
+		for indexName, indexDef := range schema.indexes {
+			_, hasIndex := indexes[indexName]
+			if !hasIndex {
+				current := &IndexSchemaDefinition{Name: indexName, Unique: false, columnsMap: map[int]string{}}
+				for k, v := range indexDef.Columns {
+					current.columnsMap[k+1] = v
+				}
+				indexes[indexName] = current
+			}
+		}
 		required, hasRequired := attributes["required"]
 		isRequired := hasRequired && required == "true"
 

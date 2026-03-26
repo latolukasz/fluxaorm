@@ -43,7 +43,7 @@ Entities are plain Go structs with an `ID` field and optional `orm:` struct tags
 Key struct tags:
 - `orm:"redisCache"` — enable Redis List cache for this entity
 - `orm:"required"` — NOT NULL / required field
-- `orm:"unique=IndexName"` / `orm:"unique=IndexName:2"` — composite unique index (colon suffix = column order)
+- Indexes are defined via interfaces: `EntityIndexes` (non-unique), `EntityUniqueIndexes` (unique), `EntityCachedUniqueIndexes` (cached unique). Each returns `map[string][]string` mapping index name to column names.
 - `orm:"enum=a,b,c"` / `orm:"set=a,b,c"` — MySQL ENUM/SET column
 - `orm:"enumName=TypeName"` — share an enum type across fields
 - `orm:"time"` — store as DATETIME (default is DATE for `time.Time` fields)
