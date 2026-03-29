@@ -79,7 +79,9 @@ func (orm *ormImplementation) flush() (err error) {
 func (orm *ormImplementation) ClearFlush() {
 	orm.mutexFlush.Lock()
 	defer orm.mutexFlush.Unlock()
-	orm.trackedEntities.Clear()
+	if orm.trackedEntities != nil {
+		orm.trackedEntities.Clear()
+	}
 	orm.redisPipeLines = nil
 	orm.dbPipeLines = nil
 }
