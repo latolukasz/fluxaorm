@@ -119,6 +119,26 @@ func (g *codeGenerator) resolveFieldType(schema *entitySchema, columnName string
 	return ""
 }
 
+func redisSearchGoFieldType(sf searchableFieldDef) string {
+	switch sf.redisType {
+	case "NUMERIC":
+		switch sf.goKind {
+		case "uint", "ref":
+			return "RedisSearchUintField"
+		case "int":
+			return "RedisSearchIntField"
+		default:
+			return "RedisSearchNumericField"
+		}
+	case "TEXT":
+		return "RedisSearchTextField"
+	case "TAG":
+		return "RedisSearchTagField"
+	default:
+		return ""
+	}
+}
+
 func (g *codeGenerator) generateRedisSearchFields(schema *entitySchema, names *entityNames) {
 	if !schema.hasRedisSearch {
 		return
@@ -127,15 +147,8 @@ func (g *codeGenerator) generateRedisSearchFields(schema *entitySchema, names *e
 	// Generate the FieldsRedisSearch struct type
 	g.addLine(fmt.Sprintf("type %sFieldsRedisSearch struct {", names.entityPrivate))
 	for _, sf := range schema.searchableFields {
-		var fieldType string
-		switch sf.redisType {
-		case "NUMERIC":
-			fieldType = "RedisSearchNumericField"
-		case "TEXT":
-			fieldType = "RedisSearchTextField"
-		case "TAG":
-			fieldType = "RedisSearchTagField"
-		default:
+		fieldType := redisSearchGoFieldType(sf)
+		if fieldType == "" {
 			continue
 		}
 		g.addLine(fmt.Sprintf("\t%s fluxaorm.%s", sf.columnName, fieldType))
@@ -151,15 +164,8 @@ func (g *codeGenerator) generateRedisSearchFieldsInit(schema *entitySchema, name
 
 	g.addLine(fmt.Sprintf("\tFieldsRedisSearch: %sFieldsRedisSearch{", names.entityPrivate))
 	for _, sf := range schema.searchableFields {
-		var fieldType string
-		switch sf.redisType {
-		case "NUMERIC":
-			fieldType = "RedisSearchNumericField"
-		case "TEXT":
-			fieldType = "RedisSearchTextField"
-		case "TAG":
-			fieldType = "RedisSearchTagField"
-		default:
+		fieldType := redisSearchGoFieldType(sf)
+		if fieldType == "" {
 			continue
 		}
 		g.addLine(fmt.Sprintf("\t\t%s: fluxaorm.%s{Column: \"%s\"},", sf.columnName, fieldType, sf.columnName))
