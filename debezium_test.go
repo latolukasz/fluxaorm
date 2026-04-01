@@ -1,9 +1,11 @@
 package fluxaorm
 
 import (
+	"fmt"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
+	"github.com/twmb/franz-go/pkg/kgo"
 )
 
 func TestParseDebeziumEvent(t *testing.T) {
@@ -81,4 +83,117 @@ func TestParseDebeziumKeyNoIDField(t *testing.T) {
 	_, err := ParseDebeziumKey(record)
 	assert.Error(t, err)
 	assert.Contains(t, err.Error(), "ID")
+}
+
+func makeKgoFetches(records ...*kgo.Record) KafkaFetches {
+	fetch := kgo.Fetch{
+		Topics: []kgo.FetchTopic{
+			{
+				Topic: "test-topic",
+			},
+		},
+	}
+	for _, r := range records {
+		if r.Topic == "" {
+			r.Topic = "test-topic"
+		}
+		fetch.Topics[0].Partitions = append(fetch.Topics[0].Partitions, kgo.FetchPartition{
+			Partition: 0,
+			Records:   []*kgo.Record{r},
+		})
+	}
+	return KafkaFetches{fetches: kgo.Fetches{fetch}}
+}
+
+func TestEachDebeziumEventHappyPath(t *testing.T) {
+	fetches := makeKgoFetches(
+		&kgo.Record{
+			Key:   []byte(`{"ID":1}`),
+			Value: []byte(`{"before":null,"after":{"ID":1,"Name":"a"},"source":{"db":"test","table":"t"},"op":"c","ts_ms":100}`),
+		},
+		&kgo.Record{
+			Key:   []byte(`{"ID":2}`),
+			Value: []byte(`{"before":{"ID":2,"Name":"b"},"after":null,"source":{"db":"test","table":"t"},"op":"d","ts_ms":200}`),
+		},
+	)
+
+	var collected []uint64
+	err := fetches.EachDebeziumEvent(func(entityID uint64, event *DebeziumEvent) error {
+		collected = append(collected, entityID)
+		return nil
+	})
+	assert.NoError(t, err)
+	assert.Equal(t, []uint64{1, 2}, collected)
+}
+
+func TestEachDebeziumEventSkipsTombstones(t *testing.T) {
+	fetches := makeKgoFetches(
+		&kgo.Record{
+			Key:   []byte(`{"ID":1}`),
+			Value: []byte(`{"before":null,"after":{"ID":1},"source":{"db":"test","table":"t"},"op":"c","ts_ms":100}`),
+		},
+		&kgo.Record{
+			Key:   []byte(`{"ID":2}`),
+			Value: nil, // tombstone
+		},
+		&kgo.Record{
+			Key:   []byte(`{"ID":3}`),
+			Value: []byte(`{"before":null,"after":{"ID":3},"source":{"db":"test","table":"t"},"op":"c","ts_ms":300}`),
+		},
+	)
+
+	var collected []uint64
+	err := fetches.EachDebeziumEvent(func(entityID uint64, event *DebeziumEvent) error {
+		collected = append(collected, entityID)
+		return nil
+	})
+	assert.NoError(t, err)
+	assert.Equal(t, []uint64{1, 3}, collected)
+}
+
+func TestEachDebeziumEventHandlerError(t *testing.T) {
+	fetches := makeKgoFetches(
+		&kgo.Record{
+			Key:   []byte(`{"ID":1}`),
+			Value: []byte(`{"before":null,"after":{"ID":1},"source":{"db":"test","table":"t"},"op":"c","ts_ms":100}`),
+		},
+		&kgo.Record{
+			Key:   []byte(`{"ID":2}`),
+			Value: []byte(`{"before":null,"after":{"ID":2},"source":{"db":"test","table":"t"},"op":"c","ts_ms":200}`),
+		},
+	)
+
+	callCount := 0
+	err := fetches.EachDebeziumEvent(func(entityID uint64, event *DebeziumEvent) error {
+		callCount++
+		return fmt.Errorf("handler error")
+	})
+	assert.Error(t, err)
+	assert.Equal(t, "handler error", err.Error())
+	assert.Equal(t, 1, callCount)
+}
+
+func TestEachDebeziumEventParseError(t *testing.T) {
+	fetches := makeKgoFetches(
+		&kgo.Record{
+			Key:   []byte(`{"ID":1}`),
+			Value: []byte(`invalid json`),
+		},
+	)
+
+	err := fetches.EachDebeziumEvent(func(entityID uint64, event *DebeziumEvent) error {
+		t.Fatal("handler should not be called")
+		return nil
+	})
+	assert.Error(t, err)
+	assert.Contains(t, err.Error(), "test-topic")
+}
+
+func TestEachDebeziumEventEmpty(t *testing.T) {
+	fetches := KafkaFetches{}
+	err := fetches.EachDebeziumEvent(func(entityID uint64, event *DebeziumEvent) error {
+		t.Fatal("handler should not be called")
+		return nil
+	})
+	assert.NoError(t, err)
 }

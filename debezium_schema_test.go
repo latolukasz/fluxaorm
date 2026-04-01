@@ -115,3 +115,88 @@ func TestGenerateServerID(t *testing.T) {
 	id3 := generateServerID("other")
 	assert.NotEqual(t, id1, id3) // different pools get different IDs
 }
+
+func TestDebeziumEntitiesBuilder(t *testing.T) {
+	cg := NewKafkaConsumerGroup("test_cg", "kafka").
+		DebeziumEntities(&debeziumTestEntity{})
+
+	assert.Len(t, cg.debeziumEntityTypes, 1)
+	assert.Equal(t, "debeziumTestEntity", cg.debeziumEntityTypes[0].Name())
+	assert.NoError(t, cg.validate())
+}
+
+func TestDebeziumEntitiesBuilderMixedWithTopics(t *testing.T) {
+	cg := NewKafkaConsumerGroup("test_cg", "kafka").
+		DebeziumEntities(&debeziumTestEntity{}).
+		Topics("custom-topic")
+
+	assert.Len(t, cg.debeziumEntityTypes, 1)
+	assert.Equal(t, []string{"custom-topic"}, cg.topics)
+	assert.NoError(t, cg.validate())
+}
+
+func TestDebeziumEntitiesBuilderValidationNoTopicsNoEntities(t *testing.T) {
+	cg := NewKafkaConsumerGroup("test_cg", "kafka")
+	err := cg.validate()
+	assert.Error(t, err)
+	assert.Contains(t, err.Error(), "at least one topic or debezium entity")
+}
+
+func TestDebeziumEntitiesTopicResolution(t *testing.T) {
+	registry := NewRegistry()
+	registry.RegisterKafka([]string{"localhost:9944"}, "kafka", nil)
+	registry.RegisterDebeziumConnectURL("http://localhost:9945", "kafka", nil)
+	registry.RegisterKafkaConsumerGroup(
+		NewKafkaConsumerGroup("debezium_cg", "kafka").
+			DebeziumEntities(&debeziumTestEntity{}),
+	)
+	ctx := PrepareTables(t, registry, &debeziumTestEntity{})
+
+	kafka := ctx.Engine().Kafka("kafka")
+	cg, err := kafka.ConsumerGroup("debezium_cg")
+	assert.NoError(t, err)
+	defer cg.Close()
+
+	settings := cg.GetSettings()
+	assert.Len(t, settings.Topics, 1)
+	assert.Equal(t, "fluxa_default.test.debeziumTestEntity", settings.Topics[0])
+}
+
+type nonDebeziumEntity struct {
+	ID   uint64
+	Name string `orm:"length=100"`
+}
+
+func TestDebeziumEntitiesEntityWithoutDebeziumTag(t *testing.T) {
+	registry := NewRegistry()
+	registry.RegisterMySQL("root:root@tcp(localhost:3397)/test", DefaultPoolCode, &MySQLOptions{})
+	registry.RegisterRedis("localhost:6395", 0, DefaultPoolCode, nil)
+	registry.RegisterLocalCache(DefaultPoolCode, 0)
+	registry.RegisterKafka([]string{"localhost:9944"}, "kafka", nil)
+	registry.RegisterKafkaConsumerGroup(
+		NewKafkaConsumerGroup("test_cg", "kafka").
+			DebeziumEntities(&nonDebeziumEntity{}),
+	)
+	registry.RegisterEntity(&nonDebeziumEntity{})
+	_, err := registry.Validate()
+	assert.Error(t, err)
+	assert.Contains(t, err.Error(), "does not have debezium enabled")
+}
+
+type unregisteredDebeziumEntity struct {
+	ID   uint64 `orm:"debezium=kafka"`
+	Name string `orm:"length=100"`
+}
+
+func TestDebeziumEntitiesUnregisteredEntity(t *testing.T) {
+	registry := NewRegistry()
+	registry.RegisterKafka([]string{"localhost:9944"}, "kafka", nil)
+	registry.RegisterKafkaConsumerGroup(
+		NewKafkaConsumerGroup("test_cg", "kafka").
+			DebeziumEntities(&unregisteredDebeziumEntity{}),
+	)
+	// Note: entity NOT registered via RegisterEntity
+	_, err := registry.Validate()
+	assert.Error(t, err)
+	assert.Contains(t, err.Error(), "not registered")
+}

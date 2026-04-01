@@ -425,6 +425,27 @@ func (r *registry) Validate() (Engine, error) {
 	for key, value := range r.options {
 		e.registry.options[key] = value
 	}
+	// Resolve DebeziumEntities to topic names for consumer groups
+	for _, cg := range r.kafkaConsumerGroups {
+		if len(cg.debeziumEntityTypes) == 0 {
+			continue
+		}
+		for _, entityType := range cg.debeziumEntityTypes {
+			schema, ok := e.registry.entitySchemas[entityType]
+			if !ok {
+				return nil, fmt.Errorf("entity '%s' not registered (used in debezium consumer group '%s')", entityType.String(), cg.name)
+			}
+			if schema.debeziumKafkaPool == "" {
+				return nil, fmt.Errorf("entity '%s' does not have debezium enabled (used in consumer group '%s')", entityType.String(), cg.name)
+			}
+			db := e.dbServers[schema.mysqlPoolCode]
+			dbName := db.GetConfig().GetDatabaseName()
+			topicName := "fluxa_" + schema.mysqlPoolCode + "." + dbName + "." + schema.tableName
+			cg.topics = append(cg.topics, topicName)
+		}
+		pool := r.kafkaPools[cg.poolCode]
+		pool.consumerGroups[cg.name] = cg.toSettings()
+	}
 	// Auto-register ignored Kafka topics for Debezium CDC
 	if len(r.debeziumConnectURLs) > 0 {
 		e.registry.debeziumConnectURLs = r.debeziumConnectURLs

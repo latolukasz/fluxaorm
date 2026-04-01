@@ -78,6 +78,36 @@ func (f KafkaFetches) IsEmpty() bool {
 	return len(f.fetches) == 0
 }
 
+// EachDebeziumEvent iterates over Debezium CDC events in the fetches.
+// Each record is parsed into an entity ID and DebeziumEvent.
+// Tombstone records (nil value) are skipped silently.
+// If the handler returns a non-nil error, iteration stops and that error is returned.
+// Parse errors also stop iteration and are returned.
+func (f KafkaFetches) EachDebeziumEvent(fn func(entityID uint64, event *DebeziumEvent) error) error {
+	var retErr error
+	f.fetches.EachRecord(func(r *kgo.Record) {
+		if retErr != nil {
+			return
+		}
+		record := fromKgoRecord(r)
+		if record.Value == nil {
+			return
+		}
+		entityID, err := ParseDebeziumKey(record)
+		if err != nil {
+			retErr = fmt.Errorf("record topic '%s' offset %d: %w", record.Topic, record.Offset, err)
+			return
+		}
+		event, err := ParseDebeziumEvent(record)
+		if err != nil {
+			retErr = fmt.Errorf("record topic '%s' offset %d: %w", record.Topic, record.Offset, err)
+			return
+		}
+		retErr = fn(entityID, event)
+	})
+	return retErr
+}
+
 // Pool-level interface
 type Kafka interface {
 	GetCode() string

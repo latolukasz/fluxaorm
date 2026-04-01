@@ -2,6 +2,7 @@ package fluxaorm
 
 import (
 	"fmt"
+	"reflect"
 	"sort"
 	"strconv"
 	"strings"
@@ -98,13 +99,14 @@ func (b *KafkaTopicBuilder) validate() error {
 
 // KafkaConsumerGroupBuilder defines a Kafka consumer group using a fluent API.
 type KafkaConsumerGroupBuilder struct {
-	name               string
-	poolCode           string
-	topics             []string
-	sessionTimeout     time.Duration
-	rebalanceTimeout   time.Duration
-	fetchMaxBytes      int32
-	autoCommitInterval time.Duration
+	name                string
+	poolCode            string
+	topics              []string
+	debeziumEntityTypes []reflect.Type
+	sessionTimeout      time.Duration
+	rebalanceTimeout    time.Duration
+	fetchMaxBytes       int32
+	autoCommitInterval  time.Duration
 }
 
 // NewKafkaConsumerGroup creates a new Kafka consumer group builder.
@@ -118,6 +120,21 @@ func NewKafkaConsumerGroup(name, poolCode string) *KafkaConsumerGroupBuilder {
 // Topics sets the topics for this consumer group.
 func (b *KafkaConsumerGroupBuilder) Topics(topics ...string) *KafkaConsumerGroupBuilder {
 	b.topics = topics
+	return b
+}
+
+// DebeziumEntities adds Debezium CDC topics for the given entities.
+// Topic names are resolved automatically during registry validation
+// based on each entity's database pool and table name.
+// Can be combined with Topics() on the same consumer group.
+func (b *KafkaConsumerGroupBuilder) DebeziumEntities(entities ...any) *KafkaConsumerGroupBuilder {
+	for _, e := range entities {
+		t := reflect.TypeOf(e)
+		if t.Kind() == reflect.Ptr {
+			t = t.Elem()
+		}
+		b.debeziumEntityTypes = append(b.debeziumEntityTypes, t)
+	}
 	return b
 }
 
@@ -152,8 +169,8 @@ func (b *KafkaConsumerGroupBuilder) validate() error {
 	if b.poolCode == "" {
 		return fmt.Errorf("kafka pool code is required for consumer group '%s'", b.name)
 	}
-	if len(b.topics) == 0 {
-		return fmt.Errorf("kafka consumer group '%s' must have at least one topic", b.name)
+	if len(b.topics) == 0 && len(b.debeziumEntityTypes) == 0 {
+		return fmt.Errorf("kafka consumer group '%s' must have at least one topic or debezium entity", b.name)
 	}
 	return nil
 }

@@ -109,7 +109,7 @@ func TestKafkaConsumerGroupBuilderValidation(t *testing.T) {
 	// No topics
 	cg = NewKafkaConsumerGroup("my-group", "default")
 	err = cg.validate()
-	assert.EqualError(t, err, "kafka consumer group 'my-group' must have at least one topic")
+	assert.EqualError(t, err, "kafka consumer group 'my-group' must have at least one topic or debezium entity")
 
 	// Valid
 	cg = NewKafkaConsumerGroup("my-group", "default").Topics("t1")
