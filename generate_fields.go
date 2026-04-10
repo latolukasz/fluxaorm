@@ -18,8 +18,9 @@ func (g *codeGenerator) generateGettersSetters(entityName, providerName string, 
 	}
 	for k, i := range fields.references {
 		fieldName := fields.prefix + fields.fields[i].Name
-		refTypeName := schema.references[fieldName].Type.String()
-		refName := g.capitalizeFirst(refTypeName[strings.LastIndex(refTypeName, ".")+1:])
+		refType := schema.references[fieldName].Type
+		refSchema := g.engine.registry.entitySchemas[refType]
+		refName := g.capitalizeFirst(refSchema.GetTableName())
 		required := fields.referencesRequired[k]
 		if required {
 			g.createGetterSetterUint64(schema, fieldName, entityName, "ID", providerName)

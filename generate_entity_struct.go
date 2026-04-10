@@ -1260,6 +1260,11 @@ func buildColOriginInfos(fields *tableFields, fIdx *int) []colOriginInfo {
 		cols = append(cols, colOriginInfo{fieldName, *fIdx, "nullTime"})
 		*fIdx++
 	}
+	for _, i := range fields.jsonStructs {
+		fieldName := fields.prefix + fields.fields[i].Name
+		cols = append(cols, colOriginInfo{fieldName, *fIdx, "nullString"})
+		*fIdx++
+	}
 	for _, subFields := range fields.structsFields {
 		cols = append(cols, buildColOriginInfos(subFields, fIdx)...)
 	}
