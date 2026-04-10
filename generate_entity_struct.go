@@ -663,6 +663,7 @@ func (g *codeGenerator) generateEntityStruct(schema *entitySchema, names *entity
 
 	// INSERT block
 	g.addLine("\tif e.new {")
+	g.addLine(fmt.Sprintf("\t\tfor _, cb := range %sBeforeInsertCallbacks { cb(e) }", names.entityPrivate))
 	if schema.hasCreatedAt {
 		g.addImport("time")
 		g.addLine(fmt.Sprintf("\t\tif e.originDatabaseValues.F%d.IsZero() {", schema.createdAtFIndex))
@@ -754,6 +755,7 @@ func (g *codeGenerator) generateEntityStruct(schema *entitySchema, names *entity
 
 	// DELETE block
 	g.addLine("\tif e.deleted {")
+	g.addLine(fmt.Sprintf("\t\tfor _, cb := range %sBeforeDeleteCallbacks { cb(e) }", names.entityPrivate))
 	g.addLine(fmt.Sprintf("\t\tsqlQuery := \"DELETE FROM `%s` WHERE `ID` = ?\"", schema.tableName))
 	g.addLine(fmt.Sprintf("\t\te.ctx.DatabasePipeLine(%s.dbCode).AddQueryForTable(%s.tableName, sqlQuery, e.GetID())", names.providerName, names.providerName))
 	if schema.hasRedisCache {
@@ -787,6 +789,7 @@ func (g *codeGenerator) generateEntityStruct(schema *entitySchema, names *entity
 
 	// UPDATE block
 	g.addLine("\tif len(e.databaseBind) > 0 {")
+	g.addLine(fmt.Sprintf("\t\tfor _, cb := range %sBeforeUpdateCallbacks { cb(e) }", names.entityPrivate))
 
 	// Lifecycle callback: determine flush event type and build old-values map
 	if schema.hasFakeDelete {

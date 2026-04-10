@@ -158,4 +158,14 @@ func (g *codeGenerator) generateProviderAndSQLRow(schema *entitySchema, names *e
 	g.addLine("\t})")
 	g.addLine("}")
 	g.addLine("")
+
+	// BeforeInsert/BeforeUpdate/BeforeDelete callbacks (package-level, fire inside PrivateFlush before SQL)
+	for _, hook := range []string{"BeforeInsert", "BeforeUpdate", "BeforeDelete"} {
+		sliceName := names.entityPrivate + hook + "Callbacks"
+		g.addLine(fmt.Sprintf("var %s []func(*%s)", sliceName, names.entityName))
+		g.addLine(fmt.Sprintf("func Register%s%s(cb func(entity *%s)) {", names.entityName, hook, names.entityName))
+		g.addLine(fmt.Sprintf("\t%s = append(%s, cb)", sliceName, sliceName))
+		g.addLine("}")
+		g.addLine("")
+	}
 }
