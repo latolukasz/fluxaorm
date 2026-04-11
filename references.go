@@ -8,7 +8,10 @@ import (
 
 type referencesInterface interface {
 	getType() reflect.Type
+	isReferences()
 }
+
+func (References[E]) isReferences() {}
 
 type References[E any] struct {
 	isSerialized bool

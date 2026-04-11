@@ -96,6 +96,7 @@ func GetDebeziumAlters(ctx Context) ([]DebeziumAlter, error) {
 
 		config := map[string]string{
 			"connector.class":                "io.debezium.connector.mysql.MySqlConnector",
+			"tasks.max":                      "1",
 			"database.hostname":              host,
 			"database.port":                  port,
 			"database.user":                  user,
