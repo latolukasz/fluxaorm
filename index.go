@@ -5,13 +5,13 @@ type indexDefinition struct {
 }
 
 type EntityIndexes interface {
-	Indexes() map[string][]string
+	Indexes() [][]string
 }
 
 type EntityUniqueIndexes interface {
-	UniqueIndexes() map[string][]string
+	UniqueIndexes() [][]string
 }
 
 type EntityCachedUniqueIndexes interface {
-	CachedUniqueIndexes() map[string][]string
+	CachedUniqueIndexes() [][]string
 }

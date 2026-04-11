@@ -2,6 +2,7 @@ package fluxaorm
 
 import (
 	"fmt"
+	"go/format"
 	"os"
 	"path/filepath"
 	"sort"
@@ -210,4 +211,16 @@ func (g *codeGenerator) lowerFirst(s string) string {
 		b[0] = b[0] + ('a' - 'A')
 	}
 	return string(b)
+}
+
+func formatFile(filePath string) error {
+	src, err := os.ReadFile(filePath)
+	if err != nil {
+		return fmt.Errorf("cannot read file for formatting %s: %w", filePath, err)
+	}
+	formatted, err := format.Source(src)
+	if err != nil {
+		return fmt.Errorf("cannot format file %s: %w", filePath, err)
+	}
+	return os.WriteFile(filePath, formatted, 0644)
 }

@@ -456,51 +456,73 @@ func (e *entitySchema) initIndexes() error {
 
 	// Check EntityUniqueIndexes
 	if impl, ok := ptrInstance.(EntityUniqueIndexes); ok {
-		for name, columns := range impl.UniqueIndexes() {
-			e.uniqueIndexes[name] = indexDefinition{Columns: columns}
-			e.uniqueIndexesColumns[name] = columns
+		if err := e.addUniqueIndexes(impl.UniqueIndexes()); err != nil {
+			return err
 		}
 	} else if impl, ok := valInstance.(EntityUniqueIndexes); ok {
-		for name, columns := range impl.UniqueIndexes() {
-			e.uniqueIndexes[name] = indexDefinition{Columns: columns}
-			e.uniqueIndexesColumns[name] = columns
+		if err := e.addUniqueIndexes(impl.UniqueIndexes()); err != nil {
+			return err
 		}
 	}
 
 	// Check EntityIndexes (non-unique)
 	if impl, ok := ptrInstance.(EntityIndexes); ok {
-		for name, columns := range impl.Indexes() {
-			e.indexes[name] = indexDefinition{Columns: columns}
-			e.indexesColumns[name] = columns
+		if err := e.addIndexes(impl.Indexes()); err != nil {
+			return err
 		}
 	} else if impl, ok := valInstance.(EntityIndexes); ok {
-		for name, columns := range impl.Indexes() {
-			e.indexes[name] = indexDefinition{Columns: columns}
-			e.indexesColumns[name] = columns
+		if err := e.addIndexes(impl.Indexes()); err != nil {
+			return err
 		}
 	}
 
 	// Check EntityCachedUniqueIndexes
 	if impl, ok := ptrInstance.(EntityCachedUniqueIndexes); ok {
-		cachedIndexes := impl.CachedUniqueIndexes()
-		for name := range cachedIndexes {
-			if _, exists := e.uniqueIndexes[name]; !exists {
-				return fmt.Errorf("cached unique index '%s' in entity '%s' is not defined in UniqueIndexes()", name, e.t.String())
-			}
-			e.cachedUniqueIndexes[name] = true
-			e.hasCachedUniqueIndexes = true
+		if err := e.addCachedUniqueIndexes(impl.CachedUniqueIndexes()); err != nil {
+			return err
 		}
 	} else if impl, ok := valInstance.(EntityCachedUniqueIndexes); ok {
-		cachedIndexes := impl.CachedUniqueIndexes()
-		for name := range cachedIndexes {
-			if _, exists := e.uniqueIndexes[name]; !exists {
-				return fmt.Errorf("cached unique index '%s' in entity '%s' is not defined in UniqueIndexes()", name, e.t.String())
-			}
-			e.cachedUniqueIndexes[name] = true
-			e.hasCachedUniqueIndexes = true
+		if err := e.addCachedUniqueIndexes(impl.CachedUniqueIndexes()); err != nil {
+			return err
 		}
 	}
 
+	return nil
+}
+
+func (e *entitySchema) addUniqueIndexes(indexes [][]string) error {
+	for _, columns := range indexes {
+		name := strings.Join(columns, "_")
+		if _, exists := e.uniqueIndexes[name]; exists {
+			return fmt.Errorf("duplicate unique index name '%s' in entity '%s'", name, e.t.String())
+		}
+		e.uniqueIndexes[name] = indexDefinition{Columns: columns}
+		e.uniqueIndexesColumns[name] = columns
+	}
+	return nil
+}
+
+func (e *entitySchema) addIndexes(indexes [][]string) error {
+	for _, columns := range indexes {
+		name := strings.Join(columns, "_")
+		if _, exists := e.indexes[name]; exists {
+			return fmt.Errorf("duplicate index name '%s' in entity '%s'", name, e.t.String())
+		}
+		e.indexes[name] = indexDefinition{Columns: columns}
+		e.indexesColumns[name] = columns
+	}
+	return nil
+}
+
+func (e *entitySchema) addCachedUniqueIndexes(indexes [][]string) error {
+	for _, columns := range indexes {
+		name := strings.Join(columns, "_")
+		if _, exists := e.uniqueIndexes[name]; !exists {
+			return fmt.Errorf("cached unique index '%s' in entity '%s' is not defined in UniqueIndexes()", name, e.t.String())
+		}
+		e.cachedUniqueIndexes[name] = true
+		e.hasCachedUniqueIndexes = true
+	}
 	return nil
 }
 

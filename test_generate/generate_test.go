@@ -124,8 +124,8 @@ type generateEntityWithIndex struct {
 	Name string `orm:"required"`
 }
 
-func (e generateEntityWithIndex) Indexes() map[string][]string {
-	return map[string][]string{"AgeIndex": {"Age"}, "NameAge": {"Name", "Age"}}
+func (e generateEntityWithIndex) Indexes() [][]string {
+	return [][]string{{"Age"}, {"Name", "Age"}}
 }
 
 type generateEntityEnumRef struct {
@@ -139,38 +139,38 @@ type generateEntityDebezium struct {
 	Age  uint16
 }
 
-func (e generateEntity) UniqueIndexes() map[string][]string {
-	return map[string][]string{"AgeBalance": {"Age", "Balance"}}
+func (e generateEntity) UniqueIndexes() [][]string {
+	return [][]string{{"Age", "Balance"}}
 }
 
-func (e generateEntityCachedUnique) UniqueIndexes() map[string][]string {
-	return map[string][]string{
-		"NameAge": {"Name", "Age"},
-		"Email":   {"Email"},
+func (e generateEntityCachedUnique) UniqueIndexes() [][]string {
+	return [][]string{
+		{"Name", "Age"},
+		{"Email"},
 	}
 }
 
-func (e generateEntityCachedUnique) CachedUniqueIndexes() map[string][]string {
-	return map[string][]string{
-		"NameAge": {"Name", "Age"},
-		"Email":   {"Email"},
+func (e generateEntityCachedUnique) CachedUniqueIndexes() [][]string {
+	return [][]string{
+		{"Name", "Age"},
+		{"Email"},
 	}
 }
 
-func (e generateEntityCachedUniqueNoRedis) UniqueIndexes() map[string][]string {
-	return map[string][]string{"Code": {"Code", "Value"}}
+func (e generateEntityCachedUniqueNoRedis) UniqueIndexes() [][]string {
+	return [][]string{{"Code", "Value"}}
 }
 
-func (e generateEntityCachedUniqueNoRedis) CachedUniqueIndexes() map[string][]string {
-	return map[string][]string{"Code": {"Code", "Value"}}
+func (e generateEntityCachedUniqueNoRedis) CachedUniqueIndexes() [][]string {
+	return [][]string{{"Code", "Value"}}
 }
 
-func (e generateEntityCachedUniqueFakeDelete) UniqueIndexes() map[string][]string {
-	return map[string][]string{"Name": {"Name"}}
+func (e generateEntityCachedUniqueFakeDelete) UniqueIndexes() [][]string {
+	return [][]string{{"Name"}}
 }
 
-func (e generateEntityCachedUniqueFakeDelete) CachedUniqueIndexes() map[string][]string {
-	return map[string][]string{"Name": {"Name"}}
+func (e generateEntityCachedUniqueFakeDelete) CachedUniqueIndexes() [][]string {
+	return [][]string{{"Name"}}
 }
 
 //func BenchmarkGenerate(b *testing.B) {

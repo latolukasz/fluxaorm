@@ -28,6 +28,7 @@ import (
 
 type Registry interface {
 	Validate() (Engine, error)
+	ValidateForCodeGen() (Engine, error)
 	RegisterEntity(entity ...any)
 	RegisterMySQL(dataSourceName string, poolCode string, poolOptions *MySQLOptions)
 	RegisterLocalCache(code string, limit int)
@@ -513,6 +514,69 @@ func (r *registry) RegisterDebeziumConnectURL(url string, kafkaPool string, opti
 
 func (r *registry) EnableMetrics(factory promauto.Factory) {
 	r.metricsFactory = &factory
+}
+
+func (r *registry) ValidateForCodeGen() (Engine, error) {
+	e := &engineImplementation{}
+	e.registry = &engineRegistryImplementation{engine: e}
+	e.registry.options = make(map[string]any)
+	e.registry.entitySchemas = make(map[reflect.Type]*entitySchema, len(r.entities))
+	e.options = make(map[string]any)
+	e.dbServers = make(map[string]DB)
+	e.registry.dbTables = make(map[string]map[string]bool)
+	e.kafkaServers = make(map[string]Kafka)
+	e.redisServers = make(map[string]RedisCache)
+	e.localCacheServers = make(map[string]LocalCache)
+	e.clickhouseServers = make(map[string]Clickhouse)
+
+	for k, v := range r.mysqlPools {
+		options := v.GetOptions()
+		if options == nil {
+			options = &MySQLOptions{}
+			v.(*mySQLConfig).options = options
+		}
+		if options.DefaultEncoding == "" {
+			options.DefaultEncoding = "utf8mb4"
+		}
+		if options.DefaultCollate == "" {
+			options.DefaultCollate = "0900_ai_ci"
+		}
+		e.dbServers[k] = &dbImplementation{config: v}
+	}
+
+	entityNames := make([]string, 0, len(r.entities))
+	for name := range r.entities {
+		entityNames = append(entityNames, name)
+	}
+	sort.Strings(entityNames)
+	index := uint64(0)
+	for _, entityName := range entityNames {
+		entityType := r.entities[entityName]
+		schema := &entitySchema{engine: e, index: index}
+		index++
+		err := schema.init(r, entityType)
+		if err != nil {
+			return nil, err
+		}
+		e.registry.entitySchemas[entityType] = schema
+	}
+	err := resolveSharedEnumDefinitions(e.registry.entitySchemas)
+	if err != nil {
+		return nil, err
+	}
+	e.registry.entitySchemasByIndex = make(map[uint64]*entitySchema)
+	for _, schema := range e.registry.entitySchemas {
+		e.registry.entitySchemasByIndex[schema.index] = schema
+	}
+	e.registry.defaultQueryLogger = &defaultLogLogger{maxPoolLen: 10, logger: log.New(os.Stderr, "", 0)}
+	for _, schema := range e.registry.entitySchemas {
+		_, err := checkStruct(e, schema, schema.t, make(map[string]*IndexSchemaDefinition), nil, "", -1)
+		if err != nil {
+			return nil, errors.Wrapf(err, "invalid entity struct '%s'", schema.t.String())
+		}
+		schema.engine = e
+	}
+	return e, nil
 }
 
 func (r *registry) SetOption(key string, value any) {
