@@ -1171,6 +1171,15 @@ func buildColOriginInfos(fields *tableFields, fIdx *int) []colOriginInfo {
 		}
 		*fIdx++
 	}
+	for k, i := range fields.referencesMulti {
+		fieldName := fields.prefix + fields.fields[i].Name
+		if fields.referencesMultiRequired[k] {
+			cols = append(cols, colOriginInfo{fieldName, *fIdx, "string"})
+		} else {
+			cols = append(cols, colOriginInfo{fieldName, *fIdx, "nullString"})
+		}
+		*fIdx++
+	}
 	for _, i := range fields.integers {
 		fieldName := fields.prefix + fields.fields[i].Name
 		cols = append(cols, colOriginInfo{fieldName, *fIdx, "int64"})

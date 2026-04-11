@@ -111,6 +111,7 @@ type entitySchema struct {
 	indexes                 map[string]indexDefinition
 	indexesColumns          map[string][]string
 	references              map[string]referenceDefinition
+	referencesMulti         map[string]referencesDefinition
 	options                 map[string]any
 	hasLocalCache           bool
 	localCache              *localCache
@@ -177,6 +178,8 @@ type tableFields struct {
 	jsonStructs               []int
 	jsonStructTypes           []string
 	jsonStructImports         []string
+	referencesMulti           []int
+	referencesMultiRequired   []bool
 	structs                   []int
 	structsFields             []*tableFields
 }
@@ -303,6 +306,7 @@ func (e *entitySchema) init(registry *registry, entityType reflect.Type) error {
 
 	e.options = make(map[string]any)
 	e.references = make(map[string]referenceDefinition)
+	e.referencesMulti = make(map[string]referencesDefinition)
 	e.uniqueIndexes = make(map[string]indexDefinition)
 	e.indexes = make(map[string]indexDefinition)
 	e.cachedUniqueIndexes = make(map[string]bool)
@@ -818,6 +822,8 @@ func (e *entitySchema) buildTableFields(t reflect.Type, registry *registry,
 				} else {
 					return nil, fmt.Errorf("%s field %s type %s is not supported", e.t.String(), f.Name, f.Type.String())
 				}
+			} else if fType.Implements(reflect.TypeOf((*referencesInterface)(nil)).Elem()) {
+				e.buildReferencesField(attributes)
 			} else if fType.Implements(reflect.TypeOf((*referenceInterface)(nil)).Elem()) {
 				e.buildReferenceField(attributes)
 			} else {
@@ -872,6 +878,17 @@ func (e *entitySchema) buildReferenceField(attributes schemaFieldAttributes) {
 			e.markSearchableField(columnName, "NUMERIC", "ref", attributes.Tags["sortable"] == "true", !isRequired, 0)
 		}
 	}
+}
+
+func (e *entitySchema) buildReferencesField(attributes schemaFieldAttributes) {
+	attributes.Fields.referencesMulti = append(attributes.Fields.referencesMulti, attributes.Index)
+	fType := attributes.Field.Type
+	columnName := attributes.GetColumnNames()[0]
+	isRequired := attributes.Tags["required"] == "true"
+	attributes.Fields.referencesMultiRequired = append(attributes.Fields.referencesMultiRequired, isRequired)
+	refType := reflect.New(fType).Interface().(referencesInterface).getType()
+	e.referencesMulti[columnName] = referencesDefinition{Type: refType}
+	e.fieldDefinitions[columnName] = attributes
 }
 
 func (e *entitySchema) buildUintPointerField(attributes schemaFieldAttributes, min int64, max uint64) {
@@ -1268,6 +1285,7 @@ func (fields *tableFields) buildColumnNames(subFieldPrefix string) []string {
 	columns := make([]string, 0)
 	ids := fields.uIntegers
 	ids = append(ids, fields.references...)
+	ids = append(ids, fields.referencesMulti...)
 	ids = append(ids, fields.integers...)
 	ids = append(ids, fields.booleans...)
 	ids = append(ids, fields.floats...)

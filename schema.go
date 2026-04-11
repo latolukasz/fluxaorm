@@ -611,6 +611,10 @@ func checkColumn(engine Engine, schema *entitySchema, field *reflect.StructField
 				definition = "text"
 				addNotNullIfNotSet = false
 				defaultValue = "nil"
+			} else if fieldType.Implements(reflect.TypeOf((*referencesInterface)(nil)).Elem()) {
+				definition = "text"
+				addNotNullIfNotSet = false
+				defaultValue = "nil"
 			} else if fieldType.Implements(reflect.TypeOf((*referenceInterface)(nil)).Elem()) {
 				refIDType := reflect.New(reflect.New(fieldType).Interface().(referenceInterface).getType()).Elem().FieldByName("ID").Type().String()
 				definition, addNotNullIfNotSet, defaultValue = handleInt(refIDType, attributes, !isRequired)

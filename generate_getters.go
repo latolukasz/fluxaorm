@@ -1,6 +1,8 @@
 package fluxaorm
 
-import "fmt"
+import (
+	"fmt"
+)
 
 func (g *codeGenerator) createGetterSetterUint64(schema *entitySchema, fieldName, entityName, getterSuffix, providerName string) {
 	g.addLine(fmt.Sprintf("func (e *%s) Get%s%s() uint64 {", entityName, fieldName, getterSuffix))
@@ -454,5 +456,219 @@ func (g *codeGenerator) createGetterSetterSet(schema *entitySchema, fieldName, e
 	}
 	g.addLine("}")
 	g.addLine("")
+	g.filedIndex++
+}
+
+func (g *codeGenerator) createGetterSetterReferencesRequired(schema *entitySchema, fieldName, entityName, providerName, refName string) {
+	g.addImport("encoding/json")
+
+	// GetFieldIDs() []uint64
+	g.addLine(fmt.Sprintf("func (e *%s) Get%sIDs() []uint64 {", entityName, fieldName))
+	g.addLine("\tvar raw string")
+	g.addLine("\tif !e.new {")
+	g.addLine("\t\tif e.databaseBind != nil {")
+	g.addLine(fmt.Sprintf("\t\t\tv, hasInDB := e.databaseBind[\"%s\"]", fieldName))
+	g.addLine("\t\t\tif hasInDB {")
+	g.addLine("\t\t\t\traw = v.(string)")
+	g.addLine("\t\t\t\tvar ids []uint64")
+	g.addLine("\t\t\t\t_ = json.Unmarshal([]byte(raw), &ids)")
+	g.addLine("\t\t\t\treturn ids")
+	g.addLine("\t\t\t}")
+	g.addLine("\t\t}")
+	if schema.hasRedisCache {
+		g.addLine("\t\tif e.originRedisValues != nil {")
+		g.addLine(fmt.Sprintf("\t\t\traw = e.originRedisValues[%d]", g.filedIndex))
+		g.addLine("\t\t\tvar ids []uint64")
+		g.addLine("\t\t\t_ = json.Unmarshal([]byte(raw), &ids)")
+		g.addLine("\t\t\treturn ids")
+		g.addLine("\t\t}")
+	}
+	g.addLine("\t}")
+	g.addLine(fmt.Sprintf("\traw = e.originDatabaseValues.F%d", g.filedIndex))
+	g.addLine("\tif raw == \"\" {")
+	g.addLine("\t\treturn nil")
+	g.addLine("\t}")
+	g.addLine("\tvar ids []uint64")
+	g.addLine("\t_ = json.Unmarshal([]byte(raw), &ids)")
+	g.addLine("\treturn ids")
+	g.addLine("}")
+	g.addLine("")
+
+	// SetFieldIDs([]uint64)
+	g.addLine(fmt.Sprintf("func (e *%s) Set%sIDs(ids []uint64) {", entityName, fieldName))
+	g.addLine("\tvar value string")
+	g.addLine("\tif len(ids) == 0 {")
+	g.addLine("\t\tvalue = \"[]\"")
+	g.addLine("\t} else {")
+	g.addLine("\t\tb, _ := json.Marshal(ids)")
+	g.addLine("\t\tvalue = string(b)")
+	g.addLine("\t}")
+	g.addLine("\tif e.new {")
+	g.addLine(fmt.Sprintf("\t\te.originDatabaseValues.F%d = value", g.filedIndex))
+	g.addLine("\t\treturn")
+	g.addLine("\t}")
+	if schema.hasRedisCache {
+		g.addLine("\tsame := false")
+		g.addLine("\tif e.originRedisValues != nil {")
+		g.addLine(fmt.Sprintf("\t\tsame = e.originRedisValues[%d] == value", g.filedIndex))
+		g.addLine("\t} else {")
+		g.addLine(fmt.Sprintf("\t\tsame = e.originDatabaseValues.F%d == value", g.filedIndex))
+		g.addLine("\t}")
+		g.addLine("\tif same {")
+		g.addLine(fmt.Sprintf("\t\tdelete(e.databaseBind, \"%s\")", fieldName))
+		g.addLine(fmt.Sprintf("\t\tdelete(e.redisBind, %d)", g.filedIndex+1))
+		g.addLine("\t\treturn")
+		g.addLine("\t}")
+	} else {
+		g.addLine(fmt.Sprintf("\tif e.originDatabaseValues.F%d == value {", g.filedIndex))
+		g.addLine(fmt.Sprintf("\t\tdelete(e.databaseBind, \"%s\")", fieldName))
+		g.addLine("\t\treturn")
+		g.addLine("\t}")
+	}
+	g.addLine(fmt.Sprintf("\te.addToDatabaseBind(\"%s\", value)", fieldName))
+	if schema.hasRedisCache {
+		g.addLine(fmt.Sprintf("\te.addToRedisBind(%d, value)", g.filedIndex+1))
+	}
+	g.addLine("}")
+	g.addLine("")
+
+	// GetField(ctx) ([]*RefEntity, error)
+	g.addLine(fmt.Sprintf("func (e *%s) Get%s(ctx fluxaorm.Context) ([]*%s, error) {", entityName, fieldName, refName))
+	g.addLine(fmt.Sprintf("\tids := e.Get%sIDs()", fieldName))
+	g.addLine("\tif len(ids) == 0 {")
+	g.addLine("\t\treturn nil, nil")
+	g.addLine("\t}")
+	g.addLine(fmt.Sprintf("\treturn %sProvider.GetByIDs(ctx, ids...)", refName))
+	g.addLine("}")
+	g.addLine("")
+
+	g.filedIndex++
+}
+
+func (g *codeGenerator) createGetterSetterReferencesNullable(schema *entitySchema, fieldName, entityName, providerName, refName string) {
+	g.addImport("encoding/json")
+
+	// GetFieldIDs() []uint64
+	g.addLine(fmt.Sprintf("func (e *%s) Get%sIDs() []uint64 {", entityName, fieldName))
+	g.addLine("\tvar raw string")
+	g.addLine("\tvar valid bool")
+	g.addLine("\tif !e.new {")
+	g.addLine("\t\tif e.databaseBind != nil {")
+	g.addLine(fmt.Sprintf("\t\t\tv, hasInDB := e.databaseBind[\"%s\"]", fieldName))
+	g.addLine("\t\t\tif hasInDB {")
+	g.addLine("\t\t\t\tif v == nil {")
+	g.addLine("\t\t\t\t\treturn nil")
+	g.addLine("\t\t\t\t}")
+	g.addLine("\t\t\t\traw = v.(string)")
+	g.addLine("\t\t\t\tvalid = true")
+	g.addLine("\t\t\t}")
+	g.addLine("\t\t}")
+	if schema.hasRedisCache {
+		g.addLine("\t\tif !valid && e.originRedisValues != nil {")
+		g.addLine(fmt.Sprintf("\t\t\traw = e.originRedisValues[%d]", g.filedIndex))
+		g.addLine("\t\t\tif raw == \"\" {")
+		g.addLine("\t\t\t\treturn nil")
+		g.addLine("\t\t\t}")
+		g.addLine("\t\t\tvalid = true")
+		g.addLine("\t\t}")
+	}
+	g.addLine("\t\tif !valid {")
+	g.addLine(fmt.Sprintf("\t\t\tif !e.originDatabaseValues.F%d.Valid {", g.filedIndex))
+	g.addLine("\t\t\t\treturn nil")
+	g.addLine("\t\t\t}")
+	g.addLine(fmt.Sprintf("\t\t\traw = e.originDatabaseValues.F%d.String", g.filedIndex))
+	g.addLine("\t\t}")
+	g.addLine("\t} else {")
+	g.addLine(fmt.Sprintf("\t\tif !e.originDatabaseValues.F%d.Valid {", g.filedIndex))
+	g.addLine("\t\t\treturn nil")
+	g.addLine("\t\t}")
+	g.addLine(fmt.Sprintf("\t\traw = e.originDatabaseValues.F%d.String", g.filedIndex))
+	g.addLine("\t}")
+	g.addLine("\tif raw == \"\" {")
+	g.addLine("\t\treturn nil")
+	g.addLine("\t}")
+	g.addLine("\tvar ids []uint64")
+	g.addLine("\t_ = json.Unmarshal([]byte(raw), &ids)")
+	g.addLine("\treturn ids")
+	g.addLine("}")
+	g.addLine("")
+
+	// SetFieldIDs([]uint64)
+	g.addLine(fmt.Sprintf("func (e *%s) Set%sIDs(ids []uint64) {", entityName, fieldName))
+	g.addLine("\tif ids == nil {")
+	g.addLine("\t\tif e.new {")
+	g.addLine(fmt.Sprintf("\t\t\te.originDatabaseValues.F%d = sql.NullString{}", g.filedIndex))
+	g.addLine("\t\t\treturn")
+	g.addLine("\t\t}")
+	if schema.hasRedisCache {
+		g.addLine("\t\tsame := false")
+		g.addLine("\t\tif e.originRedisValues != nil {")
+		g.addLine(fmt.Sprintf("\t\t\tsame = e.originRedisValues[%d] == \"\"", g.filedIndex))
+		g.addLine("\t\t} else {")
+		g.addLine(fmt.Sprintf("\t\t\tsame = !e.originDatabaseValues.F%d.Valid", g.filedIndex))
+		g.addLine("\t\t}")
+		g.addLine("\t\tif same {")
+		g.addLine(fmt.Sprintf("\t\t\tdelete(e.databaseBind, \"%s\")", fieldName))
+		g.addLine(fmt.Sprintf("\t\t\tdelete(e.redisBind, %d)", g.filedIndex+1))
+		g.addLine("\t\t\treturn")
+		g.addLine("\t\t}")
+	} else {
+		g.addLine(fmt.Sprintf("\t\tif !e.originDatabaseValues.F%d.Valid {", g.filedIndex))
+		g.addLine(fmt.Sprintf("\t\t\tdelete(e.databaseBind, \"%s\")", fieldName))
+		g.addLine("\t\t\treturn")
+		g.addLine("\t\t}")
+	}
+	g.addLine(fmt.Sprintf("\t\te.addToDatabaseBind(\"%s\", nil)", fieldName))
+	if schema.hasRedisCache {
+		g.addLine(fmt.Sprintf("\t\te.addToRedisBind(%d, \"\")", g.filedIndex+1))
+	}
+	g.addLine("\t\treturn")
+	g.addLine("\t}")
+	g.addLine("\tvar value string")
+	g.addLine("\tif len(ids) == 0 {")
+	g.addLine("\t\tvalue = \"[]\"")
+	g.addLine("\t} else {")
+	g.addLine("\t\tb, _ := json.Marshal(ids)")
+	g.addLine("\t\tvalue = string(b)")
+	g.addLine("\t}")
+	g.addLine("\tif e.new {")
+	g.addLine(fmt.Sprintf("\t\te.originDatabaseValues.F%d = sql.NullString{String: value, Valid: true}", g.filedIndex))
+	g.addLine("\t\treturn")
+	g.addLine("\t}")
+	if schema.hasRedisCache {
+		g.addLine("\tsame := false")
+		g.addLine("\tif e.originRedisValues != nil {")
+		g.addLine(fmt.Sprintf("\t\tsame = e.originRedisValues[%d] == value", g.filedIndex))
+		g.addLine("\t} else {")
+		g.addLine(fmt.Sprintf("\t\tsame = e.originDatabaseValues.F%d.Valid && e.originDatabaseValues.F%d.String == value", g.filedIndex, g.filedIndex))
+		g.addLine("\t}")
+		g.addLine("\tif same {")
+		g.addLine(fmt.Sprintf("\t\tdelete(e.databaseBind, \"%s\")", fieldName))
+		g.addLine(fmt.Sprintf("\t\tdelete(e.redisBind, %d)", g.filedIndex+1))
+		g.addLine("\t\treturn")
+		g.addLine("\t}")
+	} else {
+		g.addLine(fmt.Sprintf("\tif e.originDatabaseValues.F%d.Valid && e.originDatabaseValues.F%d.String == value {", g.filedIndex, g.filedIndex))
+		g.addLine(fmt.Sprintf("\t\tdelete(e.databaseBind, \"%s\")", fieldName))
+		g.addLine("\t\treturn")
+		g.addLine("\t}")
+	}
+	g.addLine(fmt.Sprintf("\te.addToDatabaseBind(\"%s\", value)", fieldName))
+	if schema.hasRedisCache {
+		g.addLine(fmt.Sprintf("\te.addToRedisBind(%d, value)", g.filedIndex+1))
+	}
+	g.addLine("}")
+	g.addLine("")
+
+	// GetField(ctx) ([]*RefEntity, error)
+	g.addLine(fmt.Sprintf("func (e *%s) Get%s(ctx fluxaorm.Context) ([]*%s, error) {", entityName, fieldName, refName))
+	g.addLine(fmt.Sprintf("\tids := e.Get%sIDs()", fieldName))
+	g.addLine("\tif len(ids) == 0 {")
+	g.addLine("\t\treturn nil, nil")
+	g.addLine("\t}")
+	g.addLine(fmt.Sprintf("\treturn %sProvider.GetByIDs(ctx, ids...)", refName))
+	g.addLine("}")
+	g.addLine("")
+
 	g.filedIndex++
 }

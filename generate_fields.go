@@ -49,6 +49,19 @@ func (g *codeGenerator) generateGettersSetters(entityName, providerName string, 
 		g.addLine("}")
 		g.addLine("")
 	}
+	for k, i := range fields.referencesMulti {
+		fieldName := fields.prefix + fields.fields[i].Name
+		refType := schema.referencesMulti[fieldName].Type
+		refSchema := g.engine.registry.entitySchemas[refType]
+		refName := g.capitalizeFirst(refSchema.GetTableName())
+		required := fields.referencesMultiRequired[k]
+		if required {
+			g.createGetterSetterReferencesRequired(schema, fieldName, entityName, providerName, refName)
+		} else {
+			g.addImport("database/sql")
+			g.createGetterSetterReferencesNullable(schema, fieldName, entityName, providerName, refName)
+		}
+	}
 	for _, i := range fields.integers {
 		fieldName := fields.prefix + fields.fields[i].Name
 		g.createGetterSetterInt64(schema, fieldName, entityName, providerName)
@@ -204,6 +217,14 @@ func (g *codeGenerator) addSQLRowLines(fields *tableFields) string {
 		}
 		g.filedIndex++
 	}
+	for k := range fields.referencesMulti {
+		if fields.referencesMultiRequired[k] {
+			result += fmt.Sprintf("\tF%d string\n", g.filedIndex)
+		} else {
+			result += fmt.Sprintf("\tF%d sql.NullString\n", g.filedIndex)
+		}
+		g.filedIndex++
+	}
 	for range fields.integers {
 		result += fmt.Sprintf("\tF%d int64\n", g.filedIndex)
 		g.filedIndex++
@@ -302,6 +323,14 @@ func (g *codeGenerator) addRedisBindSetLines(schema *entitySchema, fields *table
 			g.addLine("\t} else {")
 			g.addLine(fmt.Sprintf("\t\tredisListValues[%d] = r.F%d.Int64", g.filedIndex+1, g.filedIndex))
 			g.addLine("\t}")
+		}
+		g.filedIndex++
+	}
+	for k := range fields.referencesMulti {
+		if fields.referencesMultiRequired[k] {
+			g.addLine(fmt.Sprintf("\tredisListValues[%d] = r.F%d", g.filedIndex+1, g.filedIndex))
+		} else {
+			g.addLine(fmt.Sprintf("\tredisListValues[%d] = r.F%d.String", g.filedIndex+1, g.filedIndex))
 		}
 		g.filedIndex++
 	}

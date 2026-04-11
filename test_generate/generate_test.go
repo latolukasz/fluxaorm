@@ -39,6 +39,8 @@ type generateEntity struct {
 	Date              time.Time
 	ReferenceRequired fluxaorm.Reference[generateReferenceEntity] `orm:"required"`
 	ReferenceOptional fluxaorm.Reference[generateReferenceEntity]
+	Tags              fluxaorm.References[generateReferenceEntity] `orm:"required"`
+	TagsOptional      fluxaorm.References[generateReferenceEntity]
 	generateSubStruct
 	TestSub     generateSubStruct
 	JsonAddress *models.GenerateJsonAddress
@@ -67,6 +69,8 @@ type generateEntityNoRedis struct {
 	Date              time.Time
 	ReferenceRequired fluxaorm.Reference[generateReferenceEntity] `orm:"required"`
 	ReferenceOptional fluxaorm.Reference[generateReferenceEntity]
+	Tags              fluxaorm.References[generateReferenceEntity] `orm:"required"`
+	TagsOptional      fluxaorm.References[generateReferenceEntity]
 	generateSubStruct
 	TestSub     generateSubStruct
 	JsonAddress *models.GenerateJsonAddress

@@ -6,6 +6,10 @@ import (
 	jsoniter "github.com/json-iterator/go"
 )
 
+type referencesInterface interface {
+	getType() reflect.Type
+}
+
 type References[E any] struct {
 	isSerialized bool
 	serialized   string
