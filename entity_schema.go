@@ -810,7 +810,11 @@ func (e *entitySchema) buildTableFields(t reflect.Type, registry *registry,
 		default:
 			fType := f.Type
 			k := fType.Kind().String()
-			if k == "struct" {
+			if fType.Implements(reflect.TypeOf((*referencesInterface)(nil)).Elem()) {
+				e.buildReferencesField(attributes)
+			} else if fType.Implements(reflect.TypeOf((*referenceInterface)(nil)).Elem()) {
+				e.buildReferenceField(attributes)
+			} else if k == "struct" {
 				err := e.buildStructField(attributes, registry, schemaTags)
 				if err != nil {
 					return nil, err
@@ -822,10 +826,6 @@ func (e *entitySchema) buildTableFields(t reflect.Type, registry *registry,
 				} else {
 					return nil, fmt.Errorf("%s field %s type %s is not supported", e.t.String(), f.Name, f.Type.String())
 				}
-			} else if fType.Implements(reflect.TypeOf((*referencesInterface)(nil)).Elem()) {
-				e.buildReferencesField(attributes)
-			} else if fType.Implements(reflect.TypeOf((*referenceInterface)(nil)).Elem()) {
-				e.buildReferenceField(attributes)
 			} else {
 				return nil, fmt.Errorf("%s field %s type %s is not supported", e.t.String(), f.Name, f.Type.String())
 			}

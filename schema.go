@@ -595,7 +595,14 @@ func checkColumn(engine Engine, schema *entitySchema, field *reflect.StructField
 			definition, addDefaultNullIfNullable = handleBlob(attributes)
 		default:
 			kind := fieldType.Kind().String()
-			if kind == "struct" {
+			if fieldType.Implements(reflect.TypeOf((*referencesInterface)(nil)).Elem()) {
+				definition = "text"
+				addNotNullIfNotSet = false
+				defaultValue = "nil"
+			} else if fieldType.Implements(reflect.TypeOf((*referenceInterface)(nil)).Elem()) {
+				refIDType := reflect.New(reflect.New(fieldType).Interface().(referenceInterface).getType()).Elem().FieldByName("ID").Type().String()
+				definition, addNotNullIfNotSet, defaultValue = handleInt(refIDType, attributes, !isRequired)
+			} else if kind == "struct" {
 				subFieldPrefix := prefix
 				arrayIndex := -1
 				if isArray {
@@ -611,13 +618,6 @@ func checkColumn(engine Engine, schema *entitySchema, field *reflect.StructField
 				definition = "text"
 				addNotNullIfNotSet = false
 				defaultValue = "nil"
-			} else if fieldType.Implements(reflect.TypeOf((*referencesInterface)(nil)).Elem()) {
-				definition = "text"
-				addNotNullIfNotSet = false
-				defaultValue = "nil"
-			} else if fieldType.Implements(reflect.TypeOf((*referenceInterface)(nil)).Elem()) {
-				refIDType := reflect.New(reflect.New(fieldType).Interface().(referenceInterface).getType()).Elem().FieldByName("ID").Type().String()
-				definition, addNotNullIfNotSet, defaultValue = handleInt(refIDType, attributes, !isRequired)
 			} else {
 				return nil, fmt.Errorf("field type %s is not supported, consider adding  tag `ignore`", field.Type.String())
 			}
