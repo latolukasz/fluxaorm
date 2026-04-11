@@ -602,58 +602,61 @@ func (e *entitySchema) Option(key string) any {
 	return e.options[key]
 }
 
-func (e *entitySchema) uuid(ctx Context) uint64 {
+func (e *entitySchema) uuid(ctx Context) (uint64, error) {
 	r := ctx.Engine().Redis(e.getForcedRedisCode())
 	id, err := r.Incr(ctx, e.uuidCacheKey)
 	if err != nil {
-		panic(err)
+		return 0, err
 	}
 	if id == 1 {
-		e.initUUID(ctx)
+		if err := e.initUUID(ctx); err != nil {
+			return 0, err
+		}
 		return e.uuid(ctx)
 	}
-	return uint64(id)
+	return uint64(id), nil
 }
 
-func (e *entitySchema) initUUID(ctx Context) {
+func (e *entitySchema) initUUID(ctx Context) error {
 	r := ctx.Engine().Redis(e.getForcedRedisCode())
 	e.uuidMutex.Lock()
 	defer e.uuidMutex.Unlock()
 	now, has, err := r.Get(ctx, e.uuidCacheKey)
 	if err != nil {
-		panic(err)
+		return err
 	}
 	if has && now != "1" {
-		return
+		return nil
 	}
 	lockName := e.uuidCacheKey + ":lock"
 	lock, obtained, err := r.GetLocker().Obtain(ctx, lockName, time.Minute, time.Second*5)
 	if err != nil {
-		panic(err)
+		return err
 	}
 	if !obtained {
-		panic(errors.New("uuid lock timeout"))
+		return errors.New("uuid lock timeout")
 	}
 	defer lock.Release(ctx)
 	now, has, err = r.Get(ctx, e.uuidCacheKey)
 	if err != nil {
-		panic(err)
+		return err
 	}
 	if has && now != "1" {
-		return
+		return nil
 	}
 	maxID := int64(0)
 	_, err = e.GetDB().QueryRow(ctx, NewWhere("SELECT IFNULL(MAX(ID), 0) FROM `"+e.GetTableName()+"`"), &maxID)
 	if err != nil {
-		panic(err)
+		return err
 	}
 	if maxID == 0 {
 		maxID = 1
 	}
 	_, err = r.IncrBy(ctx, e.uuidCacheKey, maxID)
 	if err != nil {
-		panic(err)
+		return err
 	}
+	return nil
 }
 
 func (e *entitySchema) getForcedRedisCode() string {
