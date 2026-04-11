@@ -195,22 +195,38 @@ func (g *codeGenerator) capitalizeFirst(s string) string {
 	if s == "" {
 		return s
 	}
-	b := []byte(s)
-	if b[0] >= 'a' && b[0] <= 'z' {
-		b[0] = b[0] - ('a' - 'A')
+	parts := strings.Split(s, "_")
+	for i, part := range parts {
+		if part == "" {
+			continue
+		}
+		b := []byte(part)
+		if b[0] >= 'a' && b[0] <= 'z' {
+			b[0] = b[0] - ('a' - 'A')
+		}
+		parts[i] = string(b)
 	}
-	return string(b)
+	return strings.Join(parts, "")
 }
 
 func (g *codeGenerator) lowerFirst(s string) string {
 	if s == "" {
 		return s
 	}
-	b := []byte(s)
-	if b[0] >= 'A' && b[0] <= 'Z' {
-		b[0] = b[0] + ('a' - 'A')
+	parts := strings.Split(s, "_")
+	for i, part := range parts {
+		if part == "" {
+			continue
+		}
+		b := []byte(part)
+		if i == 0 && b[0] >= 'A' && b[0] <= 'Z' {
+			b[0] = b[0] + ('a' - 'A')
+		} else if i > 0 && b[0] >= 'a' && b[0] <= 'z' {
+			b[0] = b[0] - ('a' - 'A')
+		}
+		parts[i] = string(b)
 	}
-	return string(b)
+	return strings.Join(parts, "")
 }
 
 func formatFile(filePath string) error {
