@@ -262,6 +262,9 @@ func collectRequiredEnumDefaultsRecursive(fields *tableFields, fIndex *int, resu
 	for range fields.references {
 		*fIndex++
 	}
+	for range fields.referencesMulti {
+		*fIndex++
+	}
 	for range fields.integers {
 		*fIndex++
 	}
