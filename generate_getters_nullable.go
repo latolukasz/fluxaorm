@@ -64,14 +64,14 @@ func (g *codeGenerator) createGetterSetterUint64Nullable(schema *entitySchema, f
 	}
 	g.addLine("")
 	if getterSuffix == "" {
-		g.addLine(fmt.Sprintf("func (e *%s) Set%s(value *uint64) {", entityName, fieldName))
+		g.addLine(fmt.Sprintf("func (e *%s) Set%s(value *uint64) *%s {", entityName, fieldName, entityName))
 		g.addLine("\tbindValue := sql.NullInt64{}")
 		g.addLine("\tif value != nil {")
 		g.addLine("\t\tbindValue.Valid = true")
 		g.addLine("\t\tbindValue.Int64 = int64(*value)")
 		g.addLine("\t}")
 	} else {
-		g.addLine(fmt.Sprintf("func (e *%s) Set%s(value uint64) {", entityName, fieldName))
+		g.addLine(fmt.Sprintf("func (e *%s) Set%s(value uint64) *%s {", entityName, fieldName, entityName))
 		g.addLine("\tbindValue := sql.NullInt64{}")
 		g.addLine("\tif value != 0 {")
 		g.addLine("\t\tbindValue.Valid = true")
@@ -80,7 +80,7 @@ func (g *codeGenerator) createGetterSetterUint64Nullable(schema *entitySchema, f
 	}
 	g.addLine("\tif e.new {")
 	g.addLine(fmt.Sprintf("\t\te.originDatabaseValues.F%d = bindValue", g.filedIndex))
-	g.addLine("\t\treturn")
+	g.addLine("\t\treturn e")
 	g.addLine("\t}")
 	if schema.hasRedisCache {
 		g.addLine("\tsame:= false")
@@ -102,12 +102,12 @@ func (g *codeGenerator) createGetterSetterUint64Nullable(schema *entitySchema, f
 		g.addLine("\tif same {")
 		g.addLine(fmt.Sprintf("\t\tdelete(e.databaseBind, \"%s\")", fieldName))
 		g.addLine(fmt.Sprintf("\t\tdelete(e.redisBind, %d)", g.filedIndex+1))
-		g.addLine("\t\treturn")
+		g.addLine("\t\treturn e")
 		g.addLine("\t}")
 	} else {
 		g.addLine(fmt.Sprintf("\tif e.originDatabaseValues.F%d == bindValue {", g.filedIndex))
 		g.addLine(fmt.Sprintf("\t\tdelete(e.databaseBind, \"%s\")", fieldName))
-		g.addLine("\t\treturn")
+		g.addLine("\t\treturn e")
 		g.addLine("\t}")
 	}
 	g.addLine(fmt.Sprintf("\te.addToDatabaseBind(\"%s\", bindValue)", fieldName))
@@ -118,6 +118,7 @@ func (g *codeGenerator) createGetterSetterUint64Nullable(schema *entitySchema, f
 		g.addLine(fmt.Sprintf("\t\te.addToRedisBind(%d, \"\")", g.filedIndex+1))
 		g.addLine("\t}")
 	}
+	g.addLine("\treturn e")
 	g.addLine("}")
 	g.addLine("")
 	g.filedIndex++
@@ -153,7 +154,7 @@ func (g *codeGenerator) createGetterSetterInt64Nullable(schema *entitySchema, fi
 	g.addLine("}")
 	g.addLine("")
 
-	g.addLine(fmt.Sprintf("func (e *%s) Set%s(value *int64) {", entityName, fieldName))
+	g.addLine(fmt.Sprintf("func (e *%s) Set%s(value *int64) *%s {", entityName, fieldName, entityName))
 	g.addLine("\tbindValue := sql.NullInt64{}")
 	g.addLine("\tif value != nil {")
 	g.addLine("\t\tbindValue.Valid = true")
@@ -161,7 +162,7 @@ func (g *codeGenerator) createGetterSetterInt64Nullable(schema *entitySchema, fi
 	g.addLine("\t}")
 	g.addLine("\tif e.new {")
 	g.addLine(fmt.Sprintf("\t\te.originDatabaseValues.F%d = bindValue", g.filedIndex))
-	g.addLine("\t\treturn")
+	g.addLine("\t\treturn e")
 	g.addLine("\t}")
 	if schema.hasRedisCache {
 		g.addLine("\tsame:= false")
@@ -177,12 +178,12 @@ func (g *codeGenerator) createGetterSetterInt64Nullable(schema *entitySchema, fi
 		g.addLine("\tif same {")
 		g.addLine(fmt.Sprintf("\t\tdelete(e.databaseBind, \"%s\")", fieldName))
 		g.addLine(fmt.Sprintf("\t\tdelete(e.redisBind, %d)", g.filedIndex+1))
-		g.addLine("\t\treturn")
+		g.addLine("\t\treturn e")
 		g.addLine("\t}")
 	} else {
 		g.addLine(fmt.Sprintf("\tif e.originDatabaseValues.F%d == bindValue {", g.filedIndex))
 		g.addLine(fmt.Sprintf("\t\tdelete(e.databaseBind, \"%s\")", fieldName))
-		g.addLine("\t\treturn")
+		g.addLine("\t\treturn e")
 		g.addLine("\t}")
 	}
 	g.addLine(fmt.Sprintf("\te.addToDatabaseBind(\"%s\", bindValue)", fieldName))
@@ -193,6 +194,7 @@ func (g *codeGenerator) createGetterSetterInt64Nullable(schema *entitySchema, fi
 		g.addLine(fmt.Sprintf("\t\te.addToRedisBind(%d, \"\")", g.filedIndex+1))
 		g.addLine("\t}")
 	}
+	g.addLine("\treturn e")
 	g.addLine("}")
 	g.addLine("")
 	g.filedIndex++
@@ -227,7 +229,7 @@ func (g *codeGenerator) createGetterSetterStringNullable(schema *entitySchema, f
 	g.addLine("}")
 	g.addLine("")
 
-	g.addLine(fmt.Sprintf("func (e *%s) Set%s(value string) {", entityName, fieldName))
+	g.addLine(fmt.Sprintf("func (e *%s) Set%s(value string) *%s {", entityName, fieldName, entityName))
 	g.addLine("\tbindValue := sql.NullString{}")
 	g.addLine("\tif value != \"\" {")
 	g.addLine("\t\tbindValue.Valid = true")
@@ -235,7 +237,7 @@ func (g *codeGenerator) createGetterSetterStringNullable(schema *entitySchema, f
 	g.addLine("\t}")
 	g.addLine("\tif e.new {")
 	g.addLine(fmt.Sprintf("\t\te.originDatabaseValues.F%d = bindValue", g.filedIndex))
-	g.addLine("\t\treturn")
+	g.addLine("\t\treturn e")
 	g.addLine("\t}")
 	if schema.hasRedisCache {
 		g.addLine("\tsame:= false")
@@ -247,18 +249,19 @@ func (g *codeGenerator) createGetterSetterStringNullable(schema *entitySchema, f
 		g.addLine("\tif same {")
 		g.addLine(fmt.Sprintf("\t\tdelete(e.databaseBind, \"%s\")", fieldName))
 		g.addLine(fmt.Sprintf("\t\tdelete(e.redisBind, %d)", g.filedIndex+1))
-		g.addLine("\t\treturn")
+		g.addLine("\t\treturn e")
 		g.addLine("\t}")
 	} else {
 		g.addLine(fmt.Sprintf("\tif e.originDatabaseValues.F%d == bindValue {", g.filedIndex))
 		g.addLine(fmt.Sprintf("\t\tdelete(e.databaseBind, \"%s\")", fieldName))
-		g.addLine("\t\treturn")
+		g.addLine("\t\treturn e")
 		g.addLine("\t}")
 	}
 	g.addLine(fmt.Sprintf("\te.addToDatabaseBind(\"%s\", bindValue)", fieldName))
 	if schema.hasRedisCache {
 		g.addLine(fmt.Sprintf("\te.addToRedisBind(%d, bindValue.String)", g.filedIndex+1))
 	}
+	g.addLine("\treturn e")
 	g.addLine("}")
 	g.addLine("")
 	g.filedIndex++
@@ -295,7 +298,7 @@ func (g *codeGenerator) createGetterSetterTimeNullable(schema *entitySchema, fie
 	g.addLine("}")
 	g.addLine("")
 
-	g.addLine(fmt.Sprintf("func (e *%s) Set%s(value *time.Time) {", entityName, fieldName))
+	g.addLine(fmt.Sprintf("func (e *%s) Set%s(value *time.Time) *%s {", entityName, fieldName, entityName))
 	g.addLine("\tbindValue := sql.NullTime{}")
 	g.addLine("\tif value != nil {")
 	g.addLine("\t\tbindValue.Valid = true")
@@ -308,7 +311,7 @@ func (g *codeGenerator) createGetterSetterTimeNullable(schema *entitySchema, fie
 	g.addLine("\t}")
 	g.addLine("\tif e.new {")
 	g.addLine(fmt.Sprintf("\t\te.originDatabaseValues.F%d = bindValue", g.filedIndex))
-	g.addLine("\t\treturn")
+	g.addLine("\t\treturn e")
 	g.addLine("\t}")
 	if schema.hasRedisCache {
 		g.addLine("\tsame:= false")
@@ -324,12 +327,12 @@ func (g *codeGenerator) createGetterSetterTimeNullable(schema *entitySchema, fie
 		g.addLine("\tif same {")
 		g.addLine(fmt.Sprintf("\t\tdelete(e.databaseBind, \"%s\")", fieldName))
 		g.addLine(fmt.Sprintf("\t\tdelete(e.redisBind, %d)", g.filedIndex+1))
-		g.addLine("\t\treturn")
+		g.addLine("\t\treturn e")
 		g.addLine("\t}")
 	} else {
 		g.addLine(fmt.Sprintf("\tif e.originDatabaseValues.F%d == bindValue {", g.filedIndex))
 		g.addLine(fmt.Sprintf("\t\tdelete(e.databaseBind, \"%s\")", fieldName))
-		g.addLine("\t\treturn")
+		g.addLine("\t\treturn e")
 		g.addLine("\t}")
 	}
 	g.addLine(fmt.Sprintf("\te.addToDatabaseBind(\"%s\", bindValue)", fieldName))
@@ -340,6 +343,7 @@ func (g *codeGenerator) createGetterSetterTimeNullable(schema *entitySchema, fie
 		g.addLine(fmt.Sprintf("\t\te.addToRedisBind(%d, bindValue.Time.Unix())", g.filedIndex+1))
 		g.addLine("\t}")
 	}
+	g.addLine("\treturn e")
 	g.addLine("}")
 	g.addLine("")
 	g.filedIndex++
@@ -375,7 +379,7 @@ func (g *codeGenerator) createGetterSetterBoolNullable(schema *entitySchema, fie
 	g.addLine("}")
 	g.addLine("")
 
-	g.addLine(fmt.Sprintf("func (e *%s) Set%s(value *bool) {", entityName, fieldName))
+	g.addLine(fmt.Sprintf("func (e *%s) Set%s(value *bool) *%s {", entityName, fieldName, entityName))
 	g.addLine("\tbindValue := sql.NullBool{}")
 	g.addLine("\tif value != nil {")
 	g.addLine("\t\tbindValue.Valid = true")
@@ -383,7 +387,7 @@ func (g *codeGenerator) createGetterSetterBoolNullable(schema *entitySchema, fie
 	g.addLine("\t}")
 	g.addLine("\tif e.new {")
 	g.addLine(fmt.Sprintf("\t\te.originDatabaseValues.F%d = bindValue", g.filedIndex))
-	g.addLine("\t\treturn")
+	g.addLine("\t\treturn e")
 	g.addLine("\t}")
 	if schema.hasRedisCache {
 		g.addLine("\tsame:= false")
@@ -403,12 +407,12 @@ func (g *codeGenerator) createGetterSetterBoolNullable(schema *entitySchema, fie
 		g.addLine("\tif same {")
 		g.addLine(fmt.Sprintf("\t\tdelete(e.databaseBind, \"%s\")", fieldName))
 		g.addLine(fmt.Sprintf("\t\tdelete(e.redisBind, %d)", g.filedIndex+1))
-		g.addLine("\t\treturn")
+		g.addLine("\t\treturn e")
 		g.addLine("\t}")
 	} else {
 		g.addLine(fmt.Sprintf("\tif e.originDatabaseValues.F%d == bindValue {", g.filedIndex))
 		g.addLine(fmt.Sprintf("\t\tdelete(e.databaseBind, \"%s\")", fieldName))
-		g.addLine("\t\treturn")
+		g.addLine("\t\treturn e")
 		g.addLine("\t}")
 	}
 	g.addLine(fmt.Sprintf("\te.addToDatabaseBind(\"%s\", bindValue)", fieldName))
@@ -421,6 +425,7 @@ func (g *codeGenerator) createGetterSetterBoolNullable(schema *entitySchema, fie
 		g.addLine(fmt.Sprintf("\t\te.addToRedisBind(%d, \"0\")", g.filedIndex+1))
 		g.addLine("\t}")
 	}
+	g.addLine("\treturn e")
 	g.addLine("}")
 	g.addLine("")
 	g.filedIndex++
@@ -456,7 +461,7 @@ func (g *codeGenerator) createGetterSetterFloatNullable(schema *entitySchema, fi
 	g.addLine("}")
 	g.addLine("")
 
-	g.addLine(fmt.Sprintf("func (e *%s) Set%s(value *float64) {", entityName, fieldName))
+	g.addLine(fmt.Sprintf("func (e *%s) Set%s(value *float64) *%s {", entityName, fieldName, entityName))
 	g.addLine("\tbindValue := sql.NullFloat64{}")
 	g.addLine("\tif value != nil {")
 	g.addLine("\t\tbindValue.Valid = true")
@@ -464,7 +469,7 @@ func (g *codeGenerator) createGetterSetterFloatNullable(schema *entitySchema, fi
 	g.addLine("\t}")
 	g.addLine("\tif e.new {")
 	g.addLine(fmt.Sprintf("\t\te.originDatabaseValues.F%d = bindValue", g.filedIndex))
-	g.addLine("\t\treturn")
+	g.addLine("\t\treturn e")
 	g.addLine("\t}")
 	if schema.hasRedisCache {
 		g.addLine("\tsame:= false")
@@ -482,13 +487,13 @@ func (g *codeGenerator) createGetterSetterFloatNullable(schema *entitySchema, fi
 		g.addLine("\tif same {")
 		g.addLine(fmt.Sprintf("\t\tdelete(e.databaseBind, \"%s\")", fieldName))
 		g.addLine(fmt.Sprintf("\t\tdelete(e.redisBind, %d)", g.filedIndex+1))
-		g.addLine("\t\treturn")
+		g.addLine("\t\treturn e")
 		g.addLine("\t}")
 	} else {
 		g.addLine(fmt.Sprintf("\tsource := e.originDatabaseValues.F%d", g.filedIndex))
 		g.addLine(fmt.Sprintf("\tif source.Valid == bindValue.Valid && math.Round(source.Float64*math.Pow10(%d)) == math.Round(bindValue.Float64*math.Pow10(%d)) {", precision, precision))
 		g.addLine(fmt.Sprintf("\t\tdelete(e.databaseBind, \"%s\")", fieldName))
-		g.addLine("\t\treturn")
+		g.addLine("\t\treturn e")
 		g.addLine("\t}")
 	}
 	g.addLine(fmt.Sprintf("\te.addToDatabaseBind(\"%s\", bindValue)", fieldName))
@@ -499,6 +504,7 @@ func (g *codeGenerator) createGetterSetterFloatNullable(schema *entitySchema, fi
 		g.addLine(fmt.Sprintf("\t\te.addToRedisBind(%d, strconv.FormatFloat(bindValue.Float64, 'f', %d, %d))", g.filedIndex+1, precision, size))
 		g.addLine("\t}")
 	}
+	g.addLine("\treturn e")
 	g.addLine("}")
 	g.addLine("")
 	g.filedIndex++
@@ -552,7 +558,7 @@ func (g *codeGenerator) createGetterSetterSetNullable(schema *entitySchema, fiel
 	g.addLine("}")
 	g.addLine("")
 
-	g.addLine(fmt.Sprintf("func (e *%s) Set%s(value ...%s) {", entityName, fieldName, setName))
+	g.addLine(fmt.Sprintf("func (e *%s) Set%s(value ...%s) *%s {", entityName, fieldName, setName, entityName))
 	g.addLine("\tbindValue := sql.NullString{}")
 	g.addLine("\tif len(value) > 0 {")
 	g.addLine("\t\tbindValue.Valid = true")
@@ -566,7 +572,7 @@ func (g *codeGenerator) createGetterSetterSetNullable(schema *entitySchema, fiel
 	g.addLine("\t}")
 	g.addLine("\tif e.new {")
 	g.addLine(fmt.Sprintf("\t\te.originDatabaseValues.F%d = bindValue", g.filedIndex))
-	g.addLine("\t\treturn")
+	g.addLine("\t\treturn e")
 	g.addLine("\t}")
 	if schema.hasRedisCache {
 		g.addLine("\tsame:= false")
@@ -578,18 +584,19 @@ func (g *codeGenerator) createGetterSetterSetNullable(schema *entitySchema, fiel
 		g.addLine("\tif same {")
 		g.addLine(fmt.Sprintf("\t\tdelete(e.databaseBind, \"%s\")", fieldName))
 		g.addLine(fmt.Sprintf("\t\tdelete(e.redisBind, %d)", g.filedIndex+1))
-		g.addLine("\t\treturn")
+		g.addLine("\t\treturn e")
 		g.addLine("\t}")
 	} else {
 		g.addLine(fmt.Sprintf("\tif e.originDatabaseValues.F%d == bindValue {", g.filedIndex))
 		g.addLine(fmt.Sprintf("\t\tdelete(e.databaseBind, \"%s\")", fieldName))
-		g.addLine("\t\treturn")
+		g.addLine("\t\treturn e")
 		g.addLine("\t}")
 	}
 	g.addLine(fmt.Sprintf("\te.addToDatabaseBind(\"%s\", bindValue)", fieldName))
 	if schema.hasRedisCache {
 		g.addLine(fmt.Sprintf("\te.addToRedisBind(%d, bindValue.String)", g.filedIndex+1))
 	}
+	g.addLine("\treturn e")
 	g.addLine("}")
 	g.addLine("")
 	g.filedIndex++
@@ -625,7 +632,7 @@ func (g *codeGenerator) createGetterSetterBytesNullable(schema *entitySchema, fi
 	g.addLine("}")
 	g.addLine("")
 
-	g.addLine(fmt.Sprintf("func (e *%s) Set%s(value []uint8) {", entityName, fieldName))
+	g.addLine(fmt.Sprintf("func (e *%s) Set%s(value []uint8) *%s {", entityName, fieldName, entityName))
 	g.addLine("\tbindValue := sql.NullString{}")
 	g.addLine("\tif value != nil {")
 	g.addLine("\t\tbindValue.Valid = true")
@@ -633,7 +640,7 @@ func (g *codeGenerator) createGetterSetterBytesNullable(schema *entitySchema, fi
 	g.addLine("\t}")
 	g.addLine("\tif e.new {")
 	g.addLine(fmt.Sprintf("\t\te.originDatabaseValues.F%d = bindValue", g.filedIndex))
-	g.addLine("\t\treturn")
+	g.addLine("\t\treturn e")
 	g.addLine("\t}")
 	if schema.hasRedisCache {
 		g.addLine("\tsame:= false")
@@ -649,18 +656,19 @@ func (g *codeGenerator) createGetterSetterBytesNullable(schema *entitySchema, fi
 		g.addLine("\tif same {")
 		g.addLine(fmt.Sprintf("\t\tdelete(e.databaseBind, \"%s\")", fieldName))
 		g.addLine(fmt.Sprintf("\t\tdelete(e.redisBind, %d)", g.filedIndex+1))
-		g.addLine("\t\treturn")
+		g.addLine("\t\treturn e")
 		g.addLine("\t}")
 	} else {
 		g.addLine(fmt.Sprintf("\tif e.originDatabaseValues.F%d == bindValue {", g.filedIndex))
 		g.addLine(fmt.Sprintf("\t\tdelete(e.databaseBind, \"%s\")", fieldName))
-		g.addLine("\t\treturn")
+		g.addLine("\t\treturn e")
 		g.addLine("\t}")
 	}
 	g.addLine(fmt.Sprintf("\te.addToDatabaseBind(\"%s\", bindValue)", fieldName))
 	if schema.hasRedisCache {
 		g.addLine(fmt.Sprintf("\te.addToRedisBind(%d, bindValue.String)", g.filedIndex+1))
 	}
+	g.addLine("\treturn e")
 	g.addLine("}")
 	g.addLine("")
 	g.filedIndex++
@@ -701,7 +709,7 @@ func (g *codeGenerator) createGetterSetterJsonStruct(schema *entitySchema, field
 	g.addLine("}")
 	g.addLine("")
 
-	g.addLine(fmt.Sprintf("func (e *%s) Set%s(value *%s) {", entityName, fieldName, goTypeName))
+	g.addLine(fmt.Sprintf("func (e *%s) Set%s(value *%s) *%s {", entityName, fieldName, goTypeName, entityName))
 	g.addLine("\tbindValue := sql.NullString{}")
 	g.addLine("\tif value != nil {")
 	g.addLine("\t\tjsonStr, _ := fluxaorm.JsonMarshalToString(*value)")
@@ -710,7 +718,7 @@ func (g *codeGenerator) createGetterSetterJsonStruct(schema *entitySchema, field
 	g.addLine("\t}")
 	g.addLine("\tif e.new {")
 	g.addLine(fmt.Sprintf("\t\te.originDatabaseValues.F%d = bindValue", g.filedIndex))
-	g.addLine("\t\treturn")
+	g.addLine("\t\treturn e")
 	g.addLine("\t}")
 	if schema.hasRedisCache {
 		g.addLine("\tsame := false")
@@ -722,18 +730,19 @@ func (g *codeGenerator) createGetterSetterJsonStruct(schema *entitySchema, field
 		g.addLine("\tif same {")
 		g.addLine(fmt.Sprintf("\t\tdelete(e.databaseBind, \"%s\")", fieldName))
 		g.addLine(fmt.Sprintf("\t\tdelete(e.redisBind, %d)", g.filedIndex+1))
-		g.addLine("\t\treturn")
+		g.addLine("\t\treturn e")
 		g.addLine("\t}")
 	} else {
 		g.addLine(fmt.Sprintf("\tif e.originDatabaseValues.F%d == bindValue {", g.filedIndex))
 		g.addLine(fmt.Sprintf("\t\tdelete(e.databaseBind, \"%s\")", fieldName))
-		g.addLine("\t\treturn")
+		g.addLine("\t\treturn e")
 		g.addLine("\t}")
 	}
 	g.addLine(fmt.Sprintf("\te.addToDatabaseBind(\"%s\", bindValue)", fieldName))
 	if schema.hasRedisCache {
 		g.addLine(fmt.Sprintf("\te.addToRedisBind(%d, bindValue.String)", g.filedIndex+1))
 	}
+	g.addLine("\treturn e")
 	g.addLine("}")
 	g.addLine("")
 	g.filedIndex++
@@ -771,7 +780,7 @@ func (g *codeGenerator) createGetterSetterEnumNullable(schema *entitySchema, fie
 	g.addLine("}")
 	g.addLine("")
 
-	g.addLine(fmt.Sprintf("func (e *%s) Set%s(value *%s) {", entityName, fieldName, enumName))
+	g.addLine(fmt.Sprintf("func (e *%s) Set%s(value *%s) *%s {", entityName, fieldName, enumName, entityName))
 	g.addLine("\tbindValue := sql.NullString{}")
 	g.addLine("\tif value != nil {")
 	g.addLine("\t\tbindValue.Valid = true")
@@ -779,7 +788,7 @@ func (g *codeGenerator) createGetterSetterEnumNullable(schema *entitySchema, fie
 	g.addLine("\t}")
 	g.addLine("\tif e.new {")
 	g.addLine(fmt.Sprintf("\t\te.originDatabaseValues.F%d = bindValue", g.filedIndex))
-	g.addLine("\t\treturn")
+	g.addLine("\t\treturn e")
 	g.addLine("\t}")
 	if schema.hasRedisCache {
 		g.addLine("\tsame:= false")
@@ -795,18 +804,19 @@ func (g *codeGenerator) createGetterSetterEnumNullable(schema *entitySchema, fie
 		g.addLine("\tif same {")
 		g.addLine(fmt.Sprintf("\t\tdelete(e.databaseBind, \"%s\")", fieldName))
 		g.addLine(fmt.Sprintf("\t\tdelete(e.redisBind, %d)", g.filedIndex+1))
-		g.addLine("\t\treturn")
+		g.addLine("\t\treturn e")
 		g.addLine("\t}")
 	} else {
 		g.addLine(fmt.Sprintf("\tif e.originDatabaseValues.F%d == bindValue {", g.filedIndex))
 		g.addLine(fmt.Sprintf("\t\tdelete(e.databaseBind, \"%s\")", fieldName))
-		g.addLine("\t\treturn")
+		g.addLine("\t\treturn e")
 		g.addLine("\t}")
 	}
 	g.addLine(fmt.Sprintf("\te.addToDatabaseBind(\"%s\", bindValue)", fieldName))
 	if schema.hasRedisCache {
 		g.addLine(fmt.Sprintf("\te.addToRedisBind(%d, bindValue.String)", g.filedIndex+1))
 	}
+	g.addLine("\treturn e")
 	g.addLine("}")
 	g.addLine("")
 	g.filedIndex++
