@@ -309,10 +309,13 @@ func getSchemaChanges(ctx Context, entitySchema *entitySchema) (preAlters, alter
 		if tableColumn == value.Definition {
 			continue
 		}
+		if isNullableDefaultEquivalent(tableColumn, value.Definition) {
+			continue
+		}
 		hasName := -1
 		hasDefinition := -1
 		for z, v := range sqlSchema.DBTableColumns {
-			if v.Definition == value.Definition {
+			if v.Definition == value.Definition || isNullableDefaultEquivalent(v.Definition, value.Definition) {
 				hasDefinition = z
 			}
 			if v.ColumnName == value.ColumnName {
@@ -635,6 +638,19 @@ func checkColumn(engine Engine, schema *entitySchema, field *reflect.StructField
 		columns = append(columns, &ColumnSchemaDefinition{columnName, fmt.Sprintf("`%s` %s", columnName, definition)})
 	}
 	return columns, nil
+}
+
+// isNullableDefaultEquivalent returns true when two column definitions differ only
+// by a trailing " DEFAULT NULL" suffix. MySQL implicitly defaults nullable columns
+// to NULL, so `text` and `text DEFAULT NULL` are functionally identical.
+func isNullableDefaultEquivalent(a, b string) bool {
+	if strings.HasSuffix(b, " DEFAULT NULL") && !strings.Contains(b, "NOT NULL") {
+		return strings.TrimSuffix(b, " DEFAULT NULL") == strings.TrimSuffix(a, " DEFAULT NULL")
+	}
+	if strings.HasSuffix(a, " DEFAULT NULL") && !strings.Contains(a, "NOT NULL") {
+		return strings.TrimSuffix(a, " DEFAULT NULL") == strings.TrimSuffix(b, " DEFAULT NULL")
+	}
+	return false
 }
 
 func handleInt(typeAsString string, attributes map[string]string, nullable bool) (string, bool, string) {
