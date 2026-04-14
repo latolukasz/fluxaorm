@@ -24,7 +24,7 @@ type generateEntity struct {
 	BalanceNullable   *int8
 	Name              string `orm:"required"`
 	Comment           string
-	TestEnum          string `orm:"enum=a,b,c;required"`
+	TestEnum          string `orm:"enum=a,b,c;required;enumName=TestEnum"`
 	TestEnumOptional  string `orm:"enum=a,b,c;enumName=TestEnum"`
 	TestSet           string `orm:"set=a,b,c;required;enumName=TestEnum"`
 	TestSetOptional   string `orm:"set=a,b,c;enumName=TestEnum"`
@@ -54,7 +54,7 @@ type generateEntityNoRedis struct {
 	BalanceNullable   *int8
 	Name              string `orm:"required"`
 	Comment           string
-	TestEnum          string `orm:"enum=a,b,c;required"`
+	TestEnum          string `orm:"enum=a,b,c;required;enumName=TestEnum"`
 	TestEnumOptional  string `orm:"enum=a,b,c;enumName=TestEnum"`
 	TestSet           string `orm:"set=a,b,c;required;enumName=TestEnum"`
 	TestSetOptional   string `orm:"set=a,b,c;enumName=TestEnum"`

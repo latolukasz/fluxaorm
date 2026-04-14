@@ -60,6 +60,14 @@ func (d *enumDefinition) isReference() bool {
 	return len(d.fields) == 0
 }
 
+func entityNamePrefix(typeName string) string {
+	prefix := strings.TrimSuffix(typeName, "Entity")
+	if prefix == "" {
+		return prefix
+	}
+	return strings.ToUpper(prefix[:1]) + prefix[1:]
+}
+
 func initEnumDefinition(name string, values []string, required bool) *enumDefinition {
 	enum := &enumDefinition{
 		required:   required,
@@ -954,7 +962,7 @@ func (e *entitySchema) buildIntPointerField(attributes schemaFieldAttributes, mi
 
 func (e *entitySchema) buildEnumField(attributes schemaFieldAttributes, values []string) {
 	attributes.Fields.stringsEnums = append(attributes.Fields.stringsEnums, attributes.Index)
-	enumName := attributes.Field.Name
+	enumName := entityNamePrefix(e.t.Name()) + attributes.Field.Name
 	if customName, has := attributes.Tags["enumName"]; has {
 		enumName = customName
 	}
@@ -1007,7 +1015,7 @@ func (e *entitySchema) buildBytesField(attributes schemaFieldAttributes) {
 
 func (e *entitySchema) buildStringSliceField(attributes schemaFieldAttributes, values []string) {
 	attributes.Fields.sliceStringsSets = append(attributes.Fields.sliceStringsSets, attributes.Index)
-	enumName := attributes.Field.Name
+	enumName := entityNamePrefix(e.t.Name()) + attributes.Field.Name
 	if customName, has := attributes.Tags["enumName"]; has {
 		enumName = customName
 	}
