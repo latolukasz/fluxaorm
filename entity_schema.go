@@ -142,6 +142,7 @@ type entitySchema struct {
 	searchableFields        []searchableFieldDef
 	pendingSearchableFields map[string]pendingSearchableField
 	debeziumKafkaPool       string
+	debeziumPartitions      int
 	cachedUniqueIndexes     map[string]bool
 	hasCachedUniqueIndexes  bool
 	uniqueIndexFIndexes     map[string][]int
@@ -347,6 +348,13 @@ func (e *entitySchema) init(registry *registry, entityType reflect.Type) error {
 			return fmt.Errorf("kafka pool '%s' not found for debezium in entity '%s'", debeziumKafkaPool, entityType.Name())
 		}
 		e.debeziumKafkaPool = debeziumKafkaPool
+		if partStr := e.getTag("partition", "", ""); partStr != "" {
+			p, err := strconv.Atoi(partStr)
+			if err != nil || p < 1 {
+				return fmt.Errorf("invalid partition '%s' in entity '%s'", partStr, entityType.Name())
+			}
+			e.debeziumPartitions = p
+		}
 	}
 	e.tableName = e.getTag("table", entityType.Name(), entityType.Name())
 	redisCacheName := e.getTag("redisCache", DefaultPoolCode, "")

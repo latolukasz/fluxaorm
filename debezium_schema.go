@@ -48,8 +48,14 @@ func GetDebeziumAlters(ctx Context) ([]DebeziumAlter, error) {
 		mysqlPool string
 	}
 
+	type tableInfo struct {
+		qualifiedName string // db.table for table.include.list
+		topicTable    string // table name for topic regex matching
+		partitions    int
+	}
+
 	// Group entities by {kafkaPool, mysqlPool}
-	tablesByConnector := make(map[connectorKey][]string)
+	tablesByConnector := make(map[connectorKey][]tableInfo)
 	for _, schema := range registry.entitySchemas {
 		if schema.debeziumKafkaPool == "" {
 			continue
@@ -57,7 +63,11 @@ func GetDebeziumAlters(ctx Context) ([]DebeziumAlter, error) {
 		key := connectorKey{kafkaPool: schema.debeziumKafkaPool, mysqlPool: schema.mysqlPoolCode}
 		db := ctx.Engine().DB(schema.mysqlPoolCode)
 		dbName := db.GetConfig().GetDatabaseName()
-		tablesByConnector[key] = append(tablesByConnector[key], dbName+"."+schema.tableName)
+		tablesByConnector[key] = append(tablesByConnector[key], tableInfo{
+			qualifiedName: dbName + "." + schema.tableName,
+			topicTable:    schema.tableName,
+			partitions:    schema.debeziumPartitions,
+		})
 	}
 
 	if len(tablesByConnector) == 0 {
@@ -72,7 +82,9 @@ func GetDebeziumAlters(ctx Context) ([]DebeziumAlter, error) {
 	desiredByPool := make(map[string][]desiredConnector) // kafkaPool -> connectors
 
 	for key, tables := range tablesByConnector {
-		sort.Strings(tables)
+		sort.Slice(tables, func(i, j int) bool {
+			return tables[i].qualifiedName < tables[j].qualifiedName
+		})
 		connectorName := "fluxa_" + key.mysqlPool
 
 		db := ctx.Engine().DB(key.mysqlPool)
@@ -94,6 +106,11 @@ func GetDebeziumAlters(ctx Context) ([]DebeziumAlter, error) {
 			}
 		}
 
+		tableNames := make([]string, len(tables))
+		for i, t := range tables {
+			tableNames[i] = t.qualifiedName
+		}
+
 		config := map[string]string{
 			"connector.class":                "io.debezium.connector.mysql.MySqlConnector",
 			"tasks.max":                      "1",
@@ -104,7 +121,7 @@ func GetDebeziumAlters(ctx Context) ([]DebeziumAlter, error) {
 			"database.server.id":             generateServerID(key.mysqlPool),
 			"topic.prefix":                   topicPrefix,
 			"database.include.list":          mysqlConfig.GetDatabaseName(),
-			"table.include.list":             strings.Join(tables, ","),
+			"table.include.list":             strings.Join(tableNames, ","),
 			"include.schema.changes":         "false",
 			"key.converter":                  "org.apache.kafka.connect.json.JsonConverter",
 			"key.converter.schemas.enable":   "false",
@@ -112,6 +129,27 @@ func GetDebeziumAlters(ctx Context) ([]DebeziumAlter, error) {
 			"value.converter.schemas.enable": "false",
 			"schema.history.internal.kafka.bootstrap.servers": strings.Join(brokers, ","),
 			"schema.history.internal.kafka.topic":             topicPrefix + "_schema_history",
+		}
+
+		// Per-table partition groups via topic.creation
+		var groupNames []string
+		for _, t := range tables {
+			if t.partitions < 1 {
+				continue
+			}
+			group := "p_" + t.topicTable
+			groupNames = append(groupNames, group)
+			config["topic.creation."+group+".include"] = topicPrefix + "\\." + mysqlConfig.GetDatabaseName() + "\\." + t.topicTable
+			config["topic.creation."+group+".partitions"] = fmt.Sprintf("%d", t.partitions)
+			config["topic.creation."+group+".replication.factor"] = "1"
+		}
+
+		if len(groupNames) > 0 {
+			config["topic.creation.groups"] = strings.Join(groupNames, ",")
+			if _, hasDefault := config["topic.creation.default.partitions"]; !hasDefault {
+				config["topic.creation.default.partitions"] = "1"
+				config["topic.creation.default.replication.factor"] = "1"
+			}
 		}
 
 		if sasl := ctx.Engine().Kafka(key.kafkaPool).GetPoolOptions().SASL; sasl != nil {
