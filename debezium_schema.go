@@ -114,6 +114,15 @@ func GetDebeziumAlters(ctx Context) ([]DebeziumAlter, error) {
 			"schema.history.internal.kafka.topic":             topicPrefix + "_schema_history",
 		}
 
+		if sasl := ctx.Engine().Kafka(key.kafkaPool).GetPoolOptions().SASL; sasl != nil {
+			jaas := saslJAASConfig(sasl)
+			for _, prefix := range []string{"schema.history.internal.producer.", "schema.history.internal.consumer."} {
+				config[prefix+"security.protocol"] = "SASL_PLAINTEXT"
+				config[prefix+"sasl.mechanism"] = sasl.Mechanism
+				config[prefix+"sasl.jaas.config"] = jaas
+			}
+		}
+
 		desiredByPool[key.kafkaPool] = append(desiredByPool[key.kafkaPool], desiredConnector{
 			name:   connectorName,
 			config: config,
@@ -332,6 +341,22 @@ func parseMySQLDSN(dsn string) (host, port, user, pass string) {
 		port = "3306"
 	}
 	return
+}
+
+// saslJAASConfig builds the JAAS config string for Debezium's Kafka producer/consumer.
+func saslJAASConfig(sasl *KafkaSASLConfig) string {
+	switch sasl.Mechanism {
+	case "PLAIN":
+		return fmt.Sprintf(
+			`org.apache.kafka.common.security.plain.PlainLoginModule required username="%s" password="%s";`,
+			sasl.User, sasl.Password,
+		)
+	default: // SCRAM-SHA-256, SCRAM-SHA-512
+		return fmt.Sprintf(
+			`org.apache.kafka.common.security.scram.ScramLoginModule required username="%s" password="%s";`,
+			sasl.User, sasl.Password,
+		)
+	}
 }
 
 // generateServerID produces a deterministic database.server.id from a pool code string.
