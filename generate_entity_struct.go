@@ -2,6 +2,7 @@ package fluxaorm
 
 import (
 	"fmt"
+	"sort"
 	"strings"
 )
 
@@ -11,6 +12,18 @@ type uniqueIndexColInfo struct {
 	nullable       bool
 	bindNullType   string // e.g. "sql.NullInt64" — only for nullable
 	bindInnerField string // e.g. ".Int64" — only for nullable
+}
+
+func sortedCachedUniqueIndexNames(schema *entitySchema) []string {
+	names := make([]string, 0, len(schema.cachedUniqueIndexes))
+	for idxName, isCached := range schema.cachedUniqueIndexes {
+		if isCached {
+			names = append(names, idxName)
+		}
+	}
+	sort.Strings(names)
+
+	return names
 }
 
 func (g *codeGenerator) getUniqueIndexColInfo(schema *entitySchema, colName string, fIndex int) uniqueIndexColInfo {
@@ -696,10 +709,7 @@ func (g *codeGenerator) generateEntityStruct(schema *entitySchema, names *entity
 	if schema.hasCachedUniqueIndexes {
 		g.addImport("strconv")
 		idxNum := 0
-		for idxName, isCached := range schema.cachedUniqueIndexes {
-			if !isCached {
-				continue
-			}
+		for _, idxName := range sortedCachedUniqueIndexNames(schema) {
 			fIndexes := schema.uniqueIndexFIndexes[idxName]
 			index := schema.uniqueIndexes[idxName]
 			cols := make([]uniqueIndexColInfo, len(index.Columns))
@@ -769,10 +779,7 @@ func (g *codeGenerator) generateEntityStruct(schema *entitySchema, names *entity
 	if schema.hasCachedUniqueIndexes {
 		g.addImport("strconv")
 		idxNum := 0
-		for idxName, isCached := range schema.cachedUniqueIndexes {
-			if !isCached {
-				continue
-			}
+		for _, idxName := range sortedCachedUniqueIndexNames(schema) {
 			fIndexes := schema.uniqueIndexFIndexes[idxName]
 			index := schema.uniqueIndexes[idxName]
 			cols := make([]uniqueIndexColInfo, len(index.Columns))
@@ -976,10 +983,7 @@ func (g *codeGenerator) generateEntityStruct(schema *entitySchema, names *entity
 		if schema.hasFakeDelete {
 			g.addLine("\t\tif _fdv, _fdok := e.databaseBind[\"FakeDelete\"]; _fdok && _fdv.(bool) {")
 			idxNum := 0
-			for idxName, isCached := range schema.cachedUniqueIndexes {
-				if !isCached {
-					continue
-				}
+			for _, idxName := range sortedCachedUniqueIndexNames(schema) {
 				fIndexes := schema.uniqueIndexFIndexes[idxName]
 				index := schema.uniqueIndexes[idxName]
 				cols := make([]uniqueIndexColInfo, len(index.Columns))
@@ -999,10 +1003,7 @@ func (g *codeGenerator) generateEntityStruct(schema *entitySchema, names *entity
 		}
 
 		idxNum := 0
-		for idxName, isCached := range schema.cachedUniqueIndexes {
-			if !isCached {
-				continue
-			}
+		for _, idxName := range sortedCachedUniqueIndexNames(schema) {
 			fIndexes := schema.uniqueIndexFIndexes[idxName]
 			index := schema.uniqueIndexes[idxName]
 			cols := make([]uniqueIndexColInfo, len(index.Columns))
