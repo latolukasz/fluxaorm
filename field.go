@@ -222,14 +222,10 @@ func (f TimeField) Lt(v time.Time) Condition {
 // EnumField represents an enum column stored as a string.
 type EnumField struct{ Column string }
 
-func (f EnumField) ColumnName() string    { return f.Column }
-func (f EnumField) Is(v string) Condition { return eqCondition{column: f.Column, value: v} }
-func (f EnumField) In(values ...string) Condition {
-	v := make([]any, len(values))
-	for i, val := range values {
-		v[i] = val
-	}
-	return inCondition{column: f.Column, values: v}
+func (f EnumField) ColumnName() string { return f.Column }
+func (f EnumField) Is(v any) Condition { return eqCondition{column: f.Column, value: v} }
+func (f EnumField) In(values ...any) Condition {
+	return inCondition{column: f.Column, values: values}
 }
 
 // ReferenceField represents a foreign key reference column.
@@ -366,14 +362,10 @@ func (f NullableFloatField) IsNotNull() Condition {
 // NullableEnumField represents a nullable enum column stored as a string.
 type NullableEnumField struct{ Column string }
 
-func (f NullableEnumField) ColumnName() string    { return f.Column }
-func (f NullableEnumField) Is(v string) Condition { return eqCondition{column: f.Column, value: v} }
-func (f NullableEnumField) In(values ...string) Condition {
-	v := make([]any, len(values))
-	for i, val := range values {
-		v[i] = val
-	}
-	return inCondition{column: f.Column, values: v}
+func (f NullableEnumField) ColumnName() string { return f.Column }
+func (f NullableEnumField) Is(v any) Condition { return eqCondition{column: f.Column, value: v} }
+func (f NullableEnumField) In(values ...any) Condition {
+	return inCondition{column: f.Column, values: values}
 }
 func (f NullableEnumField) IsNull() Condition { return nullCondition{column: f.Column, isNull: true} }
 func (f NullableEnumField) IsNotNull() Condition {
