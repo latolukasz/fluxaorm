@@ -229,8 +229,12 @@ func (g *codeGenerator) addSQLRowLines(fields *tableFields) string {
 		result += fmt.Sprintf("\tF%d int64\n", g.filedIndex)
 		g.filedIndex++
 	}
-	for range fields.booleans {
-		result += fmt.Sprintf("\tF%d bool\n", g.filedIndex)
+	for _, i := range fields.booleans {
+		if fields.prefix == "" && fields.fields[i].Name == "FakeDelete" {
+			result += fmt.Sprintf("\tF%d uint64\n", g.filedIndex)
+		} else {
+			result += fmt.Sprintf("\tF%d bool\n", g.filedIndex)
+		}
 		g.filedIndex++
 	}
 	for range fields.floats {
@@ -338,8 +342,12 @@ func (g *codeGenerator) addRedisBindSetLines(schema *entitySchema, fields *table
 		g.addLine(fmt.Sprintf("\tredisListValues[%d] = r.F%d", g.filedIndex+1, g.filedIndex))
 		g.filedIndex++
 	}
-	for range fields.booleans {
-		g.addLine(fmt.Sprintf("\tif r.F%d  {", g.filedIndex))
+	for _, i := range fields.booleans {
+		if fields.prefix == "" && fields.fields[i].Name == "FakeDelete" {
+			g.addLine(fmt.Sprintf("\tif r.F%d != 0 {", g.filedIndex))
+		} else {
+			g.addLine(fmt.Sprintf("\tif r.F%d  {", g.filedIndex))
+		}
 		g.addLine(fmt.Sprintf("\t\tredisListValues[%d] = \"1\"", g.filedIndex+1))
 		g.addLine(fmt.Sprintf("\t} else {"))
 		g.addLine(fmt.Sprintf("\t\tredisListValues[%d] = \"0\"", g.filedIndex+1))

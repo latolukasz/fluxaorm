@@ -127,13 +127,26 @@ func (g *codeGenerator) createGetterSetterBool(schema *entitySchema, fieldName, 
 		g.addLine("\t\t}")
 	}
 	g.addLine("\t}")
-	g.addLine(fmt.Sprintf("\treturn e.originDatabaseValues.F%d;", g.filedIndex))
+	isFakeDelete := schema.hasFakeDelete && fieldName == "FakeDelete"
+	if isFakeDelete {
+		g.addLine(fmt.Sprintf("\treturn e.originDatabaseValues.F%d != 0;", g.filedIndex))
+	} else {
+		g.addLine(fmt.Sprintf("\treturn e.originDatabaseValues.F%d;", g.filedIndex))
+	}
 	g.addLine("}")
 	g.addLine("")
 
 	g.addLine(fmt.Sprintf("func (e *%s) Set%s(value bool) *%s {", entityName, fieldName, entityName))
 	g.addLine("\tif e.new {")
-	g.addLine(fmt.Sprintf("\t\te.originDatabaseValues.F%d = value", g.filedIndex))
+	if isFakeDelete {
+		g.addLine("\t\tif value {")
+		g.addLine(fmt.Sprintf("\t\t\te.originDatabaseValues.F%d = 1", g.filedIndex))
+		g.addLine("\t\t} else {")
+		g.addLine(fmt.Sprintf("\t\t\te.originDatabaseValues.F%d = 0", g.filedIndex))
+		g.addLine("\t\t}")
+	} else {
+		g.addLine(fmt.Sprintf("\t\te.originDatabaseValues.F%d = value", g.filedIndex))
+	}
 	g.addLine("\t\treturn e")
 	g.addLine("\t}")
 	if schema.hasRedisCache {
@@ -142,7 +155,11 @@ func (g *codeGenerator) createGetterSetterBool(schema *entitySchema, fieldName, 
 		g.addLine(fmt.Sprintf("\t\tfromRedis := e.originRedisValues[%d] == \"1\"", g.filedIndex))
 		g.addLine("\t\tsame = fromRedis == value")
 		g.addLine("\t} else {")
-		g.addLine(fmt.Sprintf("\t\tsame = e.originDatabaseValues.F%d == value", g.filedIndex))
+		if isFakeDelete {
+			g.addLine(fmt.Sprintf("\t\tsame = (e.originDatabaseValues.F%d != 0) == value", g.filedIndex))
+		} else {
+			g.addLine(fmt.Sprintf("\t\tsame = e.originDatabaseValues.F%d == value", g.filedIndex))
+		}
 		g.addLine("\t}")
 		g.addLine("\tif same {")
 		g.addLine(fmt.Sprintf("\t\tdelete(e.databaseBind, \"%s\")", fieldName))
@@ -150,7 +167,11 @@ func (g *codeGenerator) createGetterSetterBool(schema *entitySchema, fieldName, 
 		g.addLine("\t\treturn e")
 		g.addLine("\t}")
 	} else {
-		g.addLine(fmt.Sprintf("\tif e.originDatabaseValues.F%d == value {", g.filedIndex))
+		if isFakeDelete {
+			g.addLine(fmt.Sprintf("\tif (e.originDatabaseValues.F%d != 0) == value {", g.filedIndex))
+		} else {
+			g.addLine(fmt.Sprintf("\tif e.originDatabaseValues.F%d == value {", g.filedIndex))
+		}
 		g.addLine(fmt.Sprintf("\t\tdelete(e.databaseBind, \"%s\")", fieldName))
 		g.addLine("\t\treturn e")
 		g.addLine("\t}")

@@ -738,7 +738,7 @@ func (g *codeGenerator) generateEntityStruct(schema *entitySchema, names *entity
 		g.addLine(fmt.Sprintf("\t\t_searchKey := %s.redisSearchPrefix + strconv.FormatUint(e.GetID(), 10)", names.providerName))
 		g.addLine(fmt.Sprintf("\t\t_sp := e.ctx.RedisPipeLine(%s.redisSearchCode)", names.providerName))
 		if fdIndex >= 0 {
-			g.addLine(fmt.Sprintf("\t\tif !e.originDatabaseValues.F%d {", fdIndex))
+			g.addLine(fmt.Sprintf("\t\tif e.originDatabaseValues.F%d == 0 {", fdIndex))
 			g.addLine(fmt.Sprintf("\t\t\t_sp.Del(_searchKey)"))
 			g.addLine(fmt.Sprintf("\t\t\t_sa := make([]any, 0, %d)", cap))
 			for _, f := range schema.searchableFields {
@@ -1189,7 +1189,11 @@ func buildColOriginInfos(fields *tableFields, fIdx *int) []colOriginInfo {
 	}
 	for _, i := range fields.booleans {
 		fieldName := fields.prefix + fields.fields[i].Name
-		cols = append(cols, colOriginInfo{fieldName, *fIdx, "bool"})
+		if fields.prefix == "" && fields.fields[i].Name == "FakeDelete" {
+			cols = append(cols, colOriginInfo{fieldName, *fIdx, "fakeDeleteBool"})
+		} else {
+			cols = append(cols, colOriginInfo{fieldName, *fIdx, "bool"})
+		}
 		*fIdx++
 	}
 	for _, i := range fields.floats {
@@ -1314,6 +1318,13 @@ func (g *codeGenerator) generatePrivateGetOriginalColumnValue(schema *entitySche
 				g.addLine("\t\t}")
 			}
 			g.addLine(fmt.Sprintf("\t\treturn e.originDatabaseValues.F%d", c.fIndex))
+		case "fakeDeleteBool":
+			if schema.hasRedisCache {
+				g.addLine(fmt.Sprintf("\t\tif e.originRedisValues != nil {"))
+				g.addLine(fmt.Sprintf("\t\t\treturn e.originRedisValues[%d] == \"1\"", c.fIndex))
+				g.addLine("\t\t}")
+			}
+			g.addLine(fmt.Sprintf("\t\treturn e.originDatabaseValues.F%d != 0", c.fIndex))
 		case "float64":
 			if schema.hasRedisCache {
 				g.addLine(fmt.Sprintf("\t\tif e.originRedisValues != nil {"))

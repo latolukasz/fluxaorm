@@ -793,7 +793,7 @@ func (g *codeGenerator) generateReindexRedisSearch(schema *entitySchema, names *
 	g.addLine("\t\t}")
 
 	if fdIndex >= 0 {
-		g.addLine(fmt.Sprintf("\t\tif _sqlRow.F%d {", fdIndex))
+		g.addLine(fmt.Sprintf("\t\tif _sqlRow.F%d != 0 {", fdIndex))
 		g.addLine("\t\t\tcontinue")
 		g.addLine("\t\t}")
 	}
