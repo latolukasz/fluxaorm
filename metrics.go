@@ -17,6 +17,9 @@ type metricsRegistry struct {
 	queriesClickhouseErrors *prometheus.CounterVec
 	queriesKafka            *prometheus.HistogramVec
 	queriesKafkaErrors      *prometheus.CounterVec
+	kafkaDLQDeadLettered    *prometheus.CounterVec
+	kafkaDLQRequeued        *prometheus.CounterVec
+	kafkaDLQParked          *prometheus.CounterVec
 }
 
 func initMetricsRegistry(factory promauto.Factory) *metricsRegistry {
@@ -57,5 +60,17 @@ func initMetricsRegistry(factory promauto.Factory) *metricsRegistry {
 		Name: "fluxaorm_kafka_operations_errors",
 		Help: "Total number of Kafka operation errors",
 	}, []string{"pool", "source", "consumer_group"})
+	reg.kafkaDLQDeadLettered = factory.NewCounterVec(prometheus.CounterOpts{
+		Name: "fluxaorm_kafka_dlq_dead_lettered_total",
+		Help: "Records produced to a dead-letter topic by a main consumer group on callback error",
+	}, []string{"pool", "consumer_group"})
+	reg.kafkaDLQRequeued = factory.NewCounterVec(prometheus.CounterOpts{
+		Name: "fluxaorm_kafka_dlq_requeued_total",
+		Help: "Records requeued to the tail of a dead-letter topic by a DLQ consumer group on callback error",
+	}, []string{"pool", "consumer_group"})
+	reg.kafkaDLQParked = factory.NewCounterVec(prometheus.CounterOpts{
+		Name: "fluxaorm_kafka_dlq_parked_total",
+		Help: "Records parked (not re-produced) after reaching max DLQ attempts",
+	}, []string{"pool", "consumer_group"})
 	return reg
 }

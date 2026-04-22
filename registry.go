@@ -275,6 +275,12 @@ func (r *registry) Validate() (Engine, error) {
 		}
 		e.registry.asyncFlushKafkaPool = r.asyncFlushKafkaPool
 	}
+	// Auto-register DLQ topics + sibling DLQ consumer groups for every CG with WithDeadLetter().
+	// Runs before the CG validation loop so the sibling CGs go through the same validation path.
+	r.autoRegisterDeadLetterQueues()
+	// Re-sync the engine-side view of topics — async-flush and DLQ auto-registration
+	// append to r.kafkaTopics after the earlier assignment at the top of the topics block.
+	e.registry.kafkaTopics = r.kafkaTopics
 	// Validate and register Kafka consumer group definitions
 	if len(r.kafkaConsumerGroups) > 0 {
 		seenCGNames := make(map[string]string) // poolCode.name -> poolCode
@@ -648,6 +654,59 @@ func (r *registry) RegisterClickhouseTable(table *ClickhouseTableBuilder) {
 
 func (r *registry) RegisterKafkaTopic(topic *KafkaTopicBuilder) {
 	r.kafkaTopics = append(r.kafkaTopics, topic)
+}
+
+// autoRegisterDeadLetterQueues creates the DLQ topic and sibling consumer group
+// for every user-registered CG with WithDeadLetter(). Mutates r.kafkaTopics and
+// r.kafkaConsumerGroups. Idempotent — skips any DLQ topic/CG already registered.
+// Exposed as a separate method so unit tests can exercise the logic without
+// needing Validate() (which connects to Kafka).
+func (r *registry) autoRegisterDeadLetterQueues() {
+	userCGs := make([]*KafkaConsumerGroupBuilder, len(r.kafkaConsumerGroups))
+	copy(userCGs, r.kafkaConsumerGroups)
+	for _, cg := range userCGs {
+		if !cg.dlqEnabled {
+			continue
+		}
+		if _, exists := r.kafkaPools[cg.poolCode]; !exists {
+			continue
+		}
+		dlqTopic := DeadLetterTopicName(cg.name)
+		dlqCGName := DeadLetterConsumerGroupName(cg.name)
+		hasDLQTopic := false
+		for _, topic := range r.kafkaTopics {
+			if topic.poolCode == cg.poolCode && topic.topicName == dlqTopic {
+				hasDLQTopic = true
+				break
+			}
+		}
+		if !hasDLQTopic {
+			partitions := cg.dlqTopicPartitions
+			if partitions < 1 {
+				partitions = 1
+			}
+			r.RegisterKafkaTopic(NewKafkaTopic(dlqTopic, cg.poolCode).Partitions(partitions))
+		}
+		hasDLQCG := false
+		for _, existing := range r.kafkaConsumerGroups {
+			if existing.poolCode == cg.poolCode && existing.name == dlqCGName {
+				hasDLQCG = true
+				break
+			}
+		}
+		if !hasDLQCG {
+			sibling := NewKafkaConsumerGroup(dlqCGName, cg.poolCode).
+				Topics(dlqTopic).
+				SessionTimeout(cg.sessionTimeout).
+				RebalanceTimeout(cg.rebalanceTimeout).
+				FetchMaxBytes(cg.fetchMaxBytes).
+				AutoCommitInterval(cg.autoCommitInterval)
+			sibling.dlqParentGroup = cg.name
+			sibling.dlqMaxAttempts = cg.dlqMaxAttempts
+			sibling.dlqTopicPartitions = cg.dlqTopicPartitions
+			r.RegisterKafkaConsumerGroup(sibling)
+		}
+	}
 }
 
 func (r *registry) RegisterKafka(brokers []string, poolCode string, options *KafkaPoolOptions) {

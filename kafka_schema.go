@@ -107,6 +107,10 @@ type KafkaConsumerGroupBuilder struct {
 	rebalanceTimeout    time.Duration
 	fetchMaxBytes       int32
 	autoCommitInterval  time.Duration
+	dlqEnabled          bool
+	dlqMaxAttempts      int
+	dlqTopicPartitions  int32
+	dlqParentGroup      string
 }
 
 // NewKafkaConsumerGroup creates a new Kafka consumer group builder.
@@ -162,6 +166,31 @@ func (b *KafkaConsumerGroupBuilder) AutoCommitInterval(d time.Duration) *KafkaCo
 	return b
 }
 
+// WithDeadLetter enables an auto-registered dead-letter queue for this consumer group.
+// Fluxaorm creates a topic named "_dlq_<group-name>" plus a sibling consumer group
+// with the same name. When EachDebeziumEvent's callback returns an error, the raw
+// record is produced to the DLQ topic (with retry headers) instead of blocking the
+// partition. The sibling consumer group re-processes DLQ records; callback errors
+// there are requeued to the tail of the DLQ topic until dlq-attempts reaches
+// MaxAttempts, at which point records are parked (committed, not re-produced).
+func (b *KafkaConsumerGroupBuilder) WithDeadLetter(opts ...*DeadLetterOptions) *KafkaConsumerGroupBuilder {
+	b.dlqEnabled = true
+	b.dlqMaxAttempts = DefaultDeadLetterMaxAttempts
+	b.dlqTopicPartitions = 1
+	for _, o := range opts {
+		if o == nil {
+			continue
+		}
+		if o.MaxAttempts > 0 {
+			b.dlqMaxAttempts = o.MaxAttempts
+		}
+		if o.TopicPartitions > 0 {
+			b.dlqTopicPartitions = o.TopicPartitions
+		}
+	}
+	return b
+}
+
 func (b *KafkaConsumerGroupBuilder) validate() error {
 	if b.name == "" {
 		return fmt.Errorf("kafka consumer group name is required")
@@ -177,12 +206,16 @@ func (b *KafkaConsumerGroupBuilder) validate() error {
 
 func (b *KafkaConsumerGroupBuilder) toSettings() *KafkaConsumerGroupSettings {
 	return &KafkaConsumerGroupSettings{
-		Name:               b.name,
-		Topics:             b.topics,
-		SessionTimeout:     b.sessionTimeout,
-		RebalanceTimeout:   b.rebalanceTimeout,
-		FetchMaxBytes:      b.fetchMaxBytes,
-		AutoCommitInterval: b.autoCommitInterval,
+		Name:                      b.name,
+		Topics:                    b.topics,
+		SessionTimeout:            b.sessionTimeout,
+		RebalanceTimeout:          b.rebalanceTimeout,
+		FetchMaxBytes:             b.fetchMaxBytes,
+		AutoCommitInterval:        b.autoCommitInterval,
+		DeadLetterEnabled:         b.dlqEnabled,
+		DeadLetterMaxAttempts:     b.dlqMaxAttempts,
+		DeadLetterTopicPartitions: b.dlqTopicPartitions,
+		DeadLetterParentGroup:     b.dlqParentGroup,
 	}
 }
 
