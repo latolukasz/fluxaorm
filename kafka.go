@@ -29,17 +29,6 @@ type KafkaConsumerGroupSettings struct {
 	RebalanceTimeout   time.Duration
 	FetchMaxBytes      int32
 	AutoCommitInterval time.Duration // 0 = manual commit only
-
-	// Dead-letter queue settings. Set via KafkaConsumerGroupBuilder.WithDeadLetter()
-	// on the user-facing consumer group; propagated automatically.
-	DeadLetterEnabled         bool
-	DeadLetterMaxAttempts     int
-	DeadLetterTopicPartitions int32
-
-	// DeadLetterParentGroup is non-empty only on the auto-registered sibling
-	// consumer group that drains the DLQ topic. Its value is the name of the
-	// parent consumer group whose failures it retries.
-	DeadLetterParentGroup string
 }
 
 type KafkaSASLConfig struct {
@@ -65,8 +54,6 @@ type KafkaRecordHeader struct {
 
 type KafkaFetches struct {
 	fetches kgo.Fetches
-	cg      *kafkaConsumerGroupImplementation
-	ctx     Context
 }
 
 func (f KafkaFetches) Records() []*KafkaRecord {
@@ -94,38 +81,9 @@ func (f KafkaFetches) IsEmpty() bool {
 // EachDebeziumEvent iterates over Debezium CDC events in the fetches.
 // Each record is parsed into an entity ID and DebeziumEvent.
 // Tombstone records (nil value) are skipped silently.
-//
-// Behavior depends on the consumer group's dead-letter configuration:
-//
-//   - If no DLQ is configured, a non-nil error from fn (or a parse error) stops
-//     iteration, no offsets are committed, and the error is returned.
-//
-//   - If the consumer group was registered with WithDeadLetter(), errors from fn
-//     (and parse errors) cause the raw record to be produced to "_dlq_<group>"
-//     with retry headers; iteration continues. On clean finish, offsets are
-//     committed automatically.
-//
-//   - If the consumer group is the auto-registered DLQ sibling (DeadLetterParentGroup
-//     set), errors from fn cause the record to be requeued to the tail of the
-//     same DLQ topic with dlq-attempts incremented. When dlq-attempts reaches
-//     the parent's MaxAttempts, the record is parked (committed, not re-produced).
-//     Offsets are committed automatically on clean finish.
+// If the handler returns a non-nil error, iteration stops and that error is returned.
+// Parse errors also stop iteration and are returned.
 func (f KafkaFetches) EachDebeziumEvent(fn func(entityID uint64, event *DebeziumEvent) error) error {
-	if f.cg == nil {
-		return f.eachDebeziumEventLegacy(fn)
-	}
-	settings := f.cg.settings
-	switch {
-	case settings.DeadLetterParentGroup != "":
-		return f.eachDebeziumEventDLQConsumer(fn)
-	case settings.DeadLetterEnabled:
-		return f.eachDebeziumEventWithDLQ(fn)
-	default:
-		return f.eachDebeziumEventLegacy(fn)
-	}
-}
-
-func (f KafkaFetches) eachDebeziumEventLegacy(fn func(entityID uint64, event *DebeziumEvent) error) error {
 	var retErr error
 	f.fetches.EachRecord(func(r *kgo.Record) {
 		if retErr != nil {
@@ -148,120 +106,6 @@ func (f KafkaFetches) eachDebeziumEventLegacy(fn func(entityID uint64, event *De
 		retErr = fn(entityID, event)
 	})
 	return retErr
-}
-
-func (f KafkaFetches) eachDebeziumEventWithDLQ(fn func(entityID uint64, event *DebeziumEvent) error) error {
-	dlqTopic := DeadLetterTopicName(f.cg.settings.Name)
-	var infraErr error
-	f.fetches.EachRecord(func(r *kgo.Record) {
-		if infraErr != nil {
-			return
-		}
-		record := fromKgoRecord(r)
-		if record.Value == nil {
-			return
-		}
-		entityID, err := ParseDebeziumKey(record)
-		if err != nil {
-			infraErr = f.sendToDLQ(dlqTopic, record, fmt.Errorf("parse debezium key: %w", err))
-			return
-		}
-		event, err := ParseDebeziumEvent(record)
-		if err != nil {
-			infraErr = f.sendToDLQ(dlqTopic, record, fmt.Errorf("parse debezium event: %w", err))
-			return
-		}
-		if err := fn(entityID, event); err != nil {
-			infraErr = f.sendToDLQ(dlqTopic, record, err)
-			return
-		}
-	})
-	if infraErr != nil {
-		return infraErr
-	}
-	return f.cg.CommitUncommittedOffsets(f.ctx)
-}
-
-func (f KafkaFetches) eachDebeziumEventDLQConsumer(fn func(entityID uint64, event *DebeziumEvent) error) error {
-	settings := f.cg.settings
-	dlqTopic := DeadLetterTopicName(settings.DeadLetterParentGroup)
-	maxAttempts := settings.DeadLetterMaxAttempts
-	if maxAttempts < 1 {
-		maxAttempts = DefaultDeadLetterMaxAttempts
-	}
-	var infraErr error
-	f.fetches.EachRecord(func(r *kgo.Record) {
-		if infraErr != nil {
-			return
-		}
-		record := fromKgoRecord(r)
-		if record.Value == nil {
-			return
-		}
-		entityID, err := ParseDebeziumKey(record)
-		if err != nil {
-			f.parkDLQRecord(record, fmt.Errorf("parse debezium key: %w", err))
-			return
-		}
-		event, err := ParseDebeziumEvent(record)
-		if err != nil {
-			f.parkDLQRecord(record, fmt.Errorf("parse debezium event: %w", err))
-			return
-		}
-		if err := fn(entityID, event); err != nil {
-			md := ReadDeadLetterMetadata(record)
-			nextAttempts := md.Attempts + 1
-			if nextAttempts >= maxAttempts {
-				f.parkDLQRecord(record, err)
-				return
-			}
-			infraErr = f.requeueDLQRecord(dlqTopic, record, err, nextAttempts)
-			return
-		}
-	})
-	if infraErr != nil {
-		return infraErr
-	}
-	return f.cg.CommitUncommittedOffsets(f.ctx)
-}
-
-func (f KafkaFetches) sendToDLQ(dlqTopic string, record *KafkaRecord, cause error) error {
-	dlqRecord := buildInitialDeadLetterRecord(dlqTopic, record, cause.Error(), time.Now())
-	if err := f.cg.pool.ProduceSync(f.ctx, dlqRecord); err != nil {
-		return fmt.Errorf("produce to dead-letter topic '%s': %w", dlqTopic, err)
-	}
-	if metrics, has := f.ctx.Engine().Registry().getMetricsRegistry(); has {
-		metrics.kafkaDLQDeadLettered.WithLabelValues(f.cg.poolCode, f.cg.settings.Name).Inc()
-	}
-	return nil
-}
-
-func (f KafkaFetches) requeueDLQRecord(dlqTopic string, record *KafkaRecord, cause error, nextAttempts int) error {
-	dlqRecord := buildRequeueDeadLetterRecord(dlqTopic, record, cause.Error(), nextAttempts, time.Now())
-	if err := f.cg.pool.ProduceSync(f.ctx, dlqRecord); err != nil {
-		return fmt.Errorf("requeue to dead-letter topic '%s': %w", dlqTopic, err)
-	}
-	if metrics, has := f.ctx.Engine().Registry().getMetricsRegistry(); has {
-		metrics.kafkaDLQRequeued.WithLabelValues(f.cg.poolCode, f.cg.settings.Name).Inc()
-	}
-	return nil
-}
-
-func (f KafkaFetches) parkDLQRecord(record *KafkaRecord, cause error) {
-	if metrics, has := f.ctx.Engine().Registry().getMetricsRegistry(); has {
-		metrics.kafkaDLQParked.WithLabelValues(f.cg.poolCode, f.cg.settings.Name).Inc()
-	}
-	_, loggers := f.ctx.getKafkaLoggers()
-	if len(loggers) > 0 {
-		md := ReadDeadLetterMetadata(record)
-		message := fmt.Sprintf(
-			"DLQ parked topic=%s offset=%d attempts=%d source=%s:%d:%d first_failed=%s err=%s",
-			record.Topic, record.Offset, md.Attempts,
-			md.SourceTopic, md.SourcePartition, md.SourceOffset,
-			md.FirstFailedAt.Format(time.RFC3339Nano), cause.Error(),
-		)
-		fillLogFields(f.ctx, loggers, f.cg.poolCode+"/"+f.cg.settings.Name, sourceKafka, "DLQ_PARK", message, nil, false, nil)
-	}
 }
 
 // Pool-level interface
@@ -467,7 +311,7 @@ func (k *kafkaConsumerGroupImplementation) PollFetches(ctx Context) KafkaFetches
 		k.fillLogFields(ctx, "POLL", message, duration, firstErr)
 	}
 	k.fillMetrics(ctx, duration, "poll", firstErr)
-	return KafkaFetches{fetches: fetches, cg: k, ctx: ctx}
+	return KafkaFetches{fetches: fetches}
 }
 
 func (k *kafkaConsumerGroupImplementation) CommitUncommittedOffsets(ctx Context) error {
