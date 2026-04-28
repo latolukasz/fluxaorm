@@ -521,6 +521,10 @@ func (g *codeGenerator) generateSearchOne(schema *entitySchema, names *entityNam
 		g.addLine("\t\t}")
 		g.addLine("\t}")
 	}
+	g.addLine("\tif orderBy := query.BuildOrderClause(); orderBy != \"\" {")
+	g.addLine("\t\tb.WriteByte(' ')")
+	g.addLine("\t\tb.WriteString(orderBy)")
+	g.addLine("\t}")
 	g.addLine("\tb.WriteString(\" LIMIT 1\")")
 	g.addLine("\tvar _id uint64")
 	g.addLine(fmt.Sprintf("\t_found, _err := ctx.Engine().DB(p.dbCode).QueryRow(ctx, fluxaorm.NewWhere(b.String(), params...), &_id)"))
