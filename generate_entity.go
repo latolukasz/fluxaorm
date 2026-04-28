@@ -40,6 +40,7 @@ func (g *codeGenerator) generateCodeForEntity(schema *entitySchema) error {
 	g.generateSearchOne(schema, names)
 	g.generateSearchMany(schema, names)
 	g.generateSearchManyWithTotal(schema, names)
+	g.generateCount(schema, names)
 	if schema.hasRedisSearch {
 		g.generateSearchOneInRedis(schema, names)
 		g.generateSearchManyInRedis(schema, names)

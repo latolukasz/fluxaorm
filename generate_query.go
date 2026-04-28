@@ -645,6 +645,36 @@ func (g *codeGenerator) generateSearchManyWithTotal(schema *entitySchema, names 
 	g.addLine("")
 }
 
+func (g *codeGenerator) generateCount(schema *entitySchema, names *entityNames) {
+	g.addImport("strings")
+	g.addLine(fmt.Sprintf("func (p %s) Count(ctx fluxaorm.Context, query *fluxaorm.DBQuery) (int, error) {", names.providerNamePrivate))
+	g.addLine("\twhereSQL, params := query.BuildWhereClause()")
+	g.addLine("\tvar whereClause string")
+	g.addLine("\tif whereSQL != \"\" {")
+	g.addLine("\t\twhereClause = \" WHERE \" + whereSQL")
+	g.addLine("\t}")
+	if schema.hasFakeDelete {
+		g.addLine("\tif !query.IsWithFakeDeletes() {")
+		g.addLine("\t\tif whereClause != \"\" {")
+		g.addLine("\t\t\twhereClause += \" AND `FakeDelete` = 0\"")
+		g.addLine("\t\t} else {")
+		g.addLine("\t\t\twhereClause = \" WHERE `FakeDelete` = 0\"")
+		g.addLine("\t\t}")
+		g.addLine("\t}")
+	}
+	g.addLine("\tvar b strings.Builder")
+	g.addLine(fmt.Sprintf("\tb.WriteString(\"SELECT COUNT(*) FROM `%s`\")", schema.tableName))
+	g.addLine("\tb.WriteString(whereClause)")
+	g.addLine("\tvar count int")
+	g.addLine(fmt.Sprintf("\t_, err := ctx.Engine().DB(p.dbCode).QueryRow(ctx, fluxaorm.NewWhere(b.String(), params...), &count)"))
+	g.addLine("\tif err != nil {")
+	g.addLine("\t\treturn 0, err")
+	g.addLine("\t}")
+	g.addLine("\treturn count, nil")
+	g.addLine("}")
+	g.addLine("")
+}
+
 func (g *codeGenerator) generateSearchOneInRedis(schema *entitySchema, names *entityNames) {
 	g.addImport("strings")
 	g.addImport("strconv")
