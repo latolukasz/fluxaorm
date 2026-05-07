@@ -209,6 +209,7 @@ func TestGenerate(t *testing.T) {
 	assert.True(t, enums.TestEnumList.C.Valid())
 	assert.False(t, enums.TestEnum("invalid").Valid())
 	assert.False(t, enums.TestEnum("").Valid())
+	assert.Equal(t, []enums.TestEnum{enums.TestEnumList.A, enums.TestEnumList.B, enums.TestEnumList.C}, enums.TestEnumList.A.Values())
 	assert.Nil(t, e.GetTestEnumOptional())
 	assert.Equal(t, []enums.TestEnum{enums.TestEnumList.A}, e.GetTestSet())
 	assert.Nil(t, e.GetTestSetOptional())

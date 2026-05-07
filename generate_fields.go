@@ -501,6 +501,10 @@ func (g *codeGenerator) createEnumDefinition(d *enumDefinition, name string) err
 	g.writeToFile(f, "\t}\n")
 	g.writeToFile(f, "\treturn false\n")
 	g.writeToFile(f, "}\n")
+	g.writeToFile(f, "\n")
+	g.writeToFile(f, fmt.Sprintf("func (e %s) Values() []%s {\n", name, name))
+	g.writeToFile(f, fmt.Sprintf("\treturn []%s{\"%s\"}\n", name, strings.Join(d.fields, "\", \"")))
+	g.writeToFile(f, "}\n")
 	_ = f.Close()
 	return formatFile(fileName)
 }
