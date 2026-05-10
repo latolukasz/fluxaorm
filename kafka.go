@@ -148,40 +148,43 @@ type kafkaPoolImplementation struct {
 	config              *kafkaPoolConfig
 	producerClient      *kgo.Client
 	producerCancel      context.CancelFunc
-	producerOnce        sync.Once
-	producerErr         error
+	producerMu          sync.Mutex
 	hasRegisteredTopics bool
 }
 
 // initProducer lazily creates and connects the Kafka producer on first use.
-// Safe for concurrent callers — sync.Once ensures exactly one connection attempt.
+// Retries on subsequent calls if the previous attempt failed (transient outage).
+// Thread-safe: concurrent callers serialize on producerMu.
 func (k *kafkaPoolImplementation) initProducer() error {
-	k.producerOnce.Do(func() {
-		ctx, cancel := context.WithCancel(context.Background())
-		opts := buildProducerKgoOpts(k.config, k.hasRegisteredTopics)
-		opts = append(opts, kgo.WithContext(ctx))
+	k.producerMu.Lock()
+	defer k.producerMu.Unlock()
 
-		client, err := kgo.NewClient(opts...)
-		if err != nil {
-			cancel()
-			k.producerErr = fmt.Errorf("kafka pool '%s': failed to create producer client: %w", k.config.code, err)
+	if k.producerClient != nil {
+		return nil
+	}
 
-			return
-		}
+	ctx, cancel := context.WithCancel(context.Background())
+	opts := buildProducerKgoOpts(k.config, k.hasRegisteredTopics)
+	opts = append(opts, kgo.WithContext(ctx))
 
-		if err := client.Ping(context.Background()); err != nil {
-			client.Close()
-			cancel()
-			k.producerErr = fmt.Errorf("kafka pool '%s': failed to connect producer: %w", k.config.code, err)
+	client, err := kgo.NewClient(opts...)
+	if err != nil {
+		cancel()
 
-			return
-		}
+		return fmt.Errorf("kafka pool '%s': failed to create producer client: %w", k.config.code, err)
+	}
 
-		k.producerClient = client
-		k.producerCancel = cancel
-	})
+	if err := client.Ping(context.Background()); err != nil {
+		client.Close()
+		cancel()
 
-	return k.producerErr
+		return fmt.Errorf("kafka pool '%s': failed to connect producer: %w", k.config.code, err)
+	}
+
+	k.producerClient = client
+	k.producerCancel = cancel
+
+	return nil
 }
 
 type kafkaConsumerGroupImplementation struct {
