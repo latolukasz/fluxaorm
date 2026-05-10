@@ -3,6 +3,7 @@ package fluxaorm
 import (
 	"context"
 	"fmt"
+	"sync"
 	"time"
 
 	"github.com/twmb/franz-go/pkg/kgo"
@@ -113,6 +114,7 @@ type Kafka interface {
 	GetCode() string
 	GetBrokers() []string
 	GetPoolOptions() *KafkaPoolOptions
+	Ping() error
 	ProduceSync(ctx Context, records ...*KafkaRecord) error
 	Produce(ctx Context, record *KafkaRecord, callback func(*KafkaRecord, error))
 	ConsumerGroup(name string) (KafkaConsumerGroup, error)
@@ -146,7 +148,40 @@ type kafkaPoolImplementation struct {
 	config              *kafkaPoolConfig
 	producerClient      *kgo.Client
 	producerCancel      context.CancelFunc
+	producerOnce        sync.Once
+	producerErr         error
 	hasRegisteredTopics bool
+}
+
+// initProducer lazily creates and connects the Kafka producer on first use.
+// Safe for concurrent callers — sync.Once ensures exactly one connection attempt.
+func (k *kafkaPoolImplementation) initProducer() error {
+	k.producerOnce.Do(func() {
+		ctx, cancel := context.WithCancel(context.Background())
+		opts := buildProducerKgoOpts(k.config, k.hasRegisteredTopics)
+		opts = append(opts, kgo.WithContext(ctx))
+
+		client, err := kgo.NewClient(opts...)
+		if err != nil {
+			cancel()
+			k.producerErr = fmt.Errorf("kafka pool '%s': failed to create producer client: %w", k.config.code, err)
+
+			return
+		}
+
+		if err := client.Ping(context.Background()); err != nil {
+			client.Close()
+			cancel()
+			k.producerErr = fmt.Errorf("kafka pool '%s': failed to connect producer: %w", k.config.code, err)
+
+			return
+		}
+
+		k.producerClient = client
+		k.producerCancel = cancel
+	})
+
+	return k.producerErr
 }
 
 type kafkaConsumerGroupImplementation struct {
@@ -158,6 +193,10 @@ type kafkaConsumerGroupImplementation struct {
 }
 
 // kafkaPoolImplementation implements Kafka
+
+func (k *kafkaPoolImplementation) Ping() error {
+	return k.initProducer()
+}
 
 func (k *kafkaPoolImplementation) GetCode() string {
 	return k.config.code
@@ -215,6 +254,10 @@ func (k *kafkaPoolImplementation) ConsumerGroupNames() []string {
 }
 
 func (k *kafkaPoolImplementation) ProduceSync(ctx Context, records ...*KafkaRecord) error {
+	if err := k.initProducer(); err != nil {
+		return err
+	}
+
 	hasLogger, _ := ctx.getKafkaLoggers()
 	start := time.Now()
 	kgoRecords := make([]*kgo.Record, len(records))
@@ -242,6 +285,14 @@ func (k *kafkaPoolImplementation) ProduceSync(ctx Context, records ...*KafkaReco
 }
 
 func (k *kafkaPoolImplementation) Produce(ctx Context, record *KafkaRecord, callback func(*KafkaRecord, error)) {
+	if err := k.initProducer(); err != nil {
+		if callback != nil {
+			callback(nil, err)
+		}
+
+		return
+	}
+
 	hasLogger, _ := ctx.getKafkaLoggers()
 	start := time.Now()
 	k.producerClient.Produce(ctx.Context(), toKgoRecord(record), func(r *kgo.Record, err error) {
@@ -273,8 +324,10 @@ func (k *kafkaPoolImplementation) fillLogFields(ctx Context, operation, message 
 }
 
 func (k *kafkaPoolImplementation) Close() {
-	k.producerCancel()
-	k.producerClient.Close()
+	if k.producerClient != nil {
+		k.producerCancel()
+		k.producerClient.Close()
+	}
 }
 
 // kafkaConsumerGroupImplementation implements KafkaConsumerGroup

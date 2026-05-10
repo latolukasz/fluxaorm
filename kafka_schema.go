@@ -217,6 +217,11 @@ func GetKafkaAlters(ctx Context) ([]KafkaAlter, error) {
 			return nil, fmt.Errorf("kafka pool '%s' not found", poolCode)
 		}
 		pool := kafka.(*kafkaPoolImplementation)
+
+		if err := pool.initProducer(); err != nil {
+			return nil, fmt.Errorf("kafka pool '%s': failed to init producer: %w", poolCode, err)
+		}
+
 		adminClient := kadm.NewClient(pool.producerClient)
 
 		// List existing topics
@@ -304,6 +309,11 @@ func GetKafkaAlters(ctx Context) ([]KafkaAlter, error) {
 			continue
 		}
 		pool := kafka.(*kafkaPoolImplementation)
+
+		if err := pool.initProducer(); err != nil {
+			return nil, fmt.Errorf("kafka pool '%s': failed to init producer: %w", poolCode, err)
+		}
+
 		adminClient := kadm.NewClient(pool.producerClient)
 
 		topicDetails, err := adminClient.ListTopics(ctx.Context())
@@ -334,6 +344,11 @@ func GetKafkaAlters(ctx Context) ([]KafkaAlter, error) {
 
 	for poolCode, kafka := range registry.engine.kafkaServers {
 		pool := kafka.(*kafkaPoolImplementation)
+
+		if err := pool.initProducer(); err != nil {
+			return nil, fmt.Errorf("kafka pool '%s': failed to init producer: %w", poolCode, err)
+		}
+
 		adminClient := kadm.NewClient(pool.producerClient)
 
 		listedGroups, err := adminClient.ListGroups(ctx.Context())

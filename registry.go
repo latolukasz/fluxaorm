@@ -327,23 +327,8 @@ func (r *registry) Validate() (Engine, error) {
 				return nil, fmt.Errorf("kafka pool '%s': unsupported SASL mechanism '%s'", k, v.options.SASL.Mechanism)
 			}
 		}
-		ctx, cancel := context.WithCancel(context.Background())
-		opts := buildProducerKgoOpts(v, poolsWithTopics[k])
-		opts = append(opts, kgo.WithContext(ctx))
-		producerClient, err := kgo.NewClient(opts...)
-		if err != nil {
-			cancel()
-			return nil, fmt.Errorf("kafka pool '%s': failed to create producer client: %w", k, err)
-		}
-		if err := producerClient.Ping(context.Background()); err != nil {
-			producerClient.Close()
-			cancel()
-			return nil, fmt.Errorf("kafka pool '%s': failed to connect producer: %w", k, err)
-		}
 		e.kafkaServers[k] = &kafkaPoolImplementation{
 			config:              v,
-			producerClient:      producerClient,
-			producerCancel:      cancel,
 			hasRegisteredTopics: poolsWithTopics[k],
 		}
 	}
