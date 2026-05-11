@@ -383,6 +383,13 @@ func (k *kafkaConsumerGroupImplementation) CommitUncommittedOffsets(ctx Context)
 }
 
 func (k *kafkaConsumerGroupImplementation) Close() {
+	// Bounded leave-group so Close() below is immediate.
+	// See: https://github.com/twmb/franz-go — "use LeaveGroupContext first for speedy shutdown"
+	leaveCtx, leaveCancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer leaveCancel()
+
+	_ = k.client.LeaveGroupContext(leaveCtx)
+
 	k.ctxCancel()
 	k.client.Close()
 }
