@@ -113,12 +113,18 @@ func (g *codeGenerator) createGetterSetterInt64(schema *entitySchema, fieldName,
 }
 
 func (g *codeGenerator) createGetterSetterBool(schema *entitySchema, fieldName, entityName, providerName string) {
+	isFakeDelete := schema.hasFakeDelete && fieldName == "FakeDelete"
+
 	g.addLine(fmt.Sprintf("func (e *%s) Get%s() bool {", entityName, fieldName))
 	g.addLine("\tif !e.new {")
 	g.addLine("\t\tif e.databaseBind != nil {")
 	g.addLine(fmt.Sprintf("\t\t\tv, hasInDB := e.databaseBind[\"%s\"]", fieldName))
 	g.addLine("\t\t\tif hasInDB {")
-	g.addLine("\t\t\t\treturn v.(bool)")
+	if isFakeDelete {
+		g.addLine("\t\t\t\treturn v.(uint64) != 0")
+	} else {
+		g.addLine("\t\t\t\treturn v.(bool)")
+	}
 	g.addLine("\t\t\t}")
 	g.addLine("\t\t}")
 	if schema.hasRedisCache {
@@ -127,7 +133,6 @@ func (g *codeGenerator) createGetterSetterBool(schema *entitySchema, fieldName, 
 		g.addLine("\t\t}")
 	}
 	g.addLine("\t}")
-	isFakeDelete := schema.hasFakeDelete && fieldName == "FakeDelete"
 	if isFakeDelete {
 		g.addLine(fmt.Sprintf("\treturn e.originDatabaseValues.F%d != 0;", g.filedIndex))
 	} else {
@@ -140,7 +145,7 @@ func (g *codeGenerator) createGetterSetterBool(schema *entitySchema, fieldName, 
 	g.addLine("\tif e.new {")
 	if isFakeDelete {
 		g.addLine("\t\tif value {")
-		g.addLine(fmt.Sprintf("\t\t\te.originDatabaseValues.F%d = 1", g.filedIndex))
+		g.addLine(fmt.Sprintf("\t\t\te.originDatabaseValues.F%d = e.id", g.filedIndex))
 		g.addLine("\t\t} else {")
 		g.addLine(fmt.Sprintf("\t\t\te.originDatabaseValues.F%d = 0", g.filedIndex))
 		g.addLine("\t\t}")
@@ -176,7 +181,15 @@ func (g *codeGenerator) createGetterSetterBool(schema *entitySchema, fieldName, 
 		g.addLine("\t\treturn e")
 		g.addLine("\t}")
 	}
-	g.addLine(fmt.Sprintf("\te.addToDatabaseBind(\"%s\", value)", fieldName))
+	if isFakeDelete {
+		g.addLine("\tif value {")
+		g.addLine(fmt.Sprintf("\t\te.addToDatabaseBind(\"%s\", e.id)", fieldName))
+		g.addLine("\t} else {")
+		g.addLine(fmt.Sprintf("\t\te.addToDatabaseBind(\"%s\", uint64(0))", fieldName))
+		g.addLine("\t}")
+	} else {
+		g.addLine(fmt.Sprintf("\te.addToDatabaseBind(\"%s\", value)", fieldName))
+	}
 	if schema.hasRedisCache {
 		g.addLine("\tif value {")
 		g.addLine(fmt.Sprintf("\t\te.addToRedisBind(%d, \"1\")", g.filedIndex+1))

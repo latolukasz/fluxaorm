@@ -801,7 +801,7 @@ func (g *codeGenerator) generateEntityStruct(schema *entitySchema, names *entity
 
 	// Lifecycle callback: determine flush event type and build old-values map
 	if schema.hasFakeDelete {
-		g.addLine("\t\tif _fdv, _fdok := e.databaseBind[\"FakeDelete\"]; _fdok && _fdv.(bool) {")
+		g.addLine("\t\tif _fdv, _fdok := e.databaseBind[\"FakeDelete\"]; _fdok && _fdv.(uint64) != 0 {")
 		g.addLine("\t\t\te.flushType = 3")
 		g.addLine("\t\t} else {")
 		g.addLine("\t\t\te.flushType = 2")
@@ -903,7 +903,7 @@ func (g *codeGenerator) generateEntityStruct(schema *entitySchema, names *entity
 			g.addLine("\t\t_doSearch := false")
 			g.addLine("\t\t_doSearchFull := false")
 			g.addLine("\t\tif _fdv, _fdok := e.databaseBind[\"FakeDelete\"]; _fdok {")
-			g.addLine("\t\t\tif _fdv.(bool) {")
+			g.addLine("\t\t\tif _fdv.(uint64) != 0 {")
 			g.addLine("\t\t\t\t_sp2.Del(_searchKey2)")
 			g.addLine("\t\t\t} else {")
 			g.addLine("\t\t\t\t_doSearch = true")
@@ -981,7 +981,7 @@ func (g *codeGenerator) generateEntityStruct(schema *entitySchema, names *entity
 
 		// FakeDelete handling: if entity has FakeDelete and it's set to true, delete all cached index keys
 		if schema.hasFakeDelete {
-			g.addLine("\t\tif _fdv, _fdok := e.databaseBind[\"FakeDelete\"]; _fdok && _fdv.(bool) {")
+			g.addLine("\t\tif _fdv, _fdok := e.databaseBind[\"FakeDelete\"]; _fdok && _fdv.(uint64) != 0 {")
 			idxNum := 0
 			for _, idxName := range sortedCachedUniqueIndexNames(schema) {
 				fIndexes := schema.uniqueIndexFIndexes[idxName]
