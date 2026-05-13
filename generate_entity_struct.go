@@ -1118,17 +1118,7 @@ func (g *codeGenerator) generateEntityStruct(schema *entitySchema, names *entity
 	g.addLine("}")
 	g.addLine("")
 
-	g.addLine(fmt.Sprintf("func (e *%s) PrivateFlushed() {", names.entityName))
-	g.addLine("\tif e.new {")
-	g.addLine("\t\te.new = false")
-	g.addLine("\t}")
-	g.addLine("\te.databaseBind = nil")
-	if schema.hasRedisCache {
-		g.addLine("\te.redisBind = nil")
-	}
-	g.addLine("\te.flushType = 0")
-	g.addLine("\te.flushChanges = nil")
-	g.addLine("}")
+	g.generatePrivateFlushed(schema, names)
 	g.addLine("")
 
 	// PrivateFlushEvent
@@ -1284,6 +1274,193 @@ func buildColOriginInfos(fields *tableFields, fIdx *int) []colOriginInfo {
 		cols = append(cols, buildColOriginInfos(subFields, fIdx)...)
 	}
 	return cols
+}
+
+func (g *codeGenerator) generatePrivateFlushed(schema *entitySchema, names *entityNames) {
+	fIdx := 0
+	cols := buildColOriginInfos(schema.fields, &fIdx)
+
+	g.addLine(fmt.Sprintf("func (e *%s) PrivateFlushed() {", names.entityName))
+	g.addLine("\tif e.new {")
+	g.addLine("\t\te.new = false")
+	g.addLine("\t}")
+	g.addLine("\tif e.databaseBind != nil {")
+	g.addLine("\t\tfor _col, _v := range e.databaseBind {")
+	g.addLine("\t\t\tswitch _col {")
+	for _, c := range cols {
+		g.addLine(fmt.Sprintf("\t\t\tcase %q:", c.colName))
+		g.emitPrivateFlushedCase(schema, c)
+	}
+	g.addLine("\t\t\t}")
+	g.addLine("\t\t}")
+	g.addLine("\t}")
+	g.addLine("\te.databaseBind = nil")
+	if schema.hasRedisCache {
+		g.addLine("\te.redisBind = nil")
+	}
+	g.addLine("\te.flushType = 0")
+	g.addLine("\te.flushChanges = nil")
+	g.addLine("}")
+}
+
+func (g *codeGenerator) emitPrivateFlushedCase(schema *entitySchema, c colOriginInfo) {
+	indent := "\t\t\t\t"
+	switch c.category {
+	case "uint64":
+		g.addImport("strconv")
+		g.addLine(fmt.Sprintf("%s_uv := _v.(uint64)", indent))
+		g.addLine(fmt.Sprintf("%se.originDatabaseValues.F%d = _uv", indent, c.fIndex))
+		if schema.hasRedisCache {
+			g.addLine(fmt.Sprintf("%sif e.originRedisValues != nil {", indent))
+			g.addLine(fmt.Sprintf("%s\te.originRedisValues[%d] = strconv.FormatUint(_uv, 10)", indent, c.fIndex))
+			g.addLine(fmt.Sprintf("%s}", indent))
+		}
+	case "int64":
+		g.addImport("strconv")
+		g.addLine(fmt.Sprintf("%s_iv := _v.(int64)", indent))
+		g.addLine(fmt.Sprintf("%se.originDatabaseValues.F%d = _iv", indent, c.fIndex))
+		if schema.hasRedisCache {
+			g.addLine(fmt.Sprintf("%sif e.originRedisValues != nil {", indent))
+			g.addLine(fmt.Sprintf("%s\te.originRedisValues[%d] = strconv.FormatInt(_iv, 10)", indent, c.fIndex))
+			g.addLine(fmt.Sprintf("%s}", indent))
+		}
+	case "bool":
+		g.addLine(fmt.Sprintf("%s_bv := _v.(bool)", indent))
+		g.addLine(fmt.Sprintf("%se.originDatabaseValues.F%d = _bv", indent, c.fIndex))
+		if schema.hasRedisCache {
+			g.addLine(fmt.Sprintf("%sif e.originRedisValues != nil {", indent))
+			g.addLine(fmt.Sprintf("%s\tif _bv {", indent))
+			g.addLine(fmt.Sprintf("%s\t\te.originRedisValues[%d] = \"1\"", indent, c.fIndex))
+			g.addLine(fmt.Sprintf("%s\t} else {", indent))
+			g.addLine(fmt.Sprintf("%s\t\te.originRedisValues[%d] = \"0\"", indent, c.fIndex))
+			g.addLine(fmt.Sprintf("%s\t}", indent))
+			g.addLine(fmt.Sprintf("%s}", indent))
+		}
+	case "fakeDeleteBool":
+		g.addLine(fmt.Sprintf("%s_fv := _v.(uint64)", indent))
+		g.addLine(fmt.Sprintf("%se.originDatabaseValues.F%d = _fv", indent, c.fIndex))
+		if schema.hasRedisCache {
+			g.addLine(fmt.Sprintf("%sif e.originRedisValues != nil {", indent))
+			g.addLine(fmt.Sprintf("%s\tif _fv != 0 {", indent))
+			g.addLine(fmt.Sprintf("%s\t\te.originRedisValues[%d] = \"1\"", indent, c.fIndex))
+			g.addLine(fmt.Sprintf("%s\t} else {", indent))
+			g.addLine(fmt.Sprintf("%s\t\te.originRedisValues[%d] = \"0\"", indent, c.fIndex))
+			g.addLine(fmt.Sprintf("%s\t}", indent))
+			g.addLine(fmt.Sprintf("%s}", indent))
+		}
+	case "float64":
+		g.addImport("strconv")
+		g.addLine(fmt.Sprintf("%s_fv := _v.(float64)", indent))
+		g.addLine(fmt.Sprintf("%se.originDatabaseValues.F%d = _fv", indent, c.fIndex))
+		if schema.hasRedisCache {
+			g.addLine(fmt.Sprintf("%sif e.originRedisValues != nil {", indent))
+			g.addLine(fmt.Sprintf("%s\te.originRedisValues[%d] = strconv.FormatFloat(_fv, 'f', -1, 64)", indent, c.fIndex))
+			g.addLine(fmt.Sprintf("%s}", indent))
+		}
+	case "time":
+		g.addImport("time")
+		g.addImport("strconv")
+		g.addLine(fmt.Sprintf("%s_tv := _v.(time.Time)", indent))
+		g.addLine(fmt.Sprintf("%se.originDatabaseValues.F%d = _tv", indent, c.fIndex))
+		if schema.hasRedisCache {
+			g.addLine(fmt.Sprintf("%sif e.originRedisValues != nil {", indent))
+			g.addLine(fmt.Sprintf("%s\te.originRedisValues[%d] = strconv.FormatInt(_tv.Unix(), 10)", indent, c.fIndex))
+			g.addLine(fmt.Sprintf("%s}", indent))
+		}
+	case "string":
+		g.addLine(fmt.Sprintf("%s_sv := _v.(string)", indent))
+		g.addLine(fmt.Sprintf("%se.originDatabaseValues.F%d = _sv", indent, c.fIndex))
+		if schema.hasRedisCache {
+			g.addLine(fmt.Sprintf("%sif e.originRedisValues != nil {", indent))
+			g.addLine(fmt.Sprintf("%s\te.originRedisValues[%d] = _sv", indent, c.fIndex))
+			g.addLine(fmt.Sprintf("%s}", indent))
+		}
+	case "nullUint64":
+		g.addImport("database/sql")
+		g.addImport("strconv")
+		g.addLine(fmt.Sprintf("%s_nv := _v.(sql.NullInt64)", indent))
+		g.addLine(fmt.Sprintf("%se.originDatabaseValues.F%d = _nv", indent, c.fIndex))
+		if schema.hasRedisCache {
+			g.addLine(fmt.Sprintf("%sif e.originRedisValues != nil {", indent))
+			g.addLine(fmt.Sprintf("%s\tif _nv.Valid {", indent))
+			g.addLine(fmt.Sprintf("%s\t\te.originRedisValues[%d] = strconv.FormatUint(uint64(_nv.Int64), 10)", indent, c.fIndex))
+			g.addLine(fmt.Sprintf("%s\t} else {", indent))
+			g.addLine(fmt.Sprintf("%s\t\te.originRedisValues[%d] = \"\"", indent, c.fIndex))
+			g.addLine(fmt.Sprintf("%s\t}", indent))
+			g.addLine(fmt.Sprintf("%s}", indent))
+		}
+	case "nullInt64":
+		g.addImport("database/sql")
+		g.addImport("strconv")
+		g.addLine(fmt.Sprintf("%s_nv := _v.(sql.NullInt64)", indent))
+		g.addLine(fmt.Sprintf("%se.originDatabaseValues.F%d = _nv", indent, c.fIndex))
+		if schema.hasRedisCache {
+			g.addLine(fmt.Sprintf("%sif e.originRedisValues != nil {", indent))
+			g.addLine(fmt.Sprintf("%s\tif _nv.Valid {", indent))
+			g.addLine(fmt.Sprintf("%s\t\te.originRedisValues[%d] = strconv.FormatInt(_nv.Int64, 10)", indent, c.fIndex))
+			g.addLine(fmt.Sprintf("%s\t} else {", indent))
+			g.addLine(fmt.Sprintf("%s\t\te.originRedisValues[%d] = \"\"", indent, c.fIndex))
+			g.addLine(fmt.Sprintf("%s\t}", indent))
+			g.addLine(fmt.Sprintf("%s}", indent))
+		}
+	case "nullBool":
+		g.addImport("database/sql")
+		g.addLine(fmt.Sprintf("%s_nv := _v.(sql.NullBool)", indent))
+		g.addLine(fmt.Sprintf("%se.originDatabaseValues.F%d = _nv", indent, c.fIndex))
+		if schema.hasRedisCache {
+			g.addLine(fmt.Sprintf("%sif e.originRedisValues != nil {", indent))
+			g.addLine(fmt.Sprintf("%s\tswitch {", indent))
+			g.addLine(fmt.Sprintf("%s\tcase !_nv.Valid:", indent))
+			g.addLine(fmt.Sprintf("%s\t\te.originRedisValues[%d] = \"\"", indent, c.fIndex))
+			g.addLine(fmt.Sprintf("%s\tcase _nv.Bool:", indent))
+			g.addLine(fmt.Sprintf("%s\t\te.originRedisValues[%d] = \"1\"", indent, c.fIndex))
+			g.addLine(fmt.Sprintf("%s\tdefault:", indent))
+			g.addLine(fmt.Sprintf("%s\t\te.originRedisValues[%d] = \"0\"", indent, c.fIndex))
+			g.addLine(fmt.Sprintf("%s\t}", indent))
+			g.addLine(fmt.Sprintf("%s}", indent))
+		}
+	case "nullFloat64":
+		g.addImport("database/sql")
+		g.addImport("strconv")
+		g.addLine(fmt.Sprintf("%s_nv := _v.(sql.NullFloat64)", indent))
+		g.addLine(fmt.Sprintf("%se.originDatabaseValues.F%d = _nv", indent, c.fIndex))
+		if schema.hasRedisCache {
+			g.addLine(fmt.Sprintf("%sif e.originRedisValues != nil {", indent))
+			g.addLine(fmt.Sprintf("%s\tif _nv.Valid {", indent))
+			g.addLine(fmt.Sprintf("%s\t\te.originRedisValues[%d] = strconv.FormatFloat(_nv.Float64, 'f', -1, 64)", indent, c.fIndex))
+			g.addLine(fmt.Sprintf("%s\t} else {", indent))
+			g.addLine(fmt.Sprintf("%s\t\te.originRedisValues[%d] = \"\"", indent, c.fIndex))
+			g.addLine(fmt.Sprintf("%s\t}", indent))
+			g.addLine(fmt.Sprintf("%s}", indent))
+		}
+	case "nullTime":
+		g.addImport("database/sql")
+		g.addImport("strconv")
+		g.addLine(fmt.Sprintf("%s_nv := _v.(sql.NullTime)", indent))
+		g.addLine(fmt.Sprintf("%se.originDatabaseValues.F%d = _nv", indent, c.fIndex))
+		if schema.hasRedisCache {
+			g.addLine(fmt.Sprintf("%sif e.originRedisValues != nil {", indent))
+			g.addLine(fmt.Sprintf("%s\tif _nv.Valid {", indent))
+			g.addLine(fmt.Sprintf("%s\t\te.originRedisValues[%d] = strconv.FormatInt(_nv.Time.Unix(), 10)", indent, c.fIndex))
+			g.addLine(fmt.Sprintf("%s\t} else {", indent))
+			g.addLine(fmt.Sprintf("%s\t\te.originRedisValues[%d] = \"\"", indent, c.fIndex))
+			g.addLine(fmt.Sprintf("%s\t}", indent))
+			g.addLine(fmt.Sprintf("%s}", indent))
+		}
+	case "nullString":
+		g.addImport("database/sql")
+		g.addLine(fmt.Sprintf("%s_nv := _v.(sql.NullString)", indent))
+		g.addLine(fmt.Sprintf("%se.originDatabaseValues.F%d = _nv", indent, c.fIndex))
+		if schema.hasRedisCache {
+			g.addLine(fmt.Sprintf("%sif e.originRedisValues != nil {", indent))
+			g.addLine(fmt.Sprintf("%s\tif _nv.Valid {", indent))
+			g.addLine(fmt.Sprintf("%s\t\te.originRedisValues[%d] = _nv.String", indent, c.fIndex))
+			g.addLine(fmt.Sprintf("%s\t} else {", indent))
+			g.addLine(fmt.Sprintf("%s\t\te.originRedisValues[%d] = \"\"", indent, c.fIndex))
+			g.addLine(fmt.Sprintf("%s\t}", indent))
+			g.addLine(fmt.Sprintf("%s}", indent))
+		}
+	}
 }
 
 func (g *codeGenerator) generatePrivateGetOriginalColumnValue(schema *entitySchema, names *entityNames) {
