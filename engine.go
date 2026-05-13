@@ -10,7 +10,7 @@ const DefaultPoolCode = "default"
 type EngineRegistry interface {
 	DBPools() map[string]DB
 	ClickhousePools() map[string]Clickhouse
-	KafkaPools() map[string]Kafka
+	NatsPools() map[string]Nats
 	LocalCachePools() map[string]LocalCache
 	RedisPools() map[string]RedisCache
 	Option(key string) any
@@ -27,7 +27,7 @@ type Engine interface {
 	NewContext(parent context.Context) Context
 	DB(code string) DB
 	Clickhouse(code string) Clickhouse
-	Kafka(code string) Kafka
+	Nats(code string) Nats
 	LocalCache(code string) LocalCache
 	Redis(code string) RedisCache
 	Registry() EngineRegistry
@@ -35,23 +35,24 @@ type Engine interface {
 }
 
 type engineRegistryImplementation struct {
-	engine                     *engineImplementation
-	entitySchemas              map[reflect.Type]*entitySchema
-	entitySchemasByIndex       map[uint64]*entitySchema
-	defaultQueryLogger         *defaultLogLogger
-	dbTables                   map[string]map[string]bool
-	options                    map[string]any
-	asyncFlushKafkaPool        string
-	clickhouseTables           []*ClickhouseTableBuilder
-	clickhouseIgnoredTables    map[string]map[string]bool
-	kafkaTopics                []*KafkaTopicBuilder
-	kafkaIgnoredTopics         map[string]map[string]bool
-	kafkaConsumerGroups        []*KafkaConsumerGroupBuilder
-	kafkaIgnoredConsumerGroups map[string]map[string]bool
-	hasMetrics                 bool
-	metricsRegistry            *metricsRegistry
-	debeziumConnectURLs        map[string]string
-	debeziumOptions            map[string]*DebeziumOptions
+	engine                  *engineImplementation
+	entitySchemas           map[reflect.Type]*entitySchema
+	entitySchemasByIndex    map[uint64]*entitySchema
+	defaultQueryLogger      *defaultLogLogger
+	dbTables                map[string]map[string]bool
+	options                 map[string]any
+	asyncFlushNatsPool      string
+	asyncFlushOptions       *AsyncFlushOptions
+	clickhouseTables        []*ClickhouseTableBuilder
+	clickhouseIgnoredTables map[string]map[string]bool
+	natsStreams             []*NatsStreamBuilder
+	natsIgnoredSubjects     map[string]map[string]bool
+	natsConsumers           []*NatsConsumerBuilder
+	natsIgnoredConsumers    map[string]map[string]bool
+	hasMetrics              bool
+	metricsRegistry         *metricsRegistry
+	debeziumNatsPools       map[string]bool
+	debeziumOptions         map[string]*DebeziumOptions
 }
 
 type engineImplementation struct {
@@ -59,7 +60,7 @@ type engineImplementation struct {
 	localCacheServers   map[string]LocalCache
 	dbServers           map[string]DB
 	clickhouseServers   map[string]Clickhouse
-	kafkaServers        map[string]Kafka
+	natsServers         map[string]Nats
 	redisServers        map[string]RedisCache
 	options             map[string]any
 	afterInsertHandlers map[uint64]func(Context, Entity) error
@@ -93,8 +94,8 @@ func (e *engineImplementation) Clickhouse(code string) Clickhouse {
 	return e.clickhouseServers[code]
 }
 
-func (e *engineImplementation) Kafka(code string) Kafka {
-	return e.kafkaServers[code]
+func (e *engineImplementation) Nats(code string) Nats {
+	return e.natsServers[code]
 }
 
 func (e *engineImplementation) DB(code string) DB {
@@ -113,8 +114,8 @@ func (er *engineRegistryImplementation) ClickhousePools() map[string]Clickhouse 
 	return er.engine.clickhouseServers
 }
 
-func (er *engineRegistryImplementation) KafkaPools() map[string]Kafka {
-	return er.engine.kafkaServers
+func (er *engineRegistryImplementation) NatsPools() map[string]Nats {
+	return er.engine.natsServers
 }
 
 func (er *engineRegistryImplementation) RedisPools() map[string]RedisCache {

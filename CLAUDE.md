@@ -104,7 +104,9 @@ Entities opt in to Redis Search (FT.SEARCH) indexing via struct tags on the ID f
 - `flush.go` — batches entity inserts/updates via dirty tracking; `ctx.Flush()`
 - `db.go` — MySQL abstraction (`DB` interface, `DBTransaction`, metrics)
 - `schema.go` — DDL operations (CREATE/ALTER TABLE, index management)
-- `flush_async.go` — Kafka-based async SQL flush and consumer
+- `flush_async.go` — NATS JetStream-based async SQL flush and consumer
+- `nats.go` / `nats_schema.go` — NATS+JetStream pool, `NatsStreamBuilder`, `NatsConsumerBuilder`, `GetNatsAlters` reconciler
+- `debezium.go` / `debezium_schema.go` — CDC event parsing (from `NatsMessage`) + `GenerateDebeziumServerProperties` (Redis-backed offset/history)
 - `locker.go` — distributed locking via `bsm/redislock`
 - `metrics.go` — Prometheus metrics for queries, cache hits/misses
 - `where.go` — typed WHERE clause builder

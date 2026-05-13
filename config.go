@@ -46,41 +46,51 @@ type ConfigClickhouse struct {
 	IgnoredTables      []string `yaml:"ignoredTables"`
 }
 
-type ConfigKafkaConsumerGroup struct {
-	Name                 string   `yaml:"name" validate:"required"`
-	Topics               []string `yaml:"topics" validate:"required"`
-	SessionTimeoutMs     int      `yaml:"sessionTimeoutMs"`
-	RebalanceTimeoutMs   int      `yaml:"rebalanceTimeoutMs"`
-	FetchMaxBytes        int      `yaml:"fetchMaxBytes"`
-	AutoCommitIntervalMs int      `yaml:"autoCommitIntervalMs"`
+type ConfigNatsConsumer struct {
+	Name           string   `yaml:"name" validate:"required"`
+	FilterSubjects []string `yaml:"filterSubjects"`
+	AckWaitMs      int      `yaml:"ackWaitMs"`
+	MaxAckPending  int      `yaml:"maxAckPending"`
+	MaxDeliver     int      `yaml:"maxDeliver"`
 }
 
-type ConfigKafkaTopic struct {
-	Name              string            `yaml:"name" validate:"required"`
-	Partitions        int32             `yaml:"partitions"`
-	ReplicationFactor int16             `yaml:"replicationFactor"`
-	Configs           map[string]string `yaml:"configs"`
+type ConfigNatsStream struct {
+	Name            string   `yaml:"name" validate:"required"`
+	Subjects        []string `yaml:"subjects" validate:"required"`
+	MaxAgeMs        int      `yaml:"maxAgeMs"`
+	MaxBytes        int64    `yaml:"maxBytes"`
+	MaxMsgSize      int32    `yaml:"maxMsgSize"`
+	Replicas        int      `yaml:"replicas"`
+	DuplicateWindow int      `yaml:"duplicateWindowMs"`
+	Storage         string   `yaml:"storage"`   // "file" or "memory"
+	Retention       string   `yaml:"retention"` // "limits", "interest", "workqueue"
 }
 
-type ConfigKafka struct {
-	Code                  string                     `yaml:"code" validate:"required"`
-	Brokers               []string                   `yaml:"brokers" validate:"required"`
-	ClientID              string                     `yaml:"clientID"`
-	RequiredAcks          int                        `yaml:"requiredAcks"`
-	ProducerLingerMs      int                        `yaml:"producerLingerMs"`
-	MaxBufferedRecords    int                        `yaml:"maxBufferedRecords"`
-	SASLMechanism         string                     `yaml:"saslMechanism"`
-	SASLUser              string                     `yaml:"saslUser"`
-	SASLPassword          string                     `yaml:"saslPassword"`
-	ConsumerGroups        []ConfigKafkaConsumerGroup `yaml:"consumerGroups"`
-	IgnoredTopics         []string                   `yaml:"ignoredTopics"`
-	IgnoredConsumerGroups []string                   `yaml:"ignoredConsumerGroups"`
-	Topics                []ConfigKafkaTopic         `yaml:"topics"`
+type ConfigNats struct {
+	Code             string               `yaml:"code" validate:"required"`
+	URLs             []string             `yaml:"urls" validate:"required"`
+	ClientID         string               `yaml:"clientID"`
+	MaxReconnects    int                  `yaml:"maxReconnects"`
+	ReconnectWaitMs  int                  `yaml:"reconnectWaitMs"`
+	ReconnectBufSize int                  `yaml:"reconnectBufSize"`
+	AuthToken        string               `yaml:"authToken"`
+	AuthUser         string               `yaml:"authUser"`
+	AuthPassword     string               `yaml:"authPassword"`
+	AuthCredsFile    string               `yaml:"authCredsFile"`
+	AuthNKeySeed     string               `yaml:"authNKeySeed"`
+	IgnoredSubjects  []string             `yaml:"ignoredSubjects"`
+	IgnoredConsumers []string             `yaml:"ignoredConsumers"`
+	Consumers        []ConfigNatsConsumer `yaml:"consumers"`
+	Streams          []ConfigNatsStream   `yaml:"streams"`
 }
 
 type ConfigAsyncFlush struct {
-	KafkaPool       string `yaml:"kafkaPool" validate:"required"`
-	TopicPartitions int32  `yaml:"topicPartitions"`
+	NatsPool          string `yaml:"natsPool" validate:"required"`
+	StreamReplicas    int    `yaml:"streamReplicas"`
+	DuplicateWindowMs int    `yaml:"duplicateWindowMs"`
+	MaxAckPending     int    `yaml:"maxAckPending"`
+	AckWaitMs         int    `yaml:"ackWaitMs"`
+	MaxDeliver        int    `yaml:"maxDeliver"`
 }
 
 type Config struct {
@@ -89,7 +99,7 @@ type Config struct {
 	RedisSentinelPools []ConfigRedisSentinel `yaml:"redisSentinelPools"`
 	LocalCachePools    []ConfigLocalCache    `yaml:"localCachePools"`
 	ClickhousePools    []ConfigClickhouse    `yaml:"clickhousePools"`
-	KafkaPools         []ConfigKafka         `yaml:"kafkaPools"`
+	NatsPools          []ConfigNats          `yaml:"natsPools"`
 	AsyncFlush         *ConfigAsyncFlush     `yaml:"asyncFlush"`
 }
 
@@ -135,58 +145,73 @@ func (r *registry) InitByConfig(config *Config) error {
 		options.IgnoredTables = pool.IgnoredTables
 		r.RegisterClickhouse(pool.URI, pool.Code, options)
 	}
-	for _, pool := range config.KafkaPools {
-		options := &KafkaPoolOptions{}
-		options.ClientID = pool.ClientID
-		options.RequiredAcks = pool.RequiredAcks
-		if pool.ProducerLingerMs > 0 {
-			options.ProducerLinger = time.Duration(pool.ProducerLingerMs) * time.Millisecond
+	for _, pool := range config.NatsPools {
+		options := &NatsPoolOptions{
+			ClientID:         pool.ClientID,
+			MaxReconnects:    pool.MaxReconnects,
+			ReconnectBufSize: pool.ReconnectBufSize,
+			IgnoredSubjects:  pool.IgnoredSubjects,
+			IgnoredConsumers: pool.IgnoredConsumers,
 		}
-		options.MaxBufferedRecords = pool.MaxBufferedRecords
-		options.IgnoredTopics = pool.IgnoredTopics
-		options.IgnoredConsumerGroups = pool.IgnoredConsumerGroups
-		if pool.SASLMechanism != "" {
-			options.SASL = &KafkaSASLConfig{
-				Mechanism: pool.SASLMechanism,
-				User:      pool.SASLUser,
-				Password:  pool.SASLPassword,
+		if pool.ReconnectWaitMs > 0 {
+			options.ReconnectWait = time.Duration(pool.ReconnectWaitMs) * time.Millisecond
+		}
+		if pool.AuthToken != "" || pool.AuthUser != "" || pool.AuthCredsFile != "" || pool.AuthNKeySeed != "" {
+			options.Auth = &NatsAuthConfig{
+				Token:     pool.AuthToken,
+				User:      pool.AuthUser,
+				Password:  pool.AuthPassword,
+				CredsFile: pool.AuthCredsFile,
+				NKeySeed:  pool.AuthNKeySeed,
 			}
 		}
-		r.RegisterKafka(pool.Brokers, pool.Code, options)
-		for _, cg := range pool.ConsumerGroups {
-			builder := NewKafkaConsumerGroup(cg.Name, pool.Code).Topics(cg.Topics...)
-			if cg.SessionTimeoutMs > 0 {
-				builder.SessionTimeout(time.Duration(cg.SessionTimeoutMs) * time.Millisecond)
+		r.RegisterNats(pool.URLs, pool.Code, options)
+		for _, cons := range pool.Consumers {
+			builder := NewNatsConsumer(cons.Name, pool.Code).FilterSubjects(cons.FilterSubjects...)
+			if cons.AckWaitMs > 0 {
+				builder.AckWait(time.Duration(cons.AckWaitMs) * time.Millisecond)
 			}
-			if cg.RebalanceTimeoutMs > 0 {
-				builder.RebalanceTimeout(time.Duration(cg.RebalanceTimeoutMs) * time.Millisecond)
+			if cons.MaxAckPending > 0 {
+				builder.MaxAckPending(cons.MaxAckPending)
 			}
-			if cg.FetchMaxBytes > 0 {
-				builder.FetchMaxBytes(int32(cg.FetchMaxBytes))
+			if cons.MaxDeliver != 0 {
+				builder.MaxDeliver(cons.MaxDeliver)
 			}
-			if cg.AutoCommitIntervalMs > 0 {
-				builder.AutoCommitInterval(time.Duration(cg.AutoCommitIntervalMs) * time.Millisecond)
-			}
-			r.RegisterKafkaConsumerGroup(builder)
+			r.RegisterNatsConsumer(builder)
 		}
-		for _, topic := range pool.Topics {
-			builder := NewKafkaTopic(topic.Name, pool.Code)
-			if topic.Partitions > 0 {
-				builder.Partitions(topic.Partitions)
+		for _, stream := range pool.Streams {
+			builder := NewNatsStream(stream.Name, pool.Code).Subjects(stream.Subjects...)
+			if stream.MaxAgeMs > 0 {
+				builder.MaxAge(time.Duration(stream.MaxAgeMs) * time.Millisecond)
 			}
-			if topic.ReplicationFactor > 0 {
-				builder.ReplicationFactor(topic.ReplicationFactor)
+			if stream.MaxBytes > 0 {
+				builder.MaxBytes(stream.MaxBytes)
 			}
-			for k, v := range topic.Configs {
-				builder.Config(k, v)
+			if stream.MaxMsgSize > 0 {
+				builder.MaxMsgSize(stream.MaxMsgSize)
 			}
-			r.RegisterKafkaTopic(builder)
+			if stream.Replicas > 0 {
+				builder.Replicas(stream.Replicas)
+			}
+			if stream.DuplicateWindow > 0 {
+				builder.Duplicates(time.Duration(stream.DuplicateWindow) * time.Millisecond)
+			}
+			r.RegisterNatsStream(builder)
 		}
 	}
 	if config.AsyncFlush != nil {
-		r.RegisterAsyncFlush(config.AsyncFlush.KafkaPool, &AsyncFlushOptions{
-			TopicPartitions: config.AsyncFlush.TopicPartitions,
-		})
+		opts := &AsyncFlushOptions{
+			StreamReplicas: config.AsyncFlush.StreamReplicas,
+			MaxAckPending:  config.AsyncFlush.MaxAckPending,
+			MaxDeliver:     config.AsyncFlush.MaxDeliver,
+		}
+		if config.AsyncFlush.DuplicateWindowMs > 0 {
+			opts.DuplicateWindow = time.Duration(config.AsyncFlush.DuplicateWindowMs) * time.Millisecond
+		}
+		if config.AsyncFlush.AckWaitMs > 0 {
+			opts.AckWait = time.Duration(config.AsyncFlush.AckWaitMs) * time.Millisecond
+		}
+		r.RegisterAsyncFlush(config.AsyncFlush.NatsPool, opts)
 	}
 	return nil
 }

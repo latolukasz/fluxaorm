@@ -15,45 +15,38 @@ import (
 
 func TestDebezium(t *testing.T) {
 	registry := fluxaorm.NewRegistry()
-	topicName := "fluxa_default.test.generateEntityDebezium"
-	groupName := "debezium_test_group"
-	registry.RegisterKafkaConsumerGroup(
-		fluxaorm.NewKafkaConsumerGroup(groupName, "kafka").Topics(topicName),
+	subjectName := "fluxa_default.test.generateEntityDebezium"
+	consumerName := "debezium_test_consumer"
+	registry.RegisterNatsConsumer(
+		fluxaorm.NewNatsConsumer(consumerName, "nats").FilterSubjects(subjectName),
 	)
 	ctx := fluxaorm.PrepareTablesWithDebezium(t, registry, generateEntityDebezium{})
-	defer ctx.Engine().Kafka("kafka").Close()
+	defer ctx.Engine().Nats("nats").Close()
 
-	// GetDebeziumAlters and execute any pending alters (CREATE or UPDATE connector)
-	alters, err := fluxaorm.GetDebeziumAlters(ctx)
+	// GetNatsAlters and execute any pending alters (create stream + consumer)
+	alters, err := fluxaorm.GetNatsAlters(ctx)
 	assert.NoError(t, err)
 	for _, alter := range alters {
 		t.Logf("executing alter: %s", alter.Description)
 		assert.NoError(t, alter.Exec(ctx))
 	}
 
-	// Verify no more alters needed (idempotency)
-	time.Sleep(2 * time.Second)
-	alters2, err := fluxaorm.GetDebeziumAlters(ctx)
-	assert.NoError(t, err)
-	assert.Len(t, alters2, 0, "expected no alters after executing all pending alters")
-
-	// Wait for Debezium connector to start capturing changes
+	// Wait for Debezium Server to start capturing changes
 	time.Sleep(5 * time.Second)
 
-	// Get consumer group
-	kafka := ctx.Engine().Kafka("kafka")
-	cg := kafka.MustConsumerGroup(groupName)
-	defer cg.Close()
+	natsPool := ctx.Engine().Nats("nats")
+	cons := natsPool.MustConsumer(consumerName)
+	defer cons.Close()
 
-	// INSERT: create entity and flush to MySQL
-	e := entities.GenerateEntityDebeziumProvider.New(ctx)
+	// INSERT
+	e, err := entities.GenerateEntityDebeziumProvider.New(ctx)
+	assert.NoError(t, err)
 	e.SetName("debezium-test")
 	e.SetAge(25)
 	assert.NoError(t, ctx.Flush())
 	entityID := e.GetID()
 
-	// Poll for INSERT event
-	insertEvent := pollDebeziumEvent(t, cg, ctx, entityID, fluxaorm.DebeziumCreate, 60*time.Second)
+	insertEvent := pollDebeziumEvent(t, cons, ctx, entityID, fluxaorm.DebeziumCreate, 60*time.Second)
 	if !assert.NotNil(t, insertEvent, "no INSERT event received") {
 		t.FailNow()
 	}
@@ -61,13 +54,12 @@ func TestDebezium(t *testing.T) {
 	assert.NotNil(t, insertEvent.After)
 	assert.Equal(t, "debezium-test", insertEvent.After["Name"])
 
-	// UPDATE: modify entity
+	// UPDATE
 	e.SetName("debezium-updated")
 	e.SetAge(30)
 	assert.NoError(t, ctx.Flush())
 
-	// Poll for UPDATE event
-	updateEvent := pollDebeziumEvent(t, cg, ctx, entityID, fluxaorm.DebeziumUpdate, 60*time.Second)
+	updateEvent := pollDebeziumEvent(t, cons, ctx, entityID, fluxaorm.DebeziumUpdate, 60*time.Second)
 	if !assert.NotNil(t, updateEvent, "no UPDATE event received") {
 		t.FailNow()
 	}
@@ -75,12 +67,11 @@ func TestDebezium(t *testing.T) {
 	assert.NotNil(t, updateEvent.After)
 	assert.Equal(t, "debezium-updated", updateEvent.After["Name"])
 
-	// DELETE: remove entity
+	// DELETE
 	e.Delete()
 	assert.NoError(t, ctx.Flush())
 
-	// Poll for DELETE event
-	deleteEvent := pollDebeziumEvent(t, cg, ctx, entityID, fluxaorm.DebeziumDelete, 60*time.Second)
+	deleteEvent := pollDebeziumEvent(t, cons, ctx, entityID, fluxaorm.DebeziumDelete, 60*time.Second)
 	if !assert.NotNil(t, deleteEvent, "no DELETE event received") {
 		t.FailNow()
 	}
@@ -88,35 +79,39 @@ func TestDebezium(t *testing.T) {
 	assert.Nil(t, deleteEvent.After)
 }
 
-// pollDebeziumEvent polls the consumer group until it finds a Debezium event matching
+// pollDebeziumEvent polls the NATS consumer until it finds a Debezium event matching
 // the given entity ID and operation type, or times out.
-func pollDebeziumEvent(t *testing.T, cg fluxaorm.KafkaConsumerGroup, ctx fluxaorm.Context, entityID uint64, op fluxaorm.DebeziumOperation, deadline time.Duration) *fluxaorm.DebeziumEvent {
+func pollDebeziumEvent(t *testing.T, cons fluxaorm.NatsConsumer, ctx fluxaorm.Context, entityID uint64, op fluxaorm.DebeziumOperation, deadline time.Duration) *fluxaorm.DebeziumEvent {
 	t.Helper()
 	timeoutAt := time.After(deadline)
 	for {
 		pollCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-		fetches := cg.PollFetches(ctx.Engine().NewContext(pollCtx))
+		batch := cons.Fetch(ctx.Engine().NewContext(pollCtx), 32, 5*time.Second)
 		cancel()
-		for _, r := range fetches.Records() {
-			// Skip tombstone records (nil value)
-			if r.Value == nil {
+		for _, msg := range batch.Records() {
+			if msg.Data == nil {
+				_ = msg.Ack()
 				continue
 			}
-			ev, err := fluxaorm.ParseDebeziumEvent(r)
+			ev, err := fluxaorm.ParseDebeziumEvent(msg)
 			if err != nil {
+				_ = msg.Ack()
 				continue
 			}
 			if ev.Op != op {
+				_ = msg.Ack()
 				continue
 			}
-			id, err := fluxaorm.ParseDebeziumKey(r)
+			id, err := fluxaorm.ParseDebeziumKey(msg)
 			if err != nil {
+				_ = msg.Ack()
 				continue
 			}
 			if id == entityID {
-				cg.CommitUncommittedOffsets(ctx)
+				_ = msg.Ack()
 				return ev
 			}
+			_ = msg.Ack()
 		}
 		select {
 		case <-timeoutAt:

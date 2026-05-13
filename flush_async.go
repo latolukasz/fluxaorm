@@ -3,26 +3,23 @@ package fluxaorm
 import (
 	"context"
 	"database/sql"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"strconv"
 	"time"
 
 	"github.com/go-sql-driver/mysql"
+	"github.com/google/uuid"
+	"github.com/nats-io/nats.go"
 	"github.com/puzpuzpuz/xsync/v2"
-	"github.com/shamaton/msgpack"
-)
-
-const (
-	AsyncSQLTopicName           = "_fluxa_async_sql"
-	AsyncSQLDeadLetterTopicName = "_fluxa_async_sql_failed"
 )
 
 // AsyncSQLParam is a typed parameter envelope for serializing SQL params.
 type AsyncSQLParam struct {
-	Null bool   `msgpack:"n,omitempty"`
-	Type string `msgpack:"t,omitempty"` // "s","i","u","f","b","t"
-	Val  string `msgpack:"v,omitempty"`
+	Null bool   `json:"null,omitempty"`
+	Type string `json:"type,omitempty"` // "s","i","u","f","b","t"
+	Val  string `json:"value,omitempty"`
 }
 
 // Value converts the parameter back to a Go type.
@@ -32,34 +29,32 @@ func (p AsyncSQLParam) Value() any {
 
 // AsyncSQLQuery holds a single SQL statement with its typed parameters.
 type AsyncSQLQuery struct {
-	Q string          `msgpack:"q"`
-	P []AsyncSQLParam `msgpack:"p"`
+	Q string          `json:"q"`
+	P []AsyncSQLParam `json:"p"`
 }
 
 // AsyncEntityEvent holds metadata about an entity change for firing hooks in the async consumer.
 type AsyncEntityEvent struct {
-	CacheIndex uint64                   `msgpack:"ci"`
-	EntityID   uint64                   `msgpack:"id"`
-	FlushType  uint8                    `msgpack:"ft"` // 1=insert, 2=update, 3=delete
-	Changes    map[string]AsyncSQLParam `msgpack:"ch,omitempty"`
+	CacheIndex uint64                   `json:"cache_index"`
+	EntityID   uint64                   `json:"entity_id"`
+	FlushType  uint8                    `json:"flush_type"` // 1=insert, 2=update, 3=delete
+	Changes    map[string]AsyncSQLParam `json:"changes,omitempty"`
 }
 
 // AsyncRedisOp represents a recorded Redis command for deferred execution.
 type AsyncRedisOp struct {
-	Pool string   `msgpack:"p"`
-	Cmd  string   `msgpack:"c"`
-	Args []string `msgpack:"a,omitempty"`
+	Pool string   `json:"pool"`
+	Cmd  string   `json:"cmd"`
+	Args []string `json:"args,omitempty"`
 }
 
-// AsyncSQLOperation holds one or more SQL queries for a single DB pool and table.
+// AsyncSQLOperation holds one or more SQL queries for a single DB pool.
 // Multiple queries are executed in a transaction.
-// This type is also used in the dead-letter topic so consumers can inspect
-// and replay failed operations.
 type AsyncSQLOperation struct {
-	Pool     string             `msgpack:"pool"`
-	Queries  []AsyncSQLQuery    `msgpack:"queries"`
-	Events   []AsyncEntityEvent `msgpack:"events,omitempty"`
-	RedisOps []AsyncRedisOp     `msgpack:"redis,omitempty"`
+	Pool     string             `json:"pool"`
+	Queries  []AsyncSQLQuery    `json:"queries"`
+	Events   []AsyncEntityEvent `json:"events,omitempty"`
+	RedisOps []AsyncRedisOp     `json:"redis_ops,omitempty"`
 }
 
 // convertParam converts a Go SQL parameter value to a typed AsyncSQLParam.
@@ -230,16 +225,16 @@ func deconvertChanges(m map[string]AsyncSQLParam) map[string]any {
 	return result
 }
 
-// AsyncSQLConsumer reads async SQL events from Kafka and executes them against MySQL.
+// AsyncSQLConsumer reads async SQL events from NATS and executes them against MySQL.
 type AsyncSQLConsumer interface {
 	Consume(count int, blockTime time.Duration) error
 	Close()
 }
 
 // FlushAsync is like Flush() but instead of executing SQL directly in MySQL,
-// it publishes the SQL queries to a Kafka topic. When immediateRedisUpdates
+// it publishes the SQL queries to a NATS JetStream subject. When immediateRedisUpdates
 // is true, Redis cache and search indexes are updated immediately (optimistic
-// update). When false, Redis operations are serialized into the Kafka record and
+// update). When false, Redis operations are serialized into the message and
 // executed by the consumer after SQL. Call GetAsyncSQLConsumer() to process
 // the queued SQL operations.
 func (orm *ormImplementation) FlushAsync(immediateRedisUpdates bool) error {
@@ -249,21 +244,19 @@ func (orm *ormImplementation) FlushAsync(immediateRedisUpdates bool) error {
 		return nil
 	}
 
-	kafkaPoolCode := orm.engine.registry.asyncFlushKafkaPool
-	if kafkaPoolCode == "" {
+	natsPoolCode := orm.engine.registry.asyncFlushNatsPool
+	if natsPoolCode == "" {
 		return fmt.Errorf("async flush not configured: call RegisterAsyncFlush() during registry setup")
 	}
-	kafkaPool := orm.engine.Kafka(kafkaPoolCode)
-	if kafkaPool == nil {
-		return fmt.Errorf("kafka pool '%s' not found for async flush", kafkaPoolCode)
+	natsPool := orm.engine.Nats(natsPoolCode)
+	if natsPool == nil {
+		return fmt.Errorf("nats pool '%s' not found for async flush", natsPoolCode)
 	}
 
-	// Enable recording mode when deferring Redis updates
 	if !immediateRedisUpdates {
 		orm.redisRecordMode = true
 	}
 
-	// Step 1: call PrivateFlush on all tracked entities → populates dbPipeLines and redisPipeLines
 	var flushErr error
 	orm.trackedEntities.Range(func(_ uint64, value *xsync.MapOf[uint64, Entity]) bool {
 		value.Range(func(_ uint64, e Entity) bool {
@@ -279,7 +272,6 @@ func (orm *ormImplementation) FlushAsync(immediateRedisUpdates bool) error {
 		return flushErr
 	}
 
-	// Step 2: collect entity events for async hook firing (if any handlers are registered)
 	var entityEventsByPool map[string][]AsyncEntityEvent
 	if orm.engine.entityLoaders != nil {
 		entityEventsByPool = make(map[string][]AsyncEntityEvent)
@@ -313,7 +305,6 @@ func (orm *ormImplementation) FlushAsync(immediateRedisUpdates bool) error {
 		})
 	}
 
-	// Step 3: collect deferred Redis ops (if not immediate mode)
 	var allRedisOps []AsyncRedisOp
 	if !immediateRedisUpdates {
 		for _, redisPipeline := range orm.redisPipeLines {
@@ -321,17 +312,16 @@ func (orm *ormImplementation) FlushAsync(immediateRedisUpdates bool) error {
 		}
 	}
 
-	// Step 4: group queries by (pool, tableName) and produce Kafka records
+	// Build per-(pool, table) operation messages; single subject preserves order across all.
 	type tableGroup struct {
 		queryIndexes []int
 	}
-	var records []*KafkaRecord
-	firstRecord := true
+	var messages []*NatsMessage
+	firstMessage := true
 	for pool, dbPipeline := range orm.dbPipeLines {
 		if len(dbPipeline.queries) == 0 {
 			continue
 		}
-		// Group queries by table name
 		groups := make(map[string]*tableGroup)
 		for i, table := range dbPipeline.tables {
 			if table == "" {
@@ -355,37 +345,28 @@ func (orm *ormImplementation) FlushAsync(immediateRedisUpdates bool) error {
 				queries[qi] = AsyncSQLQuery{Q: q, P: params}
 			}
 			op := AsyncSQLOperation{Pool: pool, Queries: queries, Events: entityEventsByPool[pool]}
-
-			// Attach deferred Redis ops to the first record
-			if firstRecord && len(allRedisOps) > 0 {
+			if firstMessage && len(allRedisOps) > 0 {
 				op.RedisOps = allRedisOps
 				allRedisOps = nil
-				firstRecord = false
+				firstMessage = false
 			}
-
-			value, err := msgpack.Marshal(op)
+			value, err := json.Marshal(op)
 			if err != nil {
 				if !immediateRedisUpdates {
 					orm.redisRecordMode = false
 				}
 				return err
 			}
-			key := []byte(table)
-			if table == "_default" {
-				key = []byte(pool)
-			}
-			records = append(records, &KafkaRecord{
-				Topic: AsyncSQLTopicName,
-				Key:   key,
-				Value: value,
-			})
+			msg := NewNatsMessage(AsyncSQLSubject)
+			msg.Data = value
+			msg.Headers.Set("Fluxa-Table", table)
+			msg.Headers.Set("Fluxa-Pool", pool)
+			messages = append(messages, msg)
 		}
 	}
 
-	// Step 5: clear DB pipelines — queries will go to Kafka, not MySQL directly
 	orm.dbPipeLines = nil
 
-	// Step 6: execute Redis pipelines (only in immediate mode)
 	if immediateRedisUpdates {
 		for _, redisPipeline := range orm.redisPipeLines {
 			if _, err := redisPipeline.Exec(orm); err != nil {
@@ -397,14 +378,15 @@ func (orm *ormImplementation) FlushAsync(immediateRedisUpdates bool) error {
 		orm.redisPipeLines = nil
 	}
 
-	// Step 7: produce records to Kafka
-	if len(records) > 0 {
-		if err := kafkaPool.ProduceSync(orm, records...); err != nil {
+	// Sequential publish: JetStream publish is one-message-per-call.
+	// `WithMsgID` makes each publish idempotent within the stream's `Duplicates` window.
+	for _, msg := range messages {
+		msg.Headers.Set(nats.MsgIdHdr, generateMsgID())
+		if err := natsPool.Publish(orm, msg); err != nil {
 			return err
 		}
 	}
 
-	// Step 8: mark entities as flushed and clear tracked set
 	orm.trackedEntities.Range(func(_ uint64, value *xsync.MapOf[uint64, Entity]) bool {
 		value.Range(func(_ uint64, e Entity) bool {
 			e.PrivateFlushed()
@@ -416,54 +398,64 @@ func (orm *ormImplementation) FlushAsync(immediateRedisUpdates bool) error {
 	return nil
 }
 
-// GetAsyncSQLConsumer returns a consumer that reads SQL events from Kafka
+// GetAsyncSQLConsumer returns a consumer that reads SQL events from NATS JetStream
 // and executes them against MySQL. Permanent MySQL errors are moved to the dead-letter
-// topic. Transient errors stop processing and are returned to the caller.
+// subject. Transient errors stop processing and are returned to the caller.
 func (orm *ormImplementation) GetAsyncSQLConsumer() (AsyncSQLConsumer, error) {
-	kafkaPoolCode := orm.engine.registry.asyncFlushKafkaPool
-	if kafkaPoolCode == "" {
+	natsPoolCode := orm.engine.registry.asyncFlushNatsPool
+	if natsPoolCode == "" {
 		return nil, fmt.Errorf("async flush not configured: call RegisterAsyncFlush() during registry setup")
 	}
-	kafkaPool := orm.engine.Kafka(kafkaPoolCode)
-	if kafkaPool == nil {
-		return nil, fmt.Errorf("kafka pool '%s' not found for async flush", kafkaPoolCode)
+	natsPool := orm.engine.Nats(natsPoolCode)
+	if natsPool == nil {
+		return nil, fmt.Errorf("nats pool '%s' not found for async flush", natsPoolCode)
 	}
-	cg, err := kafkaPool.ConsumerGroup(AsyncSQLTopicName)
+	cons, err := natsPool.Consumer(AsyncSQLStreamName)
 	if err != nil {
 		return nil, err
 	}
-	return &asyncSQLConsumerImpl{cg: cg, kafkaPool: kafkaPool, ctx: orm}, nil
+	return &asyncSQLConsumerImpl{cons: cons, natsPool: natsPool, ctx: orm}, nil
 }
 
 type asyncSQLConsumerImpl struct {
-	cg        KafkaConsumerGroup
-	kafkaPool Kafka
-	ctx       *ormImplementation
+	cons     NatsConsumer
+	natsPool Nats
+	ctx      *ormImplementation
 }
 
 func (c *asyncSQLConsumerImpl) Consume(count int, blockTime time.Duration) error {
 	ctx, cancel := context.WithTimeout(c.ctx.context, blockTime)
 	defer cancel()
 	consumeCtx := c.ctx.engine.NewContext(ctx)
-	fetches := c.cg.PollFetches(consumeCtx)
-	if fetches.IsEmpty() {
+
+	fetchBatch := count
+	if fetchBatch <= 0 {
+		fetchBatch = 100
+	}
+	batch := c.cons.Fetch(consumeCtx, fetchBatch, blockTime)
+	if batch.Error() != nil && !errors.Is(batch.Error(), context.DeadlineExceeded) {
+		return batch.Error()
+	}
+	if batch.IsEmpty() {
 		return nil
 	}
+
 	processed := 0
-	var processErr error
-	fetches.EachRecord(func(record *KafkaRecord) {
-		if processErr != nil || (count > 0 && processed >= count) {
-			return
+	for _, msg := range batch.Records() {
+		if count > 0 && processed >= count {
+			return nil
 		}
 		var op AsyncSQLOperation
-		if err := msgpack.Unmarshal(record.Value, &op); err != nil {
-			// Bad format: move to dead-letter
-			c.deadLetter(record, err.Error())
+		if err := json.Unmarshal(msg.Data, &op); err != nil {
+			// Bad format: publish to DLQ first, then Term so JetStream stops redelivering.
+			if dlqErr := c.deadLetter(msg, err.Error()); dlqErr != nil {
+				return dlqErr
+			}
+			_ = msg.Term()
 			processed++
-			return
+			continue
 		}
 
-		// Pre-load entities for DELETE before SQL execution
 		var preLoadedDeleteEntities map[uint64]Entity
 		if len(op.Events) > 0 && c.ctx.engine.entityLoaders != nil {
 			for _, entityEvent := range op.Events {
@@ -488,51 +480,54 @@ func (c *asyncSQLConsumerImpl) Consume(count int, blockTime time.Duration) error
 
 		if err := c.executeOperation(op); err != nil {
 			if isPermanentMySQLError(err) {
-				c.deadLetter(record, err.Error())
+				if dlqErr := c.deadLetter(msg, err.Error()); dlqErr != nil {
+					return dlqErr
+				}
+				_ = msg.Term()
 				processed++
-				return
+				continue
 			}
-			processErr = err
-			return
+			// Transient: do not ack; AckWait will redeliver. Return to caller.
+			return err
 		}
 
-		// Execute deferred Redis ops after SQL success
 		if len(op.RedisOps) > 0 {
 			if err := c.executeRedisOps(op.RedisOps); err != nil {
-				processErr = err
-				return
+				return err
 			}
 		}
 
-		// Fire hooks after SQL execution
 		if len(op.Events) > 0 {
 			if err := c.fireEntityHooks(op.Events, preLoadedDeleteEntities); err != nil {
-				processErr = err
-				return
+				return err
 			}
 		}
 
+		if err := msg.Ack(); err != nil {
+			return err
+		}
 		processed++
-	})
-	if processErr != nil {
-		return processErr
 	}
-	return c.cg.CommitUncommittedOffsets(c.ctx)
+	return nil
 }
 
 func (c *asyncSQLConsumerImpl) Close() {
-	c.cg.Close()
+	c.cons.Close()
 }
 
-func (c *asyncSQLConsumerImpl) deadLetter(record *KafkaRecord, errMsg string) {
-	_ = c.kafkaPool.ProduceSync(c.ctx, &KafkaRecord{
-		Topic: AsyncSQLDeadLetterTopicName,
-		Key:   record.Key,
-		Value: record.Value,
-		Headers: []KafkaRecordHeader{
-			{Key: "error", Value: []byte(errMsg)},
-		},
-	})
+// deadLetter publishes the failed message to the DLQ subject with an `Error` header.
+// Returns the publish error so the caller can decide not to Term() on failure.
+func (c *asyncSQLConsumerImpl) deadLetter(msg *NatsMessage, errMsg string) error {
+	dlq := NewNatsMessage(AsyncSQLDLQSubject)
+	dlq.Data = msg.Data
+	for k, vs := range msg.Headers {
+		for _, v := range vs {
+			dlq.Headers.Add(k, v)
+		}
+	}
+	dlq.Headers.Set("Error", errMsg)
+	dlq.Headers.Set(nats.MsgIdHdr, generateMsgID())
+	return c.natsPool.Publish(c.ctx, dlq)
 }
 
 func (c *asyncSQLConsumerImpl) executeRedisOps(ops []AsyncRedisOp) error {
@@ -716,4 +711,8 @@ func isPermanentMySQLError(err error) bool {
 		return true
 	}
 	return false
+}
+
+func generateMsgID() string {
+	return uuid.NewString()
 }

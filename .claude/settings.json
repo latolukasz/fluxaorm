@@ -1,3 +1,14 @@
 {
+  "permissions": {
+    "allow": [
+      "Bash(rtk ls *)",
+      "Bash(rtk find *)",
+      "Bash(rtk grep *)",
+      "Bash(rtk read *)",
+      "Bash(rtk wc *)",
+      "Bash(go get *)",
+      "Bash(rtk go *)"
+    ]
+  },
   "plansDirectory": ".claude/plans"
 }

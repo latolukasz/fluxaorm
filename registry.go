@@ -18,9 +18,6 @@ import (
 	"github.com/redis/go-redis/v9/maintnotifications"
 
 	"github.com/pkg/errors"
-	"github.com/twmb/franz-go/pkg/kgo"
-	"github.com/twmb/franz-go/pkg/sasl/plain"
-	"github.com/twmb/franz-go/pkg/sasl/scram"
 
 	_ "github.com/ClickHouse/clickhouse-go/v2"
 	_ "github.com/go-sql-driver/mysql" // force this mysql driver
@@ -38,30 +35,30 @@ type Registry interface {
 	SetOption(key string, value any)
 	RegisterClickhouse(dataSourceName string, poolCode string, poolOptions *ClickhouseOptions)
 	RegisterClickhouseTable(table *ClickhouseTableBuilder)
-	RegisterKafka(brokers []string, poolCode string, options *KafkaPoolOptions)
-	RegisterKafkaTopic(topic *KafkaTopicBuilder)
-	RegisterKafkaConsumerGroup(consumerGroup *KafkaConsumerGroupBuilder)
-	RegisterAsyncFlush(kafkaPool string, options *AsyncFlushOptions)
-	RegisterDebeziumConnectURL(url string, kafkaPool string, options *DebeziumOptions)
+	RegisterNats(urls []string, poolCode string, options *NatsPoolOptions)
+	RegisterNatsStream(stream *NatsStreamBuilder)
+	RegisterNatsConsumer(consumer *NatsConsumerBuilder)
+	RegisterAsyncFlush(natsPool string, options *AsyncFlushOptions)
+	RegisterDebeziumServer(natsPool string, options *DebeziumOptions)
 	EnableMetrics(factory promauto.Factory)
 }
 
 type registry struct {
-	mysqlPools          map[string]MySQLConfig
-	localCaches         map[string]LocalCache
-	redisPools          map[string]RedisPoolConfig
-	clickhousePools     map[string]ClickhouseConfig
-	clickhouseTables    []*ClickhouseTableBuilder
-	kafkaPools          map[string]*kafkaPoolConfig
-	kafkaTopics         []*KafkaTopicBuilder
-	kafkaConsumerGroups []*KafkaConsumerGroupBuilder
-	entities            map[string]reflect.Type
-	options             map[string]any
-	asyncFlushKafkaPool string
-	asyncFlushOptions   *AsyncFlushOptions
-	debeziumConnectURLs map[string]string
-	debeziumOptions     map[string]*DebeziumOptions
-	metricsFactory      *promauto.Factory
+	mysqlPools         map[string]MySQLConfig
+	localCaches        map[string]LocalCache
+	redisPools         map[string]RedisPoolConfig
+	clickhousePools    map[string]ClickhouseConfig
+	clickhouseTables   []*ClickhouseTableBuilder
+	natsPools          map[string]*natsPoolConfig
+	natsStreams        []*NatsStreamBuilder
+	natsConsumers      []*NatsConsumerBuilder
+	entities           map[string]reflect.Type
+	options            map[string]any
+	asyncFlushNatsPool string
+	asyncFlushOptions  *AsyncFlushOptions
+	debeziumNatsPools  map[string]bool
+	debeziumOptions    map[string]*DebeziumOptions
+	metricsFactory     *promauto.Factory
 }
 
 func NewRegistry() Registry {
@@ -206,131 +203,103 @@ func (r *registry) Validate() (Engine, error) {
 			}
 		}
 	}
-	// Validate and register Kafka topic definitions
-	if len(r.kafkaTopics) > 0 {
-		seenTopicNames := make(map[string]string) // topicName -> poolCode
-		for _, topic := range r.kafkaTopics {
-			if err := topic.validate(); err != nil {
+	// Validate and register NATS stream definitions
+	if len(r.natsStreams) > 0 {
+		seenStreamNames := make(map[string]string) // streamName -> poolCode
+		for _, stream := range r.natsStreams {
+			if err := stream.validate(); err != nil {
 				return nil, err
 			}
-			if _, exists := r.kafkaPools[topic.poolCode]; !exists {
-				return nil, fmt.Errorf("kafka pool '%s' not registered for topic '%s'", topic.poolCode, topic.topicName)
+			if _, exists := r.natsPools[stream.poolCode]; !exists {
+				return nil, fmt.Errorf("nats pool '%s' not registered for stream '%s'", stream.poolCode, stream.streamName)
 			}
-			key := topic.poolCode + "." + topic.topicName
-			if existingPool, exists := seenTopicNames[key]; exists {
-				return nil, fmt.Errorf("duplicate kafka topic '%s' in pool '%s' (already registered in pool '%s')", topic.topicName, topic.poolCode, existingPool)
+			key := stream.poolCode + "." + stream.streamName
+			if existingPool, exists := seenStreamNames[key]; exists {
+				return nil, fmt.Errorf("duplicate nats stream '%s' in pool '%s' (already registered in pool '%s')", stream.streamName, stream.poolCode, existingPool)
 			}
-			seenTopicNames[key] = topic.poolCode
+			seenStreamNames[key] = stream.poolCode
 		}
-		e.registry.kafkaTopics = r.kafkaTopics
-		// Build ignored topics map from KafkaPoolOptions
-		e.registry.kafkaIgnoredTopics = make(map[string]map[string]bool)
-		for poolCode, poolConfig := range r.kafkaPools {
-			if len(poolConfig.options.IgnoredTopics) > 0 {
-				if e.registry.kafkaIgnoredTopics[poolCode] == nil {
-					e.registry.kafkaIgnoredTopics[poolCode] = make(map[string]bool)
+		e.registry.natsStreams = r.natsStreams
+		// Build ignored subjects map from NatsPoolOptions
+		e.registry.natsIgnoredSubjects = make(map[string]map[string]bool)
+		for poolCode, poolConfig := range r.natsPools {
+			if len(poolConfig.options.IgnoredSubjects) > 0 {
+				if e.registry.natsIgnoredSubjects[poolCode] == nil {
+					e.registry.natsIgnoredSubjects[poolCode] = make(map[string]bool)
 				}
-				for _, ignoredTopic := range poolConfig.options.IgnoredTopics {
-					e.registry.kafkaIgnoredTopics[poolCode][ignoredTopic] = true
+				for _, ignoredSubject := range poolConfig.options.IgnoredSubjects {
+					e.registry.natsIgnoredSubjects[poolCode][ignoredSubject] = true
 				}
 			}
 		}
 	}
-	// Auto-register async flush Kafka topics and consumer group (before consumer group validation)
-	if r.asyncFlushKafkaPool != "" {
-		if _, exists := r.kafkaPools[r.asyncFlushKafkaPool]; !exists {
-			return nil, fmt.Errorf("kafka pool '%s' not registered for async flush", r.asyncFlushKafkaPool)
+	// Async flush configuration. Auto-register the async-flush consumer so callers can
+	// resolve it via `pool.Consumer(AsyncSQLStreamName)` without an extra explicit registration.
+	// The underlying JetStream stream/consumer are created by `GetNatsAlters`.
+	if r.asyncFlushNatsPool != "" {
+		pool, exists := r.natsPools[r.asyncFlushNatsPool]
+		if !exists {
+			return nil, fmt.Errorf("nats pool '%s' not registered for async flush", r.asyncFlushNatsPool)
 		}
-		partitions := int32(1)
-		if r.asyncFlushOptions != nil && r.asyncFlushOptions.TopicPartitions > 0 {
-			partitions = r.asyncFlushOptions.TopicPartitions
-		}
-		hasAsyncTopic := false
-		hasDeadLetterTopic := false
-		for _, topic := range r.kafkaTopics {
-			if topic.poolCode == r.asyncFlushKafkaPool {
-				if topic.topicName == AsyncSQLTopicName {
-					hasAsyncTopic = true
+		e.registry.asyncFlushNatsPool = r.asyncFlushNatsPool
+		e.registry.asyncFlushOptions = r.asyncFlushOptions
+		if _, has := pool.consumers[AsyncSQLStreamName]; !has {
+			cb := NewNatsConsumer(AsyncSQLStreamName, r.asyncFlushNatsPool).
+				FilterSubjects(AsyncSQLSubject)
+			if r.asyncFlushOptions != nil {
+				if r.asyncFlushOptions.MaxAckPending > 0 {
+					cb.MaxAckPending(r.asyncFlushOptions.MaxAckPending)
 				}
-				if topic.topicName == AsyncSQLDeadLetterTopicName {
-					hasDeadLetterTopic = true
+				if r.asyncFlushOptions.AckWait > 0 {
+					cb.AckWait(r.asyncFlushOptions.AckWait)
+				}
+				if r.asyncFlushOptions.MaxDeliver != 0 {
+					cb.MaxDeliver(r.asyncFlushOptions.MaxDeliver)
 				}
 			}
+			pool.consumers[AsyncSQLStreamName] = cb.toSettings()
 		}
-		if !hasAsyncTopic {
-			r.RegisterKafkaTopic(NewKafkaTopic(AsyncSQLTopicName, r.asyncFlushKafkaPool).Partitions(partitions))
-		}
-		if !hasDeadLetterTopic {
-			r.RegisterKafkaTopic(NewKafkaTopic(AsyncSQLDeadLetterTopicName, r.asyncFlushKafkaPool).Partitions(1))
-		}
-		hasCG := false
-		for _, cg := range r.kafkaConsumerGroups {
-			if cg.poolCode == r.asyncFlushKafkaPool && cg.name == AsyncSQLTopicName {
-				hasCG = true
-				break
-			}
-		}
-		if !hasCG {
-			r.RegisterKafkaConsumerGroup(NewKafkaConsumerGroup(AsyncSQLTopicName, r.asyncFlushKafkaPool).Topics(AsyncSQLTopicName))
-		}
-		e.registry.asyncFlushKafkaPool = r.asyncFlushKafkaPool
 	}
-	// Validate and register Kafka consumer group definitions
-	if len(r.kafkaConsumerGroups) > 0 {
-		seenCGNames := make(map[string]string) // poolCode.name -> poolCode
-		for _, cg := range r.kafkaConsumerGroups {
-			if err := cg.validate(); err != nil {
+	// Validate and register NATS consumer definitions
+	if len(r.natsConsumers) > 0 {
+		seenConsumerNames := make(map[string]string) // poolCode.name -> poolCode
+		for _, cons := range r.natsConsumers {
+			if err := cons.validate(); err != nil {
 				return nil, err
 			}
-			pool, exists := r.kafkaPools[cg.poolCode]
+			pool, exists := r.natsPools[cons.poolCode]
 			if !exists {
-				return nil, fmt.Errorf("kafka pool '%s' not registered for consumer group '%s'", cg.poolCode, cg.name)
+				return nil, fmt.Errorf("nats pool '%s' not registered for consumer '%s'", cons.poolCode, cons.name)
 			}
-			key := cg.poolCode + "." + cg.name
-			if existingPool, exists := seenCGNames[key]; exists {
-				return nil, fmt.Errorf("duplicate kafka consumer group '%s' in pool '%s' (already registered in pool '%s')", cg.name, cg.poolCode, existingPool)
+			key := cons.poolCode + "." + cons.name
+			if existingPool, exists := seenConsumerNames[key]; exists {
+				return nil, fmt.Errorf("duplicate nats consumer '%s' in pool '%s' (already registered in pool '%s')", cons.name, cons.poolCode, existingPool)
 			}
-			seenCGNames[key] = cg.poolCode
-			pool.consumerGroups[cg.name] = cg.toSettings()
+			seenConsumerNames[key] = cons.poolCode
+			pool.consumers[cons.name] = cons.toSettings()
 		}
-		e.registry.kafkaConsumerGroups = r.kafkaConsumerGroups
-		// Build ignored consumer groups map from KafkaPoolOptions
-		e.registry.kafkaIgnoredConsumerGroups = make(map[string]map[string]bool)
-		for poolCode, poolConfig := range r.kafkaPools {
-			if len(poolConfig.options.IgnoredConsumerGroups) > 0 {
-				if e.registry.kafkaIgnoredConsumerGroups[poolCode] == nil {
-					e.registry.kafkaIgnoredConsumerGroups[poolCode] = make(map[string]bool)
+		e.registry.natsConsumers = r.natsConsumers
+		// Build ignored consumers map from NatsPoolOptions
+		e.registry.natsIgnoredConsumers = make(map[string]map[string]bool)
+		for poolCode, poolConfig := range r.natsPools {
+			if len(poolConfig.options.IgnoredConsumers) > 0 {
+				if e.registry.natsIgnoredConsumers[poolCode] == nil {
+					e.registry.natsIgnoredConsumers[poolCode] = make(map[string]bool)
 				}
-				for _, ignoredCG := range poolConfig.options.IgnoredConsumerGroups {
-					e.registry.kafkaIgnoredConsumerGroups[poolCode][ignoredCG] = true
+				for _, ignored := range poolConfig.options.IgnoredConsumers {
+					e.registry.natsIgnoredConsumers[poolCode][ignored] = true
 				}
 			}
 		}
 	}
-	// Determine which pools have registered topics (for disabling auto-creation)
-	poolsWithTopics := make(map[string]bool)
-	for _, topic := range r.kafkaTopics {
-		poolsWithTopics[topic.poolCode] = true
+	if e.natsServers == nil {
+		e.natsServers = make(map[string]Nats)
 	}
-	if e.kafkaServers == nil {
-		e.kafkaServers = make(map[string]Kafka)
-	}
-	for k, v := range r.kafkaPools {
+	for k, v := range r.natsPools {
 		if len(k) > maxPoolLen {
 			maxPoolLen = len(k)
 		}
-		// Validate SASL mechanism
-		if v.options.SASL != nil {
-			switch v.options.SASL.Mechanism {
-			case "PLAIN", "SCRAM-SHA-256", "SCRAM-SHA-512":
-			default:
-				return nil, fmt.Errorf("kafka pool '%s': unsupported SASL mechanism '%s'", k, v.options.SASL.Mechanism)
-			}
-		}
-		e.kafkaServers[k] = &kafkaPoolImplementation{
-			config:              v,
-			hasRegisteredTopics: poolsWithTopics[k],
-		}
+		e.natsServers[k] = &natsPoolImplementation{config: v}
 	}
 	if e.localCacheServers == nil {
 		e.localCacheServers = make(map[string]LocalCache)
@@ -411,65 +380,61 @@ func (r *registry) Validate() (Engine, error) {
 	for key, value := range r.options {
 		e.registry.options[key] = value
 	}
-	// Resolve DebeziumEntities to topic names for consumer groups
-	for _, cg := range r.kafkaConsumerGroups {
-		if len(cg.debeziumEntityTypes) == 0 {
+	// Resolve DebeziumEntities to subject filters for NATS consumers
+	for _, cons := range r.natsConsumers {
+		if len(cons.debeziumEntityTypes) == 0 {
 			continue
 		}
-		for _, entityType := range cg.debeziumEntityTypes {
+		for _, entity := range cons.debeziumEntityTypes {
+			entityType := reflect.TypeOf(entity)
+			if entityType.Kind() == reflect.Ptr {
+				entityType = entityType.Elem()
+			}
 			schema, ok := e.registry.entitySchemas[entityType]
 			if !ok {
-				return nil, fmt.Errorf("entity '%s' not registered (used in debezium consumer group '%s')", entityType.String(), cg.name)
+				return nil, fmt.Errorf("entity '%s' not registered (used in debezium nats consumer '%s')", entityType.String(), cons.name)
 			}
-			if schema.debeziumKafkaPool == "" {
-				return nil, fmt.Errorf("entity '%s' does not have debezium enabled (used in consumer group '%s')", entityType.String(), cg.name)
+			if schema.debeziumNatsPool == "" {
+				return nil, fmt.Errorf("entity '%s' does not have debezium enabled (used in nats consumer '%s')", entityType.String(), cons.name)
 			}
 			db := e.dbServers[schema.mysqlPoolCode]
 			dbName := db.GetConfig().GetDatabaseName()
-			topicName := "fluxa_" + schema.mysqlPoolCode + "." + dbName + "." + schema.tableName
-			cg.topics = append(cg.topics, topicName)
+			subject := "fluxa_" + schema.mysqlPoolCode + "." + dbName + "." + schema.tableName
+			cons.filterSubjects = append(cons.filterSubjects, subject)
 		}
-		pool := r.kafkaPools[cg.poolCode]
-		pool.consumerGroups[cg.name] = cg.toSettings()
+		pool := r.natsPools[cons.poolCode]
+		pool.consumers[cons.name] = cons.toSettings()
 	}
-	// Auto-register ignored Kafka topics for Debezium CDC
-	if len(r.debeziumConnectURLs) > 0 {
-		e.registry.debeziumConnectURLs = r.debeziumConnectURLs
+	// Auto-register ignored NATS subjects for Debezium CDC
+	if len(r.debeziumNatsPools) > 0 {
+		e.registry.debeziumNatsPools = r.debeziumNatsPools
 		e.registry.debeziumOptions = r.debeziumOptions
-		// Collect Debezium data topics and internal topics to ignore in GetKafkaAlters
-		debeziumIgnoredTopics := make(map[string][]string) // kafkaPool -> topics
+		debeziumIgnoredSubjects := make(map[string][]string) // natsPool -> subjects
 		mysqlPoolsSeen := make(map[string]bool)
 		for _, schema := range e.registry.entitySchemas {
-			if schema.debeziumKafkaPool == "" {
+			if schema.debeziumNatsPool == "" {
 				continue
 			}
-			kafkaPool := schema.debeziumKafkaPool
+			natsPool := schema.debeziumNatsPool
 			mysqlPool := schema.mysqlPoolCode
 			db := e.dbServers[mysqlPool]
 			dbName := db.GetConfig().GetDatabaseName()
-			topicPrefix := "fluxa_" + mysqlPool
-			dataTopicName := topicPrefix + "." + dbName + "." + schema.tableName
-			debeziumIgnoredTopics[kafkaPool] = append(debeziumIgnoredTopics[kafkaPool], dataTopicName)
+			subjectPrefix := "fluxa_" + mysqlPool
+			dataSubject := subjectPrefix + "." + dbName + "." + schema.tableName
+			debeziumIgnoredSubjects[natsPool] = append(debeziumIgnoredSubjects[natsPool], dataSubject)
 			if !mysqlPoolsSeen[mysqlPool] {
 				mysqlPoolsSeen[mysqlPool] = true
-				debeziumIgnoredTopics[kafkaPool] = append(debeziumIgnoredTopics[kafkaPool], topicPrefix+"_schema_history")
 			}
 		}
-		// Add Debezium internal topics
-		for kafkaPool := range r.debeziumConnectURLs {
-			debeziumIgnoredTopics[kafkaPool] = append(debeziumIgnoredTopics[kafkaPool],
-				"fluxa_connect_configs", "fluxa_connect_offsets", "fluxa_connect_status")
-		}
-		// Merge into kafkaIgnoredTopics
-		for kafkaPool, topics := range debeziumIgnoredTopics {
-			if e.registry.kafkaIgnoredTopics == nil {
-				e.registry.kafkaIgnoredTopics = make(map[string]map[string]bool)
+		for natsPool, subjects := range debeziumIgnoredSubjects {
+			if e.registry.natsIgnoredSubjects == nil {
+				e.registry.natsIgnoredSubjects = make(map[string]map[string]bool)
 			}
-			if e.registry.kafkaIgnoredTopics[kafkaPool] == nil {
-				e.registry.kafkaIgnoredTopics[kafkaPool] = make(map[string]bool)
+			if e.registry.natsIgnoredSubjects[natsPool] == nil {
+				e.registry.natsIgnoredSubjects[natsPool] = make(map[string]bool)
 			}
-			for _, topic := range topics {
-				e.registry.kafkaIgnoredTopics[kafkaPool][topic] = true
+			for _, subject := range subjects {
+				e.registry.natsIgnoredSubjects[natsPool][subject] = true
 			}
 		}
 	}
@@ -479,21 +444,21 @@ func (r *registry) Validate() (Engine, error) {
 	return e, nil
 }
 
-func (r *registry) RegisterAsyncFlush(kafkaPool string, options *AsyncFlushOptions) {
-	r.asyncFlushKafkaPool = kafkaPool
+func (r *registry) RegisterAsyncFlush(natsPool string, options *AsyncFlushOptions) {
+	r.asyncFlushNatsPool = natsPool
 	r.asyncFlushOptions = options
 }
 
-func (r *registry) RegisterDebeziumConnectURL(url string, kafkaPool string, options *DebeziumOptions) {
-	if r.debeziumConnectURLs == nil {
-		r.debeziumConnectURLs = make(map[string]string)
+func (r *registry) RegisterDebeziumServer(natsPool string, options *DebeziumOptions) {
+	if r.debeziumNatsPools == nil {
+		r.debeziumNatsPools = make(map[string]bool)
 	}
-	r.debeziumConnectURLs[kafkaPool] = url
+	r.debeziumNatsPools[natsPool] = true
 	if options != nil {
 		if r.debeziumOptions == nil {
 			r.debeziumOptions = make(map[string]*DebeziumOptions)
 		}
-		r.debeziumOptions[kafkaPool] = options
+		r.debeziumOptions[natsPool] = options
 	}
 }
 
@@ -509,7 +474,7 @@ func (r *registry) ValidateForCodeGen() (Engine, error) {
 	e.options = make(map[string]any)
 	e.dbServers = make(map[string]DB)
 	e.registry.dbTables = make(map[string]map[string]bool)
-	e.kafkaServers = make(map[string]Kafka)
+	e.natsServers = make(map[string]Nats)
 	e.redisServers = make(map[string]RedisCache)
 	e.localCacheServers = make(map[string]LocalCache)
 	e.clickhouseServers = make(map[string]Clickhouse)
@@ -631,87 +596,23 @@ func (r *registry) RegisterClickhouseTable(table *ClickhouseTableBuilder) {
 	r.clickhouseTables = append(r.clickhouseTables, table)
 }
 
-func (r *registry) RegisterKafkaTopic(topic *KafkaTopicBuilder) {
-	r.kafkaTopics = append(r.kafkaTopics, topic)
+func (r *registry) RegisterNatsStream(stream *NatsStreamBuilder) {
+	r.natsStreams = append(r.natsStreams, stream)
 }
 
-func (r *registry) RegisterKafka(brokers []string, poolCode string, options *KafkaPoolOptions) {
+func (r *registry) RegisterNats(urls []string, poolCode string, options *NatsPoolOptions) {
 	if options == nil {
-		options = &KafkaPoolOptions{}
+		options = &NatsPoolOptions{}
 	}
-	k := &kafkaPoolConfig{code: poolCode, brokers: brokers, options: options, consumerGroups: make(map[string]*KafkaConsumerGroupSettings)}
-	if r.kafkaPools == nil {
-		r.kafkaPools = make(map[string]*kafkaPoolConfig)
+	n := &natsPoolConfig{code: poolCode, urls: urls, options: options, consumers: make(map[string]*NatsConsumerSettings)}
+	if r.natsPools == nil {
+		r.natsPools = make(map[string]*natsPoolConfig)
 	}
-	r.kafkaPools[poolCode] = k
+	r.natsPools[poolCode] = n
 }
 
-func (r *registry) RegisterKafkaConsumerGroup(consumerGroup *KafkaConsumerGroupBuilder) {
-	r.kafkaConsumerGroups = append(r.kafkaConsumerGroups, consumerGroup)
-}
-
-func buildProducerKgoOpts(pool *kafkaPoolConfig, hasRegisteredTopics bool) []kgo.Opt {
-	opts := []kgo.Opt{kgo.SeedBrokers(pool.brokers...)}
-	if !hasRegisteredTopics {
-		opts = append(opts, kgo.AllowAutoTopicCreation())
-	}
-	poolOpts := pool.options
-	if poolOpts.ClientID != "" {
-		opts = append(opts, kgo.ClientID(poolOpts.ClientID))
-	}
-	if poolOpts.RequiredAcks != 0 {
-		switch poolOpts.RequiredAcks {
-		case 1:
-			opts = append(opts, kgo.RequiredAcks(kgo.LeaderAck()))
-		case -1:
-			opts = append(opts, kgo.RequiredAcks(kgo.AllISRAcks()))
-		case 0:
-			opts = append(opts, kgo.RequiredAcks(kgo.NoAck()))
-		}
-	}
-	if poolOpts.ProducerLinger > 0 {
-		opts = append(opts, kgo.ProducerLinger(poolOpts.ProducerLinger))
-	}
-	if poolOpts.MaxBufferedRecords > 0 {
-		opts = append(opts, kgo.MaxBufferedRecords(poolOpts.MaxBufferedRecords))
-	}
-	if poolOpts.SASL != nil {
-		switch poolOpts.SASL.Mechanism {
-		case "PLAIN":
-			opts = append(opts, kgo.SASL(plain.Auth{User: poolOpts.SASL.User, Pass: poolOpts.SASL.Password}.AsMechanism()))
-		case "SCRAM-SHA-256":
-			opts = append(opts, kgo.SASL(scram.Auth{User: poolOpts.SASL.User, Pass: poolOpts.SASL.Password}.AsSha256Mechanism()))
-		case "SCRAM-SHA-512":
-			opts = append(opts, kgo.SASL(scram.Auth{User: poolOpts.SASL.User, Pass: poolOpts.SASL.Password}.AsSha512Mechanism()))
-		}
-	}
-	return opts
-}
-
-func buildConsumerKgoOpts(pool *kafkaPoolConfig, settings *KafkaConsumerGroupSettings, hasRegisteredTopics bool) []kgo.Opt {
-	opts := buildProducerKgoOpts(pool, hasRegisteredTopics)
-	if settings.Name != "" {
-		opts = append(opts, kgo.ConsumerGroup(settings.Name))
-	}
-	if len(settings.Topics) > 0 {
-		opts = append(opts, kgo.ConsumeTopics(settings.Topics...))
-	}
-	if settings.SessionTimeout > 0 {
-		opts = append(opts, kgo.SessionTimeout(settings.SessionTimeout))
-	}
-	if settings.RebalanceTimeout > 0 {
-		opts = append(opts, kgo.RebalanceTimeout(settings.RebalanceTimeout))
-	}
-	if settings.FetchMaxBytes > 0 {
-		opts = append(opts, kgo.FetchMaxBytes(settings.FetchMaxBytes))
-	}
-	if settings.AutoCommitInterval > 0 {
-		opts = append(opts, kgo.AutoCommitInterval(settings.AutoCommitInterval))
-	} else if settings.Name != "" {
-		opts = append(opts, kgo.DisableAutoCommit())
-	}
-	opts = append(opts, kgo.MetadataMinAge(time.Second))
-	return opts
+func (r *registry) RegisterNatsConsumer(consumer *NatsConsumerBuilder) {
+	r.natsConsumers = append(r.natsConsumers, consumer)
 }
 
 func (r *registry) RegisterLocalCache(code string, limit int) {

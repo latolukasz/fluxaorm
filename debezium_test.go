@@ -4,15 +4,28 @@ import (
 	"fmt"
 	"testing"
 
+	"github.com/nats-io/nats.go"
 	"github.com/stretchr/testify/assert"
-	"github.com/twmb/franz-go/pkg/kgo"
 )
 
-func TestParseDebeziumEvent(t *testing.T) {
-	record := &KafkaRecord{
-		Value: []byte(`{"before":null,"after":{"ID":1,"Name":"test","Age":25},"source":{"version":"2.7","connector":"mysql","name":"fluxa_default","ts_ms":1234567890,"db":"test","table":"debezium_test","server_id":1,"file":"mysql-bin.000001","pos":100,"row":0},"op":"c","ts_ms":1234567890}`),
+// makeNatsMessage builds a NatsMessage for testing the Debezium parser.
+// `keyHeader` is the header name carrying the JSON-encoded CDC key
+// (e.g. "Debezium-Key"); pass "" to omit the header entirely (used for
+// negative-path tests).
+func makeNatsMessage(subject, keyHeader, key string, value []byte) *NatsMessage {
+	msg := NewNatsMessage(subject)
+	msg.Data = value
+	if keyHeader != "" {
+		msg.Headers.Set(keyHeader, key)
 	}
-	event, err := ParseDebeziumEvent(record)
+	return msg
+}
+
+func TestParseDebeziumEvent(t *testing.T) {
+	msg := makeNatsMessage("fluxa_default.test.debezium_test", "Debezium-Key", `{"ID":1}`,
+		[]byte(`{"before":null,"after":{"ID":1,"Name":"test","Age":25},"source":{"version":"2.7","connector":"mysql","name":"fluxa_default","ts_ms":1234567890,"db":"test","table":"debezium_test","server_id":1,"file":"mysql-bin.000001","pos":100,"row":0},"op":"c","ts_ms":1234567890}`),
+	)
+	event, err := ParseDebeziumEvent(msg)
 	assert.NoError(t, err)
 	assert.Equal(t, DebeziumCreate, event.Op)
 	assert.Nil(t, event.Before)
@@ -25,10 +38,10 @@ func TestParseDebeziumEvent(t *testing.T) {
 }
 
 func TestParseDebeziumEventUpdate(t *testing.T) {
-	record := &KafkaRecord{
-		Value: []byte(`{"before":{"ID":1,"Name":"old","Age":20},"after":{"ID":1,"Name":"new","Age":30},"source":{"db":"test","table":"t"},"op":"u","ts_ms":100}`),
-	}
-	event, err := ParseDebeziumEvent(record)
+	msg := makeNatsMessage("t", "Debezium-Key", `{"ID":1}`,
+		[]byte(`{"before":{"ID":1,"Name":"old","Age":20},"after":{"ID":1,"Name":"new","Age":30},"source":{"db":"test","table":"t"},"op":"u","ts_ms":100}`),
+	)
+	event, err := ParseDebeziumEvent(msg)
 	assert.NoError(t, err)
 	assert.Equal(t, DebeziumUpdate, event.Op)
 	assert.Equal(t, "old", event.Before["Name"])
@@ -36,10 +49,10 @@ func TestParseDebeziumEventUpdate(t *testing.T) {
 }
 
 func TestParseDebeziumEventDelete(t *testing.T) {
-	record := &KafkaRecord{
-		Value: []byte(`{"before":{"ID":1,"Name":"deleted","Age":20},"after":null,"source":{"db":"test","table":"t"},"op":"d","ts_ms":100}`),
-	}
-	event, err := ParseDebeziumEvent(record)
+	msg := makeNatsMessage("t", "Debezium-Key", `{"ID":1}`,
+		[]byte(`{"before":{"ID":1,"Name":"deleted","Age":20},"after":null,"source":{"db":"test","table":"t"},"op":"d","ts_ms":100}`),
+	)
+	event, err := ParseDebeziumEvent(msg)
 	assert.NoError(t, err)
 	assert.Equal(t, DebeziumDelete, event.Op)
 	assert.NotNil(t, event.Before)
@@ -47,78 +60,90 @@ func TestParseDebeziumEventDelete(t *testing.T) {
 }
 
 func TestParseDebeziumEventNilValue(t *testing.T) {
-	record := &KafkaRecord{}
-	_, err := ParseDebeziumEvent(record)
+	msg := NewNatsMessage("t")
+	_, err := ParseDebeziumEvent(msg)
 	assert.Error(t, err)
 }
 
 func TestParseDebeziumKey(t *testing.T) {
-	record := &KafkaRecord{
-		Key: []byte(`{"ID":42}`),
-	}
-	id, err := ParseDebeziumKey(record)
+	msg := makeNatsMessage("t", "Debezium-Key", `{"ID":42}`, []byte(`{}`))
+	id, err := ParseDebeziumKey(msg)
 	assert.NoError(t, err)
 	assert.Equal(t, uint64(42), id)
 }
 
+func TestParseDebeziumKeyFallbackHeaders(t *testing.T) {
+	// Cdc-Key fallback
+	msg := makeNatsMessage("t", "Cdc-Key", `{"ID":7}`, []byte(`{}`))
+	id, err := ParseDebeziumKey(msg)
+	assert.NoError(t, err)
+	assert.Equal(t, uint64(7), id)
+	// ce_id fallback
+	msg = makeNatsMessage("t", "ce_id", `{"ID":8}`, []byte(`{}`))
+	id, err = ParseDebeziumKey(msg)
+	assert.NoError(t, err)
+	assert.Equal(t, uint64(8), id)
+	// cdcid (historical Debezium) fallback
+	msg = makeNatsMessage("t", "cdcid", `{"ID":9}`, []byte(`{}`))
+	id, err = ParseDebeziumKey(msg)
+	assert.NoError(t, err)
+	assert.Equal(t, uint64(9), id)
+}
+
 func TestParseDebeziumKeyLargeID(t *testing.T) {
-	record := &KafkaRecord{
-		Key: []byte(`{"ID":9999999999}`),
-	}
-	id, err := ParseDebeziumKey(record)
+	msg := makeNatsMessage("t", "Debezium-Key", `{"ID":9999999999}`, []byte(`{}`))
+	id, err := ParseDebeziumKey(msg)
 	assert.NoError(t, err)
 	assert.Equal(t, uint64(9999999999), id)
 }
 
-func TestParseDebeziumKeyNil(t *testing.T) {
-	record := &KafkaRecord{}
-	_, err := ParseDebeziumKey(record)
+func TestParseDebeziumKeyMissing(t *testing.T) {
+	// No headers, empty envelope (no after/before with ID) — should fail
+	msg := NewNatsMessage("t")
+	msg.Data = []byte(`{"before":null,"after":null}`)
+	_, err := ParseDebeziumKey(msg)
 	assert.Error(t, err)
 }
 
+func TestParseDebeziumKeyFromEnvelopeAfter(t *testing.T) {
+	// No header, ID in envelope.after — Debezium Server 2.7 NATS sink behavior
+	msg := NewNatsMessage("t")
+	msg.Data = []byte(`{"before":null,"after":{"ID":99,"Name":"x"},"op":"c"}`)
+	id, err := ParseDebeziumKey(msg)
+	assert.NoError(t, err)
+	assert.Equal(t, uint64(99), id)
+}
+
+func TestParseDebeziumKeyFromEnvelopeBefore(t *testing.T) {
+	// Delete event: after is nil, ID lives in before
+	msg := NewNatsMessage("t")
+	msg.Data = []byte(`{"before":{"ID":77,"Name":"x"},"after":null,"op":"d"}`)
+	id, err := ParseDebeziumKey(msg)
+	assert.NoError(t, err)
+	assert.Equal(t, uint64(77), id)
+}
+
 func TestParseDebeziumKeyNoIDField(t *testing.T) {
-	record := &KafkaRecord{
-		Key: []byte(`{"other":1}`),
-	}
-	_, err := ParseDebeziumKey(record)
+	msg := makeNatsMessage("t", "Debezium-Key", `{"other":1}`, []byte(`{}`))
+	_, err := ParseDebeziumKey(msg)
 	assert.Error(t, err)
 	assert.Contains(t, err.Error(), "ID")
 }
 
-func makeKgoFetches(records ...*kgo.Record) KafkaFetches {
-	fetch := kgo.Fetch{
-		Topics: []kgo.FetchTopic{
-			{
-				Topic: "test-topic",
-			},
-		},
-	}
-	for _, r := range records {
-		if r.Topic == "" {
-			r.Topic = "test-topic"
-		}
-		fetch.Topics[0].Partitions = append(fetch.Topics[0].Partitions, kgo.FetchPartition{
-			Partition: 0,
-			Records:   []*kgo.Record{r},
-		})
-	}
-	return KafkaFetches{fetches: kgo.Fetches{fetch}}
+func makeNatsBatch(messages ...*NatsMessage) NatsBatch {
+	return NatsBatch{messages: messages}
 }
 
 func TestEachDebeziumEventHappyPath(t *testing.T) {
-	fetches := makeKgoFetches(
-		&kgo.Record{
-			Key:   []byte(`{"ID":1}`),
-			Value: []byte(`{"before":null,"after":{"ID":1,"Name":"a"},"source":{"db":"test","table":"t"},"op":"c","ts_ms":100}`),
-		},
-		&kgo.Record{
-			Key:   []byte(`{"ID":2}`),
-			Value: []byte(`{"before":{"ID":2,"Name":"b"},"after":null,"source":{"db":"test","table":"t"},"op":"d","ts_ms":200}`),
-		},
+	batch := makeNatsBatch(
+		makeNatsMessage("t", "Debezium-Key", `{"ID":1}`,
+			[]byte(`{"before":null,"after":{"ID":1,"Name":"a"},"source":{"db":"test","table":"t"},"op":"c","ts_ms":100}`)),
+		makeNatsMessage("t", "Debezium-Key", `{"ID":2}`,
+			[]byte(`{"before":{"ID":2,"Name":"b"},"after":null,"source":{"db":"test","table":"t"},"op":"d","ts_ms":200}`)),
 	)
 
 	var collected []uint64
-	err := fetches.EachDebeziumEvent(func(entityID uint64, event *DebeziumEvent) error {
+	err := batch.EachDebeziumEvent(func(entityID uint64, event *DebeziumEvent) error {
 		collected = append(collected, entityID)
 		return nil
 	})
@@ -127,23 +152,20 @@ func TestEachDebeziumEventHappyPath(t *testing.T) {
 }
 
 func TestEachDebeziumEventSkipsTombstones(t *testing.T) {
-	fetches := makeKgoFetches(
-		&kgo.Record{
-			Key:   []byte(`{"ID":1}`),
-			Value: []byte(`{"before":null,"after":{"ID":1},"source":{"db":"test","table":"t"},"op":"c","ts_ms":100}`),
-		},
-		&kgo.Record{
-			Key:   []byte(`{"ID":2}`),
-			Value: nil, // tombstone
-		},
-		&kgo.Record{
-			Key:   []byte(`{"ID":3}`),
-			Value: []byte(`{"before":null,"after":{"ID":3},"source":{"db":"test","table":"t"},"op":"c","ts_ms":300}`),
-		},
+	tombstone := NewNatsMessage("t")
+	tombstone.Headers = nats.Header{}
+	tombstone.Headers.Set("Debezium-Key", `{"ID":2}`)
+	// tombstone has nil Data — should be skipped silently
+	batch := makeNatsBatch(
+		makeNatsMessage("t", "Debezium-Key", `{"ID":1}`,
+			[]byte(`{"before":null,"after":{"ID":1},"source":{"db":"test","table":"t"},"op":"c","ts_ms":100}`)),
+		tombstone,
+		makeNatsMessage("t", "Debezium-Key", `{"ID":3}`,
+			[]byte(`{"before":null,"after":{"ID":3},"source":{"db":"test","table":"t"},"op":"c","ts_ms":300}`)),
 	)
 
 	var collected []uint64
-	err := fetches.EachDebeziumEvent(func(entityID uint64, event *DebeziumEvent) error {
+	err := batch.EachDebeziumEvent(func(entityID uint64, event *DebeziumEvent) error {
 		collected = append(collected, entityID)
 		return nil
 	})
@@ -152,19 +174,15 @@ func TestEachDebeziumEventSkipsTombstones(t *testing.T) {
 }
 
 func TestEachDebeziumEventHandlerError(t *testing.T) {
-	fetches := makeKgoFetches(
-		&kgo.Record{
-			Key:   []byte(`{"ID":1}`),
-			Value: []byte(`{"before":null,"after":{"ID":1},"source":{"db":"test","table":"t"},"op":"c","ts_ms":100}`),
-		},
-		&kgo.Record{
-			Key:   []byte(`{"ID":2}`),
-			Value: []byte(`{"before":null,"after":{"ID":2},"source":{"db":"test","table":"t"},"op":"c","ts_ms":200}`),
-		},
+	batch := makeNatsBatch(
+		makeNatsMessage("t", "Debezium-Key", `{"ID":1}`,
+			[]byte(`{"before":null,"after":{"ID":1},"source":{"db":"test","table":"t"},"op":"c","ts_ms":100}`)),
+		makeNatsMessage("t", "Debezium-Key", `{"ID":2}`,
+			[]byte(`{"before":null,"after":{"ID":2},"source":{"db":"test","table":"t"},"op":"c","ts_ms":200}`)),
 	)
 
 	callCount := 0
-	err := fetches.EachDebeziumEvent(func(entityID uint64, event *DebeziumEvent) error {
+	err := batch.EachDebeziumEvent(func(entityID uint64, event *DebeziumEvent) error {
 		callCount++
 		return fmt.Errorf("handler error")
 	})
@@ -174,24 +192,20 @@ func TestEachDebeziumEventHandlerError(t *testing.T) {
 }
 
 func TestEachDebeziumEventParseError(t *testing.T) {
-	fetches := makeKgoFetches(
-		&kgo.Record{
-			Key:   []byte(`{"ID":1}`),
-			Value: []byte(`invalid json`),
-		},
+	batch := makeNatsBatch(
+		makeNatsMessage("fluxa_default.test.t", "Debezium-Key", `{"ID":1}`, []byte(`invalid json`)),
 	)
-
-	err := fetches.EachDebeziumEvent(func(entityID uint64, event *DebeziumEvent) error {
+	err := batch.EachDebeziumEvent(func(entityID uint64, event *DebeziumEvent) error {
 		t.Fatal("handler should not be called")
 		return nil
 	})
 	assert.Error(t, err)
-	assert.Contains(t, err.Error(), "test-topic")
+	assert.Contains(t, err.Error(), "fluxa_default.test.t")
 }
 
 func TestEachDebeziumEventEmpty(t *testing.T) {
-	fetches := KafkaFetches{}
-	err := fetches.EachDebeziumEvent(func(entityID uint64, event *DebeziumEvent) error {
+	batch := NatsBatch{}
+	err := batch.EachDebeziumEvent(func(entityID uint64, event *DebeziumEvent) error {
 		t.Fatal("handler should not be called")
 		return nil
 	})

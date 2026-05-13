@@ -25,7 +25,8 @@ func TestAfterInsertCallback(t *testing.T) {
 		return nil
 	})
 
-	e := entities.GenerateEntityWithTimestampsProvider.New(ctx)
+	e, errNew := entities.GenerateEntityWithTimestampsProvider.New(ctx)
+	assert.NoError(t, errNew)
 	e.SetName("InsertTest")
 	assert.NoError(t, ctx.Flush())
 
@@ -51,7 +52,8 @@ func TestAfterUpdateCallback(t *testing.T) {
 		return nil
 	})
 
-	e := entities.GenerateEntityWithTimestampsProvider.New(ctx)
+	e, errNew := entities.GenerateEntityWithTimestampsProvider.New(ctx)
+	assert.NoError(t, errNew)
 	e.SetName("Original")
 	assert.NoError(t, ctx.Flush())
 
@@ -80,7 +82,8 @@ func TestAfterDeleteCallback(t *testing.T) {
 		return nil
 	})
 
-	e := entities.GenerateEntityWithTimestampsProvider.New(ctx)
+	e, errNew := entities.GenerateEntityWithTimestampsProvider.New(ctx)
+	assert.NoError(t, errNew)
 	e.SetName("DeleteTest")
 	assert.NoError(t, ctx.Flush())
 
@@ -106,7 +109,8 @@ func TestAfterDeleteCallbackFakeDelete(t *testing.T) {
 		return nil
 	})
 
-	e := entities.GenerateReferenceEntityProvider.New(ctx)
+	e, errNew := entities.GenerateReferenceEntityProvider.New(ctx)
+	assert.NoError(t, errNew)
 	e.SetName("FakeDeleteTest")
 	assert.NoError(t, ctx.Flush())
 
@@ -121,8 +125,8 @@ func TestAfterDeleteCallbackFakeDelete(t *testing.T) {
 }
 
 func TestAfterFlushCallbacksNotFiredForFlushAsync(t *testing.T) {
-	ctx := fluxaorm.PrepareTablesWithKafka(t, fluxaorm.NewRegistry(), generateEntityWithTimestampsRedis{})
-	defer ctx.Engine().Kafka("kafka").Close()
+	ctx := fluxaorm.PrepareTablesWithNats(t, fluxaorm.NewRegistry(), generateEntityWithTimestampsRedis{})
+	defer ctx.Engine().Nats("nats").Close()
 
 	var insertCalled bool
 	entities.GenerateEntityWithTimestampsRedisProvider.OnAfterInsert(ctx.Engine(), func(c fluxaorm.Context, entity *entities.GenerateEntityWithTimestampsRedis) error {
@@ -130,7 +134,8 @@ func TestAfterFlushCallbacksNotFiredForFlushAsync(t *testing.T) {
 		return nil
 	})
 
-	e := entities.GenerateEntityWithTimestampsRedisProvider.New(ctx)
+	e, errNew := entities.GenerateEntityWithTimestampsRedisProvider.New(ctx)
+	assert.NoError(t, errNew)
 	e.SetName("AsyncTest")
 	assert.NoError(t, ctx.FlushAsync(true))
 
@@ -141,7 +146,8 @@ func TestAfterFlushCallbacksNoHandler(t *testing.T) {
 	ctx := fluxaorm.PrepareTables(t, fluxaorm.NewRegistry(), generateEntityWithTimestamps{})
 
 	// No handlers registered - flush should work fine
-	e := entities.GenerateEntityWithTimestampsProvider.New(ctx)
+	e, errNew := entities.GenerateEntityWithTimestampsProvider.New(ctx)
+	assert.NoError(t, errNew)
 	e.SetName("NoHandler")
 	assert.NoError(t, ctx.Flush())
 
@@ -160,7 +166,8 @@ func TestAfterUpdateExcludesUpdatedAt(t *testing.T) {
 		return nil
 	})
 
-	e := entities.GenerateEntityWithTimestampsProvider.New(ctx)
+	e, errNew := entities.GenerateEntityWithTimestampsProvider.New(ctx)
+	assert.NoError(t, errNew)
 	e.SetName("Original")
 	assert.NoError(t, ctx.Flush())
 
@@ -194,11 +201,14 @@ func TestMultipleEntitiesInSingleFlush(t *testing.T) {
 		return nil
 	})
 
-	ts1 := entities.GenerateEntityWithTimestampsProvider.New(ctx)
+	ts1, errNew := entities.GenerateEntityWithTimestampsProvider.New(ctx)
+	assert.NoError(t, errNew)
 	ts1.SetName("First")
-	ts2 := entities.GenerateEntityWithTimestampsProvider.New(ctx)
+	ts2, errNew := entities.GenerateEntityWithTimestampsProvider.New(ctx)
+	assert.NoError(t, errNew)
 	ts2.SetName("Second")
-	ref := entities.GenerateReferenceEntityProvider.New(ctx)
+	ref, errNew := entities.GenerateReferenceEntityProvider.New(ctx)
+	assert.NoError(t, errNew)
 	ref.SetName("Ref")
 
 	assert.NoError(t, ctx.Flush())
@@ -220,7 +230,8 @@ func TestAfterCallbackErrorPropagation(t *testing.T) {
 		return expectedErr
 	})
 
-	e := entities.GenerateEntityWithTimestampsProvider.New(ctx)
+	e, errNew := entities.GenerateEntityWithTimestampsProvider.New(ctx)
+	assert.NoError(t, errNew)
 	e.SetName("ErrorTest")
 	err := ctx.Flush()
 
@@ -234,8 +245,8 @@ func TestAfterCallbackErrorPropagation(t *testing.T) {
 }
 
 func TestAfterInsertCallbackFiredByAsyncConsumer(t *testing.T) {
-	ctx := fluxaorm.PrepareTablesWithKafka(t, fluxaorm.NewRegistry(), generateEntityWithTimestampsRedis{})
-	defer ctx.Engine().Kafka("kafka").Close()
+	ctx := fluxaorm.PrepareTablesWithNats(t, fluxaorm.NewRegistry(), generateEntityWithTimestampsRedis{})
+	defer ctx.Engine().Nats("nats").Close()
 
 	var callbackEntity *entities.GenerateEntityWithTimestampsRedis
 	var insertCalled bool
@@ -245,7 +256,8 @@ func TestAfterInsertCallbackFiredByAsyncConsumer(t *testing.T) {
 		return nil
 	})
 
-	e := entities.GenerateEntityWithTimestampsRedisProvider.New(ctx)
+	e, errNew := entities.GenerateEntityWithTimestampsRedisProvider.New(ctx)
+	assert.NoError(t, errNew)
 	e.SetName("AsyncInsertTest")
 	assert.NoError(t, ctx.FlushAsync(true))
 
@@ -267,8 +279,8 @@ func TestAfterInsertCallbackFiredByAsyncConsumer(t *testing.T) {
 }
 
 func TestAfterUpdateCallbackFiredByAsyncConsumer(t *testing.T) {
-	ctx := fluxaorm.PrepareTablesWithKafka(t, fluxaorm.NewRegistry(), generateEntityWithTimestampsRedis{})
-	defer ctx.Engine().Kafka("kafka").Close()
+	ctx := fluxaorm.PrepareTablesWithNats(t, fluxaorm.NewRegistry(), generateEntityWithTimestampsRedis{})
+	defer ctx.Engine().Nats("nats").Close()
 
 	var callbackChanges map[string]any
 	var callbackName string
@@ -281,7 +293,8 @@ func TestAfterUpdateCallbackFiredByAsyncConsumer(t *testing.T) {
 	})
 
 	// Insert entity first (synchronously so it's in DB)
-	e := entities.GenerateEntityWithTimestampsRedisProvider.New(ctx)
+	e, errNew := entities.GenerateEntityWithTimestampsRedisProvider.New(ctx)
+	assert.NoError(t, errNew)
 	e.SetName("Original")
 	assert.NoError(t, ctx.Flush())
 	assert.False(t, updateCalled)
@@ -311,8 +324,8 @@ func TestAfterUpdateCallbackFiredByAsyncConsumer(t *testing.T) {
 }
 
 func TestAfterDeleteCallbackFiredByAsyncConsumer(t *testing.T) {
-	ctx := fluxaorm.PrepareTablesWithKafka(t, fluxaorm.NewRegistry(), generateEntityWithTimestampsRedis{})
-	defer ctx.Engine().Kafka("kafka").Close()
+	ctx := fluxaorm.PrepareTablesWithNats(t, fluxaorm.NewRegistry(), generateEntityWithTimestampsRedis{})
+	defer ctx.Engine().Nats("nats").Close()
 
 	var callbackEntity *entities.GenerateEntityWithTimestampsRedis
 	var deleteCalled bool
@@ -323,7 +336,8 @@ func TestAfterDeleteCallbackFiredByAsyncConsumer(t *testing.T) {
 	})
 
 	// Insert entity first (synchronously)
-	e := entities.GenerateEntityWithTimestampsRedisProvider.New(ctx)
+	e, errNew := entities.GenerateEntityWithTimestampsRedisProvider.New(ctx)
+	assert.NoError(t, errNew)
 	e.SetName("DeleteAsyncTest")
 	assert.NoError(t, ctx.Flush())
 
@@ -346,8 +360,8 @@ func TestAfterDeleteCallbackFiredByAsyncConsumer(t *testing.T) {
 }
 
 func TestAfterDeleteCallbackFiredByAsyncConsumerFakeDelete(t *testing.T) {
-	ctx := fluxaorm.PrepareTablesWithKafka(t, fluxaorm.NewRegistry(), generateReferenceEntity{})
-	defer ctx.Engine().Kafka("kafka").Close()
+	ctx := fluxaorm.PrepareTablesWithNats(t, fluxaorm.NewRegistry(), generateReferenceEntity{})
+	defer ctx.Engine().Nats("nats").Close()
 
 	var callbackEntity *entities.GenerateReferenceEntity
 	var deleteCalled bool
@@ -363,7 +377,8 @@ func TestAfterDeleteCallbackFiredByAsyncConsumerFakeDelete(t *testing.T) {
 	})
 
 	// Insert entity first (synchronously)
-	e := entities.GenerateReferenceEntityProvider.New(ctx)
+	e, errNew := entities.GenerateReferenceEntityProvider.New(ctx)
+	assert.NoError(t, errNew)
 	e.SetName("FakeDeleteAsyncTest")
 	assert.NoError(t, ctx.Flush())
 
@@ -387,15 +402,16 @@ func TestAfterDeleteCallbackFiredByAsyncConsumerFakeDelete(t *testing.T) {
 }
 
 func TestAfterCallbackErrorInAsyncConsumer(t *testing.T) {
-	ctx := fluxaorm.PrepareTablesWithKafka(t, fluxaorm.NewRegistry(), generateEntityWithTimestampsRedis{})
-	defer ctx.Engine().Kafka("kafka").Close()
+	ctx := fluxaorm.PrepareTablesWithNats(t, fluxaorm.NewRegistry(), generateEntityWithTimestampsRedis{})
+	defer ctx.Engine().Nats("nats").Close()
 
 	expectedErr := fmt.Errorf("async callback error")
 	entities.GenerateEntityWithTimestampsRedisProvider.OnAfterInsert(ctx.Engine(), func(c fluxaorm.Context, entity *entities.GenerateEntityWithTimestampsRedis) error {
 		return expectedErr
 	})
 
-	e := entities.GenerateEntityWithTimestampsRedisProvider.New(ctx)
+	e, errNew := entities.GenerateEntityWithTimestampsRedisProvider.New(ctx)
+	assert.NoError(t, errNew)
 	e.SetName("AsyncErrorTest")
 	assert.NoError(t, ctx.FlushAsync(true))
 

@@ -24,21 +24,48 @@ func PrepareTables(t *testing.T, registry Registry, entities ...any) (orm Contex
 	return prepareTables(t, registry, &MySQLOptions{}, entities...)
 }
 
-func PrepareTablesWithKafka(t *testing.T, registry Registry, entities ...any) (orm Context) {
-	registry.RegisterKafka([]string{"localhost:9944"}, "kafka", nil)
-	registry.RegisterAsyncFlush("kafka", nil)
-	return prepareTables(t, registry, &MySQLOptions{}, entities...)
+func PrepareTablesWithNats(t *testing.T, registry Registry, entities ...any) (orm Context) {
+	registry.RegisterNats([]string{"nats://localhost:9944"}, "nats", nil)
+	registry.RegisterAsyncFlush("nats", nil)
+	ctx := prepareTables(t, registry, &MySQLOptions{}, entities...)
+	applyNatsAlters(t, ctx)
+	return ctx
 }
 
 func PrepareTablesWithDebezium(t *testing.T, registry Registry, entities ...any) (orm Context) {
-	registry.RegisterKafka([]string{"localhost:9944"}, "kafka", nil)
-	registry.RegisterDebeziumConnectURL("http://localhost:9945", "kafka", &DebeziumOptions{
-		MySQLHost:    "host.docker.internal",
-		MySQLPort:    "3397",
-		KafkaBrokers: []string{"kafka:9094"},
+	registry.RegisterNats([]string{"nats://localhost:9944"}, "nats", nil)
+	registry.RegisterDebeziumServer("nats", &DebeziumOptions{
+		MySQLHost: "host.docker.internal",
+		MySQLPort: "3397",
+		NatsURLs:  []string{"nats://nats:4222"},
 	})
-	registry.RegisterAsyncFlush("kafka", nil)
-	return prepareTables(t, registry, &MySQLOptions{}, entities...)
+	registry.RegisterAsyncFlush("nats", nil)
+	ctx := prepareTables(t, registry, &MySQLOptions{}, entities...)
+	applyNatsAlters(t, ctx)
+	return ctx
+}
+
+// applyNatsAlters reconciles JetStream state for tests so the async-flush stream and
+// any Debezium CDC streams exist (and the durable consumers are created) before tests publish.
+// Purges any pre-existing messages in `FLUXA_ASYNC_SQL` to keep tests independent.
+func applyNatsAlters(t *testing.T, ctx Context) {
+	alters, err := GetNatsAlters(ctx)
+	assert.NoError(t, err)
+	for _, alter := range alters {
+		assert.NoError(t, alter.Exec(ctx))
+	}
+	pool := ctx.Engine().Nats("nats")
+	if pool == nil {
+		return
+	}
+	js, err := pool.GetJetStream()
+	if err != nil {
+		return
+	}
+	stream, err := js.Stream(ctx.Context(), AsyncSQLStreamName)
+	if err == nil && stream != nil {
+		_ = stream.Purge(ctx.Context())
+	}
 }
 
 func prepareTables(t *testing.T, registry Registry, mysqlOptions *MySQLOptions, entities ...any) (orm Context) {

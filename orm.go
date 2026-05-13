@@ -38,7 +38,7 @@ type Context interface {
 	getDBLoggers() (bool, []LogHandler)
 	getLocalCacheLoggers() (bool, []LogHandler)
 	getClickhouseLoggers() (bool, []LogHandler)
-	getKafkaLoggers() (bool, []LogHandler)
+	getNatsLoggers() (bool, []LogHandler)
 	getRedisLoggers() (bool, []LogHandler)
 	Track(e Entity, cacheIndex uint64)
 	getMetricsSourceTag() string
@@ -57,12 +57,12 @@ type ormImplementation struct {
 	queryLoggersRedis        []LogHandler
 	queryLoggersLocalCache   []LogHandler
 	queryLoggersClickhouse   []LogHandler
-	queryLoggersKafka        []LogHandler
+	queryLoggersNats         []LogHandler
 	hasRedisLogger           bool
 	hasDBLogger              bool
 	hasLocalCacheLogger      bool
 	hasClickhouseLogger      bool
-	hasKafkaLogger           bool
+	hasNatsLogger            bool
 	disabledContextCache     bool
 	meta                     Meta
 	redisRecordMode          bool
@@ -84,12 +84,12 @@ func (orm *ormImplementation) CloneWithContext(context context.Context) Context 
 		queryLoggersRedis:      orm.queryLoggersRedis,
 		queryLoggersLocalCache: orm.queryLoggersLocalCache,
 		queryLoggersClickhouse: orm.queryLoggersClickhouse,
-		queryLoggersKafka:      orm.queryLoggersKafka,
+		queryLoggersNats:       orm.queryLoggersNats,
 		hasRedisLogger:         orm.hasRedisLogger,
 		hasDBLogger:            orm.hasDBLogger,
 		hasLocalCacheLogger:    orm.hasLocalCacheLogger,
 		hasClickhouseLogger:    orm.hasClickhouseLogger,
-		hasKafkaLogger:         orm.hasKafkaLogger,
+		hasNatsLogger:          orm.hasNatsLogger,
 		meta:                   orm.meta,
 		disabledContextCache:   orm.disabledContextCache,
 		contextCacheTTL:        orm.contextCacheTTL,
@@ -175,9 +175,9 @@ func (orm *ormImplementation) getClickhouseLoggers() (bool, []LogHandler) {
 	return false, nil
 }
 
-func (orm *ormImplementation) getKafkaLoggers() (bool, []LogHandler) {
-	if orm.hasKafkaLogger {
-		return true, orm.queryLoggersKafka
+func (orm *ormImplementation) getNatsLoggers() (bool, []LogHandler) {
+	if orm.hasNatsLogger {
+		return true, orm.queryLoggersNats
 	}
 	return false, nil
 }

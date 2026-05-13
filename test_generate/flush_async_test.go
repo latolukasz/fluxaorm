@@ -2,6 +2,7 @@ package test_generate
 
 import (
 	"context"
+	"encoding/json"
 	"strconv"
 	"testing"
 	"time"
@@ -9,14 +10,17 @@ import (
 	fluxaorm "github.com/latolukasz/fluxaorm/v2"
 	"github.com/latolukasz/fluxaorm/v2/test_generate/entities"
 	"github.com/latolukasz/fluxaorm/v2/test_generate/entities/enums"
-	"github.com/shamaton/msgpack"
 	"github.com/stretchr/testify/assert"
 )
 
 // newTestEntity creates a valid generateEntityNoRedis with required fields set.
-func newTestEntity(ctx fluxaorm.Context, name string) *entities.GenerateEntityNoRedis {
+func newTestEntity(t *testing.T, ctx fluxaorm.Context, name string) *entities.GenerateEntityNoRedis {
+	t.Helper()
 	now := time.Now().UTC()
-	e := entities.GenerateEntityNoRedisProvider.New(ctx)
+	e, err := entities.GenerateEntityNoRedisProvider.New(ctx)
+	if err != nil {
+		t.Fatalf("provider.New: %v", err)
+	}
 	e.SetName(name)
 	e.SetTestEnum(enums.TestEnumList.A)
 	e.SetTime(now)
@@ -25,27 +29,22 @@ func newTestEntity(ctx fluxaorm.Context, name string) *entities.GenerateEntityNo
 }
 
 func TestFlushAsync(t *testing.T) {
-	ctx := fluxaorm.PrepareTablesWithKafka(t, fluxaorm.NewRegistry(), generateEntityNoRedis{}, generateReferenceEntity{})
-	defer ctx.Engine().Kafka("kafka").Close()
+	ctx := fluxaorm.PrepareTablesWithNats(t, fluxaorm.NewRegistry(), generateEntityNoRedis{}, generateReferenceEntity{})
+	defer ctx.Engine().Nats("nats").Close()
 
-	// ──────────────────────────────────────────────────────────────────────────
-	// Test 1: FlushAsync queues SQL to Kafka, NOT directly to MySQL
-	// ──────────────────────────────────────────────────────────────────────────
-	e := newTestEntity(ctx, "async-test")
+	// Test 1: FlushAsync queues SQL to NATS, NOT directly to MySQL
+	e := newTestEntity(t, ctx, "async-test")
 	assert.NoError(t, ctx.FlushAsync(true))
 
 	id := e.GetID()
 
-	// Verify entity is NOT in MySQL yet – use a fresh context so context cache is bypassed.
 	freshCtx := ctx.Engine().NewContext(context.Background())
 	freshCtx.DisableContextCache()
 	_, found, err := entities.GenerateEntityNoRedisProvider.GetByID(freshCtx, id)
 	assert.NoError(t, err)
 	assert.False(t, found, "entity should not be in MySQL before consumer runs")
 
-	// ──────────────────────────────────────────────────────────────────────────
 	// Test 2: Consumer processes event → entity appears in MySQL
-	// ──────────────────────────────────────────────────────────────────────────
 	consumer, err := ctx.GetAsyncSQLConsumer()
 	assert.NoError(t, err)
 	defer consumer.Close()
@@ -57,92 +56,63 @@ func TestFlushAsync(t *testing.T) {
 	assert.NoError(t, err)
 	assert.True(t, found, "entity should be in MySQL after consumer runs")
 
-	// ──────────────────────────────────────────────────────────────────────────
-	// Test 3: Deserialization error → event moved to dead-letter topic
-	// ──────────────────────────────────────────────────────────────────────────
-
-	// Produce an event with body that can't be deserialized as AsyncSQLOperation.
-	kafkaPool := ctx.Engine().Kafka("kafka")
-	assert.NoError(t, kafkaPool.ProduceSync(ctx, &fluxaorm.KafkaRecord{
-		Topic: fluxaorm.AsyncSQLTopicName,
-		Key:   []byte("bad"),
-		Value: []byte("invalid-body"),
-	}))
+	// Test 3: Deserialization error → event moved to dead-letter subject
+	natsPool := ctx.Engine().Nats("nats")
+	badMsg := fluxaorm.NewNatsMessage(fluxaorm.AsyncSQLSubject)
+	badMsg.Data = []byte("invalid-body")
+	assert.NoError(t, natsPool.Publish(ctx, badMsg))
 
 	consumer3, err := ctx.GetAsyncSQLConsumer()
 	assert.NoError(t, err)
 	defer consumer3.Close()
 	assert.NoError(t, consumer3.Consume(10, 5*time.Second))
 
-	// Verify event landed in dead-letter topic
-	deadLetterCG, err := kafkaPool.ConsumerGroup(fluxaorm.AsyncSQLTopicName + "_dead_letter")
-	if err != nil {
-		// If there's no specific dead-letter consumer group, check via a temporary one
-		// The dead letter record was produced; verify by consuming it
-		t.Log("dead-letter consumer group not separately registered, skipping dead-letter read verification")
-	} else {
-		defer deadLetterCG.Close()
-	}
-
-	// ──────────────────────────────────────────────────────────────────────────
 	// Test 4: Permanent MySQL error (SQL parse error) → event moved to dead-letter
-	// ──────────────────────────────────────────────────────────────────────────
-
-	// Produce a valid AsyncSQLOperation with invalid SQL → MySQL returns error 1064
 	badOp := fluxaorm.AsyncSQLOperation{
 		Pool: fluxaorm.DefaultPoolCode,
 		Queries: []fluxaorm.AsyncSQLQuery{
 			{Q: "THIS IS NOT VALID SQL"},
 		},
 	}
-	badOpBytes, err := msgpack.Marshal(badOp)
+	badOpBytes, err := json.Marshal(badOp)
 	assert.NoError(t, err)
-	assert.NoError(t, kafkaPool.ProduceSync(ctx, &fluxaorm.KafkaRecord{
-		Topic: fluxaorm.AsyncSQLTopicName,
-		Key:   []byte("bad-sql"),
-		Value: badOpBytes,
-	}))
+	badSQLMsg := fluxaorm.NewNatsMessage(fluxaorm.AsyncSQLSubject)
+	badSQLMsg.Data = badOpBytes
+	assert.NoError(t, natsPool.Publish(ctx, badSQLMsg))
 
 	consumer4, err := ctx.GetAsyncSQLConsumer()
 	assert.NoError(t, err)
 	defer consumer4.Close()
 	assert.NoError(t, consumer4.Consume(10, 5*time.Second))
 
-	// ──────────────────────────────────────────────────────────────────────────
 	// Test 5: FlushAsync with no tracked entities is a no-op
-	// ──────────────────────────────────────────────────────────────────────────
 	assert.NoError(t, ctx.FlushAsync(true))
 }
 
 func TestFlushAsyncDeferredCache(t *testing.T) {
-	ctx := fluxaorm.PrepareTablesWithKafka(t, fluxaorm.NewRegistry(), generateEntityWithTimestampsRedis{})
-	defer ctx.Engine().Kafka("kafka").Close()
+	ctx := fluxaorm.PrepareTablesWithNats(t, fluxaorm.NewRegistry(), generateEntityWithTimestampsRedis{})
+	defer ctx.Engine().Nats("nats").Close()
 
-	// ──────────────────────────────────────────────────────────────────────────
 	// Test 1: Insert with FlushAsync(false) → entity NOT in Redis cache AND NOT in MySQL
-	// ──────────────────────────────────────────────────────────────────────────
-	e := entities.GenerateEntityWithTimestampsRedisProvider.New(ctx)
+	e, err := entities.GenerateEntityWithTimestampsRedisProvider.New(ctx)
+	assert.NoError(t, err)
 	e.SetName("deferred-insert")
 	assert.NoError(t, ctx.FlushAsync(false))
 
 	id := e.GetID()
 
-	// Entity should NOT be in Redis cache (deferred mode)
 	redisKey := "d6cd7:" + strconv.FormatUint(id, 10)
 	redisValues, err := ctx.Engine().Redis(fluxaorm.DefaultPoolCode).LRange(ctx, redisKey, 0, -1)
 	assert.NoError(t, err)
 	assert.Empty(t, redisValues, "entity should not be in Redis cache before consumer runs")
 
-	// Entity should NOT be in MySQL
 	freshCtx := ctx.Engine().NewContext(context.Background())
 	freshCtx.DisableContextCache()
 	_, found, err := entities.GenerateEntityWithTimestampsRedisProvider.SearchOne(freshCtx, fluxaorm.NewQuery().FilterWhere(fluxaorm.NewWhere("`ID` = ?", id)))
 	assert.NoError(t, err)
 	assert.False(t, found, "entity should not be in MySQL before consumer runs")
 
-	// ──────────────────────────────────────────────────────────────────────────
 	// Test 2: Consumer processes event → entity appears in BOTH MySQL and Redis cache
-	// ──────────────────────────────────────────────────────────────────────────
 	consumer, err := ctx.GetAsyncSQLConsumer()
 	assert.NoError(t, err)
 	defer consumer.Close()
@@ -155,14 +125,11 @@ func TestFlushAsyncDeferredCache(t *testing.T) {
 	assert.True(t, found, "entity should be in MySQL after consumer runs")
 	assert.Equal(t, "deferred-insert", loaded.GetName())
 
-	// Verify Redis cache was populated by the consumer
 	redisValues, err = ctx.Engine().Redis(fluxaorm.DefaultPoolCode).LRange(ctx, redisKey, 0, -1)
 	assert.NoError(t, err)
 	assert.NotEmpty(t, redisValues, "entity should be in Redis cache after consumer runs")
 
-	// ──────────────────────────────────────────────────────────────────────────
 	// Test 3: Update with FlushAsync(false) → old cache values still present
-	// ──────────────────────────────────────────────────────────────────────────
 	freshCtx3 := ctx.Engine().NewContext(context.Background())
 	freshCtx3.DisableContextCache()
 	eUpdate, _, err := entities.GenerateEntityWithTimestampsRedisProvider.GetByID(freshCtx3, id)
@@ -170,7 +137,6 @@ func TestFlushAsyncDeferredCache(t *testing.T) {
 	eUpdate.SetName("deferred-update")
 	assert.NoError(t, freshCtx3.FlushAsync(false))
 
-	// Redis cache should still have old name (deferred)
 	freshCtx4 := ctx.Engine().NewContext(context.Background())
 	freshCtx4.DisableContextCache()
 	cached, found, err := entities.GenerateEntityWithTimestampsRedisProvider.GetByID(freshCtx4, id)
@@ -178,9 +144,7 @@ func TestFlushAsyncDeferredCache(t *testing.T) {
 	assert.True(t, found)
 	assert.Equal(t, "deferred-insert", cached.GetName(), "cache should still have old name before consumer runs")
 
-	// ──────────────────────────────────────────────────────────────────────────
 	// Test 4: Consumer processes update → cache updated
-	// ──────────────────────────────────────────────────────────────────────────
 	consumer2, err := freshCtx3.GetAsyncSQLConsumer()
 	assert.NoError(t, err)
 	defer consumer2.Close()
@@ -193,9 +157,7 @@ func TestFlushAsyncDeferredCache(t *testing.T) {
 	assert.True(t, found)
 	assert.Equal(t, "deferred-update", updated.GetName(), "cache should have new name after consumer runs")
 
-	// ──────────────────────────────────────────────────────────────────────────
 	// Test 5: Delete with FlushAsync(false) → cache still has entity
-	// ──────────────────────────────────────────────────────────────────────────
 	freshCtx6 := ctx.Engine().NewContext(context.Background())
 	freshCtx6.DisableContextCache()
 	eDel, _, err := entities.GenerateEntityWithTimestampsRedisProvider.GetByID(freshCtx6, id)
@@ -203,16 +165,13 @@ func TestFlushAsyncDeferredCache(t *testing.T) {
 	eDel.Delete()
 	assert.NoError(t, freshCtx6.FlushAsync(false))
 
-	// Redis cache should still have entity
 	freshCtx7 := ctx.Engine().NewContext(context.Background())
 	freshCtx7.DisableContextCache()
 	_, found, err = entities.GenerateEntityWithTimestampsRedisProvider.GetByID(freshCtx7, id)
 	assert.NoError(t, err)
 	assert.True(t, found, "cache should still have entity before consumer runs")
 
-	// ──────────────────────────────────────────────────────────────────────────
 	// Test 6: Consumer processes delete → cache entry deleted
-	// ──────────────────────────────────────────────────────────────────────────
 	consumer3, err := freshCtx6.GetAsyncSQLConsumer()
 	assert.NoError(t, err)
 	defer consumer3.Close()

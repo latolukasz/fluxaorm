@@ -47,11 +47,13 @@ func (r *registry) InitByYaml(yaml any) error {
 				if err != nil {
 					return err
 				}
-			case "kafka":
-				err = validateOrmKafkaConfig(r, value, key)
+			case "nats":
+				err = validateOrmNatsConfig(r, value, key)
 				if err != nil {
 					return err
 				}
+			case "kafka":
+				return fmt.Errorf("kafka pool '%s' is no longer supported; rename to 'nats' and migrate keys (see documentation/MIGRATION-kafka-to-nats.md)", key)
 			case "local_cache":
 				limit, err := validateOrmInt(value, key)
 				if err != nil {
@@ -254,18 +256,18 @@ func fixYamlMap(value any, key string) (map[string]any, error) {
 	return def, nil
 }
 
-func validateOrmKafkaConfig(registry *registry, value any, key string) error {
+func validateOrmNatsConfig(registry *registry, value any, key string) error {
 	def, err := fixYamlMap(value, key)
 	if err != nil {
 		return err
 	}
-	var brokers []string
-	options := &KafkaPoolOptions{}
-	var consumerGroupBuilders []*KafkaConsumerGroupBuilder
+	var urls []string
+	options := &NatsPoolOptions{}
+	var consumerBuilders []*NatsConsumerBuilder
 	for k, v := range def {
 		switch k {
-		case "brokers":
-			brokers, err = validateOrmStrings(v, "brokers")
+		case "urls":
+			urls, err = validateOrmStrings(v, "urls")
 			if err != nil {
 				return err
 			}
@@ -274,100 +276,112 @@ func validateOrmKafkaConfig(registry *registry, value any, key string) error {
 			if err != nil {
 				return err
 			}
-		case "requiredAcks":
-			options.RequiredAcks, err = validateOrmInt(v, "requiredAcks")
+		case "maxReconnects":
+			options.MaxReconnects, err = validateOrmInt(v, "maxReconnects")
 			if err != nil {
 				return err
 			}
-		case "producerLingerMs":
-			ms, err := validateOrmInt(v, "producerLingerMs")
+		case "reconnectWaitMs":
+			ms, err := validateOrmInt(v, "reconnectWaitMs")
 			if err != nil {
 				return err
 			}
-			options.ProducerLinger = time.Duration(ms) * time.Millisecond
-		case "maxBufferedRecords":
-			options.MaxBufferedRecords, err = validateOrmInt(v, "maxBufferedRecords")
+			options.ReconnectWait = time.Duration(ms) * time.Millisecond
+		case "reconnectBufSize":
+			options.ReconnectBufSize, err = validateOrmInt(v, "reconnectBufSize")
 			if err != nil {
 				return err
 			}
-		case "saslMechanism":
-			mechanism, err := validateOrmString(v, "saslMechanism")
+		case "authToken":
+			token, err := validateOrmString(v, "authToken")
 			if err != nil {
 				return err
 			}
-			if options.SASL == nil {
-				options.SASL = &KafkaSASLConfig{}
+			if options.Auth == nil {
+				options.Auth = &NatsAuthConfig{}
 			}
-			options.SASL.Mechanism = mechanism
-		case "saslUser":
-			user, err := validateOrmString(v, "saslUser")
+			options.Auth.Token = token
+		case "authUser":
+			user, err := validateOrmString(v, "authUser")
 			if err != nil {
 				return err
 			}
-			if options.SASL == nil {
-				options.SASL = &KafkaSASLConfig{}
+			if options.Auth == nil {
+				options.Auth = &NatsAuthConfig{}
 			}
-			options.SASL.User = user
-		case "saslPassword":
-			password, err := validateOrmString(v, "saslPassword")
+			options.Auth.User = user
+		case "authPassword":
+			password, err := validateOrmString(v, "authPassword")
 			if err != nil {
 				return err
 			}
-			if options.SASL == nil {
-				options.SASL = &KafkaSASLConfig{}
+			if options.Auth == nil {
+				options.Auth = &NatsAuthConfig{}
 			}
-			options.SASL.Password = password
-		case "consumerGroups":
-			consumerGroupBuilders, err = validateOrmKafkaConsumerGroupBuilders(v, key)
+			options.Auth.Password = password
+		case "authCredsFile":
+			creds, err := validateOrmString(v, "authCredsFile")
 			if err != nil {
 				return err
 			}
-		case "ignoredTopics":
-			options.IgnoredTopics, err = validateOrmStrings(v, "ignoredTopics")
+			if options.Auth == nil {
+				options.Auth = &NatsAuthConfig{}
+			}
+			options.Auth.CredsFile = creds
+		case "consumers":
+			consumerBuilders, err = validateOrmNatsConsumerBuilders(v, key)
 			if err != nil {
 				return err
 			}
-		case "ignoredConsumerGroups":
-			options.IgnoredConsumerGroups, err = validateOrmStrings(v, "ignoredConsumerGroups")
+		case "ignoredSubjects":
+			options.IgnoredSubjects, err = validateOrmStrings(v, "ignoredSubjects")
 			if err != nil {
 				return err
 			}
-		case "topics":
-			topics, err := validateOrmKafkaTopics(v)
+		case "ignoredConsumers":
+			options.IgnoredConsumers, err = validateOrmStrings(v, "ignoredConsumers")
 			if err != nil {
 				return err
 			}
-			for _, topic := range topics {
-				registry.RegisterKafkaTopic(topic)
+		case "streams":
+			streams, err := validateOrmNatsStreams(v)
+			if err != nil {
+				return err
+			}
+			for _, stream := range streams {
+				registry.RegisterNatsStream(stream)
 			}
 		}
 	}
-	if len(brokers) == 0 {
-		return fmt.Errorf("kafka pool '%s': brokers are required", key)
+	if len(urls) == 0 {
+		return fmt.Errorf("nats pool '%s': urls are required", key)
 	}
-	registry.RegisterKafka(brokers, key, options)
-	for _, cgBuilder := range consumerGroupBuilders {
-		registry.RegisterKafkaConsumerGroup(cgBuilder)
+	registry.RegisterNats(urls, key, options)
+	for _, cb := range consumerBuilders {
+		registry.RegisterNatsConsumer(cb)
 	}
 	return nil
 }
 
-func validateOrmKafkaTopics(value any) ([]*KafkaTopicBuilder, error) {
+func validateOrmNatsStreams(value any) ([]*NatsStreamBuilder, error) {
 	asSlice, ok := value.([]any)
 	if !ok {
-		return nil, fmt.Errorf("orm value for topics is not valid: expected a list")
+		return nil, fmt.Errorf("orm value for streams is not valid: expected a list")
 	}
-	var topics []*KafkaTopicBuilder
+	var streams []*NatsStreamBuilder
 	for i, item := range asSlice {
-		itemMap, err := fixYamlMap(item, fmt.Sprintf("topics[%d]", i))
+		itemMap, err := fixYamlMap(item, fmt.Sprintf("streams[%d]", i))
 		if err != nil {
 			return nil, err
 		}
 		name := ""
 		poolCode := ""
-		var partitions int32
-		var replicationFactor int16
-		configs := make(map[string]string)
+		var subjects []string
+		var maxAgeMs int
+		var maxBytes int64
+		var maxMsgSize int32
+		var replicas int
+		var duplicateWindowMs int
 		for k, v := range itemMap {
 			switch k {
 			case "name":
@@ -380,60 +394,78 @@ func validateOrmKafkaTopics(value any) ([]*KafkaTopicBuilder, error) {
 				if err != nil {
 					return nil, err
 				}
-			case "partitions":
-				p, err := validateOrmInt(v, "partitions")
+			case "subjects":
+				subjects, err = validateOrmStrings(v, "subjects")
 				if err != nil {
 					return nil, err
 				}
-				partitions = int32(p)
-			case "replicationFactor":
-				rf, err := validateOrmInt(v, "replicationFactor")
+			case "maxAgeMs":
+				maxAgeMs, err = validateOrmInt(v, "maxAgeMs")
 				if err != nil {
 					return nil, err
 				}
-				replicationFactor = int16(rf)
-			case "configs":
-				configMap, err := fixYamlMap(v, "configs")
+			case "maxBytes":
+				mb, err := validateOrmInt(v, "maxBytes")
 				if err != nil {
 					return nil, err
 				}
-				for ck, cv := range configMap {
-					configs[ck] = fmt.Sprintf("%v", cv)
+				maxBytes = int64(mb)
+			case "maxMsgSize":
+				mm, err := validateOrmInt(v, "maxMsgSize")
+				if err != nil {
+					return nil, err
+				}
+				maxMsgSize = int32(mm)
+			case "replicas":
+				replicas, err = validateOrmInt(v, "replicas")
+				if err != nil {
+					return nil, err
+				}
+			case "duplicateWindowMs":
+				duplicateWindowMs, err = validateOrmInt(v, "duplicateWindowMs")
+				if err != nil {
+					return nil, err
 				}
 			}
 		}
 		if name == "" {
-			return nil, fmt.Errorf("kafka topic at index %d: name is required", i)
+			return nil, fmt.Errorf("nats stream at index %d: name is required", i)
 		}
-		builder := NewKafkaTopic(name, poolCode)
-		if partitions > 0 {
-			builder.Partitions(partitions)
+		builder := NewNatsStream(name, poolCode).Subjects(subjects...)
+		if maxAgeMs > 0 {
+			builder.MaxAge(time.Duration(maxAgeMs) * time.Millisecond)
 		}
-		if replicationFactor > 0 {
-			builder.ReplicationFactor(replicationFactor)
+		if maxBytes > 0 {
+			builder.MaxBytes(maxBytes)
 		}
-		for ck, cv := range configs {
-			builder.Config(ck, cv)
+		if maxMsgSize > 0 {
+			builder.MaxMsgSize(maxMsgSize)
 		}
-		topics = append(topics, builder)
+		if replicas > 0 {
+			builder.Replicas(replicas)
+		}
+		if duplicateWindowMs > 0 {
+			builder.Duplicates(time.Duration(duplicateWindowMs) * time.Millisecond)
+		}
+		streams = append(streams, builder)
 	}
-	return topics, nil
+	return streams, nil
 }
 
-func validateOrmKafkaConsumerGroupBuilders(value any, poolCode string) ([]*KafkaConsumerGroupBuilder, error) {
+func validateOrmNatsConsumerBuilders(value any, poolCode string) ([]*NatsConsumerBuilder, error) {
 	asSlice, ok := value.([]any)
 	if !ok {
-		return nil, fmt.Errorf("orm value for consumerGroups is not valid: expected a list")
+		return nil, fmt.Errorf("orm value for consumers is not valid: expected a list")
 	}
-	var builders []*KafkaConsumerGroupBuilder
+	var builders []*NatsConsumerBuilder
 	for i, item := range asSlice {
-		itemMap, err := fixYamlMap(item, fmt.Sprintf("consumerGroups[%d]", i))
+		itemMap, err := fixYamlMap(item, fmt.Sprintf("consumers[%d]", i))
 		if err != nil {
 			return nil, err
 		}
 		var name string
-		var topics []string
-		var sessionTimeoutMs, rebalanceTimeoutMs, fetchMaxBytes, autoCommitIntervalMs int
+		var filterSubjects []string
+		var ackWaitMs, maxAckPending, maxDeliver int
 		for k, v := range itemMap {
 			switch k {
 			case "name":
@@ -441,51 +473,40 @@ func validateOrmKafkaConsumerGroupBuilders(value any, poolCode string) ([]*Kafka
 				if err != nil {
 					return nil, err
 				}
-			case "topics":
-				topics, err = validateOrmStrings(v, "topics")
+			case "filterSubjects":
+				filterSubjects, err = validateOrmStrings(v, "filterSubjects")
 				if err != nil {
 					return nil, err
 				}
-			case "sessionTimeoutMs":
-				sessionTimeoutMs, err = validateOrmInt(v, "sessionTimeoutMs")
+			case "ackWaitMs":
+				ackWaitMs, err = validateOrmInt(v, "ackWaitMs")
 				if err != nil {
 					return nil, err
 				}
-			case "rebalanceTimeoutMs":
-				rebalanceTimeoutMs, err = validateOrmInt(v, "rebalanceTimeoutMs")
+			case "maxAckPending":
+				maxAckPending, err = validateOrmInt(v, "maxAckPending")
 				if err != nil {
 					return nil, err
 				}
-			case "fetchMaxBytes":
-				fetchMaxBytes, err = validateOrmInt(v, "fetchMaxBytes")
-				if err != nil {
-					return nil, err
-				}
-			case "autoCommitIntervalMs":
-				autoCommitIntervalMs, err = validateOrmInt(v, "autoCommitIntervalMs")
+			case "maxDeliver":
+				maxDeliver, err = validateOrmInt(v, "maxDeliver")
 				if err != nil {
 					return nil, err
 				}
 			}
 		}
 		if name == "" {
-			return nil, fmt.Errorf("consumer group at index %d: name is required", i)
+			return nil, fmt.Errorf("nats consumer at index %d: name is required", i)
 		}
-		if len(topics) == 0 {
-			return nil, fmt.Errorf("consumer group '%s': topics are required", name)
+		builder := NewNatsConsumer(name, poolCode).FilterSubjects(filterSubjects...)
+		if ackWaitMs > 0 {
+			builder.AckWait(time.Duration(ackWaitMs) * time.Millisecond)
 		}
-		builder := NewKafkaConsumerGroup(name, poolCode).Topics(topics...)
-		if sessionTimeoutMs > 0 {
-			builder.SessionTimeout(time.Duration(sessionTimeoutMs) * time.Millisecond)
+		if maxAckPending > 0 {
+			builder.MaxAckPending(maxAckPending)
 		}
-		if rebalanceTimeoutMs > 0 {
-			builder.RebalanceTimeout(time.Duration(rebalanceTimeoutMs) * time.Millisecond)
-		}
-		if fetchMaxBytes > 0 {
-			builder.FetchMaxBytes(int32(fetchMaxBytes))
-		}
-		if autoCommitIntervalMs > 0 {
-			builder.AutoCommitInterval(time.Duration(autoCommitIntervalMs) * time.Millisecond)
+		if maxDeliver != 0 {
+			builder.MaxDeliver(maxDeliver)
 		}
 		builders = append(builders, builder)
 	}
