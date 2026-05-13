@@ -46,7 +46,8 @@ func TestDebezium(t *testing.T) {
 	defer cg.Close()
 
 	// INSERT: create entity and flush to MySQL
-	e := entities.GenerateEntityDebeziumProvider.New(ctx)
+	e, err := entities.GenerateEntityDebeziumProvider.New(ctx)
+	assert.NoError(t, err)
 	e.SetName("debezium-test")
 	e.SetAge(25)
 	assert.NoError(t, ctx.Flush())

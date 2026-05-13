@@ -121,7 +121,8 @@ func TestFlushAsyncDeferredCache(t *testing.T) {
 	// ──────────────────────────────────────────────────────────────────────────
 	// Test 1: Insert with FlushAsync(false) → entity NOT in Redis cache AND NOT in MySQL
 	// ──────────────────────────────────────────────────────────────────────────
-	e := entities.GenerateEntityWithTimestampsRedisProvider.New(ctx)
+	e, err := entities.GenerateEntityWithTimestampsRedisProvider.New(ctx)
+	assert.NoError(t, err)
 	e.SetName("deferred-insert")
 	assert.NoError(t, ctx.FlushAsync(false))
 
