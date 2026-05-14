@@ -590,6 +590,7 @@ func (g *codeGenerator) createGetterSetterReferencesRequired(schema *entitySchem
 
 func (g *codeGenerator) createGetterSetterReferencesNullable(schema *entitySchema, fieldName, entityName, providerName, refName string) {
 	g.addImport("encoding/json")
+	g.addImport("database/sql")
 
 	// GetFieldIDs() []uint64
 	g.addLine(fmt.Sprintf("func (e *%s) Get%sIDs() []uint64 {", entityName, fieldName))
@@ -599,10 +600,11 @@ func (g *codeGenerator) createGetterSetterReferencesNullable(schema *entitySchem
 	g.addLine("\t\tif e.databaseBind != nil {")
 	g.addLine(fmt.Sprintf("\t\t\tv, hasInDB := e.databaseBind[\"%s\"]", fieldName))
 	g.addLine("\t\t\tif hasInDB {")
-	g.addLine("\t\t\t\tif v == nil {")
+	g.addLine("\t\t\t\t_nv := v.(sql.NullString)")
+	g.addLine("\t\t\t\tif !_nv.Valid {")
 	g.addLine("\t\t\t\t\treturn nil")
 	g.addLine("\t\t\t\t}")
-	g.addLine("\t\t\t\traw = v.(string)")
+	g.addLine("\t\t\t\traw = _nv.String")
 	g.addLine("\t\t\t\tvalid = true")
 	g.addLine("\t\t\t}")
 	g.addLine("\t\t}")
@@ -661,7 +663,7 @@ func (g *codeGenerator) createGetterSetterReferencesNullable(schema *entitySchem
 		g.addLine("\t\t\treturn e")
 		g.addLine("\t\t}")
 	}
-	g.addLine(fmt.Sprintf("\t\te.addToDatabaseBind(\"%s\", nil)", fieldName))
+	g.addLine(fmt.Sprintf("\t\te.addToDatabaseBind(\"%s\", sql.NullString{})", fieldName))
 	if schema.hasRedisCache {
 		g.addLine(fmt.Sprintf("\t\te.addToRedisBind(%d, \"\")", g.filedIndex+1))
 	}
@@ -696,7 +698,7 @@ func (g *codeGenerator) createGetterSetterReferencesNullable(schema *entitySchem
 		g.addLine("\t\treturn e")
 		g.addLine("\t}")
 	}
-	g.addLine(fmt.Sprintf("\te.addToDatabaseBind(\"%s\", value)", fieldName))
+	g.addLine(fmt.Sprintf("\te.addToDatabaseBind(\"%s\", sql.NullString{String: value, Valid: true})", fieldName))
 	if schema.hasRedisCache {
 		g.addLine(fmt.Sprintf("\te.addToRedisBind(%d, value)", g.filedIndex+1))
 	}

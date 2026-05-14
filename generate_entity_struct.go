@@ -1303,13 +1303,19 @@ func (g *codeGenerator) generatePrivateFlushed(schema *entitySchema, names *enti
 	g.addLine("}")
 }
 
+func (g *codeGenerator) emitDbAssign(indent string, fIndex int, valueExpr string) {
+	g.addLine(fmt.Sprintf("%sif e.originDatabaseValues != nil {", indent))
+	g.addLine(fmt.Sprintf("%s\te.originDatabaseValues.F%d = %s", indent, fIndex, valueExpr))
+	g.addLine(fmt.Sprintf("%s}", indent))
+}
+
 func (g *codeGenerator) emitPrivateFlushedCase(schema *entitySchema, c colOriginInfo) {
 	indent := "\t\t\t\t"
 	switch c.category {
 	case "uint64":
 		g.addImport("strconv")
 		g.addLine(fmt.Sprintf("%s_uv := _v.(uint64)", indent))
-		g.addLine(fmt.Sprintf("%se.originDatabaseValues.F%d = _uv", indent, c.fIndex))
+		g.emitDbAssign(indent, c.fIndex, "_uv")
 		if schema.hasRedisCache {
 			g.addLine(fmt.Sprintf("%sif e.originRedisValues != nil {", indent))
 			g.addLine(fmt.Sprintf("%s\te.originRedisValues[%d] = strconv.FormatUint(_uv, 10)", indent, c.fIndex))
@@ -1318,7 +1324,7 @@ func (g *codeGenerator) emitPrivateFlushedCase(schema *entitySchema, c colOrigin
 	case "int64":
 		g.addImport("strconv")
 		g.addLine(fmt.Sprintf("%s_iv := _v.(int64)", indent))
-		g.addLine(fmt.Sprintf("%se.originDatabaseValues.F%d = _iv", indent, c.fIndex))
+		g.emitDbAssign(indent, c.fIndex, "_iv")
 		if schema.hasRedisCache {
 			g.addLine(fmt.Sprintf("%sif e.originRedisValues != nil {", indent))
 			g.addLine(fmt.Sprintf("%s\te.originRedisValues[%d] = strconv.FormatInt(_iv, 10)", indent, c.fIndex))
@@ -1326,7 +1332,7 @@ func (g *codeGenerator) emitPrivateFlushedCase(schema *entitySchema, c colOrigin
 		}
 	case "bool":
 		g.addLine(fmt.Sprintf("%s_bv := _v.(bool)", indent))
-		g.addLine(fmt.Sprintf("%se.originDatabaseValues.F%d = _bv", indent, c.fIndex))
+		g.emitDbAssign(indent, c.fIndex, "_bv")
 		if schema.hasRedisCache {
 			g.addLine(fmt.Sprintf("%sif e.originRedisValues != nil {", indent))
 			g.addLine(fmt.Sprintf("%s\tif _bv {", indent))
@@ -1338,7 +1344,7 @@ func (g *codeGenerator) emitPrivateFlushedCase(schema *entitySchema, c colOrigin
 		}
 	case "fakeDeleteBool":
 		g.addLine(fmt.Sprintf("%s_fv := _v.(uint64)", indent))
-		g.addLine(fmt.Sprintf("%se.originDatabaseValues.F%d = _fv", indent, c.fIndex))
+		g.emitDbAssign(indent, c.fIndex, "_fv")
 		if schema.hasRedisCache {
 			g.addLine(fmt.Sprintf("%sif e.originRedisValues != nil {", indent))
 			g.addLine(fmt.Sprintf("%s\tif _fv != 0 {", indent))
@@ -1351,7 +1357,7 @@ func (g *codeGenerator) emitPrivateFlushedCase(schema *entitySchema, c colOrigin
 	case "float64":
 		g.addImport("strconv")
 		g.addLine(fmt.Sprintf("%s_fv := _v.(float64)", indent))
-		g.addLine(fmt.Sprintf("%se.originDatabaseValues.F%d = _fv", indent, c.fIndex))
+		g.emitDbAssign(indent, c.fIndex, "_fv")
 		if schema.hasRedisCache {
 			g.addLine(fmt.Sprintf("%sif e.originRedisValues != nil {", indent))
 			g.addLine(fmt.Sprintf("%s\te.originRedisValues[%d] = strconv.FormatFloat(_fv, 'f', -1, 64)", indent, c.fIndex))
@@ -1361,7 +1367,7 @@ func (g *codeGenerator) emitPrivateFlushedCase(schema *entitySchema, c colOrigin
 		g.addImport("time")
 		g.addImport("strconv")
 		g.addLine(fmt.Sprintf("%s_tv := _v.(time.Time)", indent))
-		g.addLine(fmt.Sprintf("%se.originDatabaseValues.F%d = _tv", indent, c.fIndex))
+		g.emitDbAssign(indent, c.fIndex, "_tv")
 		if schema.hasRedisCache {
 			g.addLine(fmt.Sprintf("%sif e.originRedisValues != nil {", indent))
 			g.addLine(fmt.Sprintf("%s\te.originRedisValues[%d] = strconv.FormatInt(_tv.Unix(), 10)", indent, c.fIndex))
@@ -1369,7 +1375,7 @@ func (g *codeGenerator) emitPrivateFlushedCase(schema *entitySchema, c colOrigin
 		}
 	case "string":
 		g.addLine(fmt.Sprintf("%s_sv := _v.(string)", indent))
-		g.addLine(fmt.Sprintf("%se.originDatabaseValues.F%d = _sv", indent, c.fIndex))
+		g.emitDbAssign(indent, c.fIndex, "_sv")
 		if schema.hasRedisCache {
 			g.addLine(fmt.Sprintf("%sif e.originRedisValues != nil {", indent))
 			g.addLine(fmt.Sprintf("%s\te.originRedisValues[%d] = _sv", indent, c.fIndex))
@@ -1379,7 +1385,7 @@ func (g *codeGenerator) emitPrivateFlushedCase(schema *entitySchema, c colOrigin
 		g.addImport("database/sql")
 		g.addImport("strconv")
 		g.addLine(fmt.Sprintf("%s_nv := _v.(sql.NullInt64)", indent))
-		g.addLine(fmt.Sprintf("%se.originDatabaseValues.F%d = _nv", indent, c.fIndex))
+		g.emitDbAssign(indent, c.fIndex, "_nv")
 		if schema.hasRedisCache {
 			g.addLine(fmt.Sprintf("%sif e.originRedisValues != nil {", indent))
 			g.addLine(fmt.Sprintf("%s\tif _nv.Valid {", indent))
@@ -1393,7 +1399,7 @@ func (g *codeGenerator) emitPrivateFlushedCase(schema *entitySchema, c colOrigin
 		g.addImport("database/sql")
 		g.addImport("strconv")
 		g.addLine(fmt.Sprintf("%s_nv := _v.(sql.NullInt64)", indent))
-		g.addLine(fmt.Sprintf("%se.originDatabaseValues.F%d = _nv", indent, c.fIndex))
+		g.emitDbAssign(indent, c.fIndex, "_nv")
 		if schema.hasRedisCache {
 			g.addLine(fmt.Sprintf("%sif e.originRedisValues != nil {", indent))
 			g.addLine(fmt.Sprintf("%s\tif _nv.Valid {", indent))
@@ -1406,7 +1412,7 @@ func (g *codeGenerator) emitPrivateFlushedCase(schema *entitySchema, c colOrigin
 	case "nullBool":
 		g.addImport("database/sql")
 		g.addLine(fmt.Sprintf("%s_nv := _v.(sql.NullBool)", indent))
-		g.addLine(fmt.Sprintf("%se.originDatabaseValues.F%d = _nv", indent, c.fIndex))
+		g.emitDbAssign(indent, c.fIndex, "_nv")
 		if schema.hasRedisCache {
 			g.addLine(fmt.Sprintf("%sif e.originRedisValues != nil {", indent))
 			g.addLine(fmt.Sprintf("%s\tswitch {", indent))
@@ -1423,7 +1429,7 @@ func (g *codeGenerator) emitPrivateFlushedCase(schema *entitySchema, c colOrigin
 		g.addImport("database/sql")
 		g.addImport("strconv")
 		g.addLine(fmt.Sprintf("%s_nv := _v.(sql.NullFloat64)", indent))
-		g.addLine(fmt.Sprintf("%se.originDatabaseValues.F%d = _nv", indent, c.fIndex))
+		g.emitDbAssign(indent, c.fIndex, "_nv")
 		if schema.hasRedisCache {
 			g.addLine(fmt.Sprintf("%sif e.originRedisValues != nil {", indent))
 			g.addLine(fmt.Sprintf("%s\tif _nv.Valid {", indent))
@@ -1437,7 +1443,7 @@ func (g *codeGenerator) emitPrivateFlushedCase(schema *entitySchema, c colOrigin
 		g.addImport("database/sql")
 		g.addImport("strconv")
 		g.addLine(fmt.Sprintf("%s_nv := _v.(sql.NullTime)", indent))
-		g.addLine(fmt.Sprintf("%se.originDatabaseValues.F%d = _nv", indent, c.fIndex))
+		g.emitDbAssign(indent, c.fIndex, "_nv")
 		if schema.hasRedisCache {
 			g.addLine(fmt.Sprintf("%sif e.originRedisValues != nil {", indent))
 			g.addLine(fmt.Sprintf("%s\tif _nv.Valid {", indent))
@@ -1450,7 +1456,7 @@ func (g *codeGenerator) emitPrivateFlushedCase(schema *entitySchema, c colOrigin
 	case "nullString":
 		g.addImport("database/sql")
 		g.addLine(fmt.Sprintf("%s_nv := _v.(sql.NullString)", indent))
-		g.addLine(fmt.Sprintf("%se.originDatabaseValues.F%d = _nv", indent, c.fIndex))
+		g.emitDbAssign(indent, c.fIndex, "_nv")
 		if schema.hasRedisCache {
 			g.addLine(fmt.Sprintf("%sif e.originRedisValues != nil {", indent))
 			g.addLine(fmt.Sprintf("%s\tif _nv.Valid {", indent))
