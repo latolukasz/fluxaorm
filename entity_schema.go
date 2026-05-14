@@ -103,7 +103,7 @@ func enumValueToFieldName(value string) string {
 }
 
 type entitySchema struct {
-	index                   uint64
+	index                   string
 	cacheTTL                int
 	tableName               string
 	mysqlPoolCode           string

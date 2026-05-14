@@ -321,17 +321,16 @@ func (r *registry) Validate() (Engine, error) {
 			maxPoolLen = len(k)
 		}
 	}
-	// Sort entity names for deterministic index assignment
+	// Sort entity names for deterministic iteration; the entity type name is
+	// used directly as the cacheIndex so it's stable across registrations.
 	entityNames := make([]string, 0, len(r.entities))
 	for name := range r.entities {
 		entityNames = append(entityNames, name)
 	}
 	sort.Strings(entityNames)
-	index := uint64(0)
 	for _, entityName := range entityNames {
 		entityType := r.entities[entityName]
-		schema := &entitySchema{engine: e, index: index}
-		index++
+		schema := &entitySchema{engine: e, index: entityName}
 		err := schema.init(r, entityType)
 		if err != nil {
 			return nil, err
@@ -363,7 +362,7 @@ func (r *registry) Validate() (Engine, error) {
 		}
 	}
 	// Build entitySchemasByIndex lookup
-	e.registry.entitySchemasByIndex = make(map[uint64]*entitySchema)
+	e.registry.entitySchemasByIndex = make(map[string]*entitySchema)
 	for _, schema := range e.registry.entitySchemas {
 		e.registry.entitySchemasByIndex[schema.index] = schema
 	}
@@ -446,11 +445,9 @@ func (r *registry) ValidateForCodeGen() (Engine, error) {
 		entityNames = append(entityNames, name)
 	}
 	sort.Strings(entityNames)
-	index := uint64(0)
 	for _, entityName := range entityNames {
 		entityType := r.entities[entityName]
-		schema := &entitySchema{engine: e, index: index}
-		index++
+		schema := &entitySchema{engine: e, index: entityName}
 		err := schema.init(r, entityType)
 		if err != nil {
 			return nil, err
@@ -461,7 +458,7 @@ func (r *registry) ValidateForCodeGen() (Engine, error) {
 	if err != nil {
 		return nil, err
 	}
-	e.registry.entitySchemasByIndex = make(map[uint64]*entitySchema)
+	e.registry.entitySchemasByIndex = make(map[string]*entitySchema)
 	for _, schema := range e.registry.entitySchemas {
 		e.registry.entitySchemasByIndex[schema.index] = schema
 	}

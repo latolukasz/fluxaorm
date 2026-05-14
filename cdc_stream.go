@@ -322,7 +322,7 @@ func fieldValue(v reflect.Value, name string) reflect.Value {
 
 // dirtyPublisherEntry holds the per-entity publisher closure plus a cached
 // wire/dispatch key. Stored in package-level registry; copied into the engine
-// at Validate() time keyed by cacheIndex.
+// at Validate() time keyed by reflect.Type.
 type dirtyPublisherEntry struct {
 	streams      []NatsStreamName
 	entityName   string
@@ -547,7 +547,7 @@ func msgIDHash(b []byte) uint64 {
 //  3. Verify every dirty-tagged entity has a RegisterDirtyPublisher[T] entry.
 //  4. Populate engineRegistryImplementation.dirtyStreams (resolved configs),
 //     streamRegistry (stream-name → pool lookup for runtime consumer resolution),
-//     and dirtyPublishers (cacheIndex → publisher entry for fast flush-path lookup).
+//     and dirtyPublishers (reflect.Type → publisher entry for fast flush-path lookup).
 func resolveDirtyStreams(r *registry, e *engineImplementation) error {
 	reg := e.registry
 	reg.dirtyStreams = make(map[NatsStreamName]*resolvedDirtyStream)

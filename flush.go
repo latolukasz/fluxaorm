@@ -16,7 +16,7 @@ func (orm *ormImplementation) flush() (err error) {
 	if orm.trackedEntities == nil || orm.trackedEntities.Size() == 0 {
 		return nil
 	}
-	orm.trackedEntities.Range(func(_ uint64, value *xsync.MapOf[uint64, Entity]) bool {
+	orm.trackedEntities.Range(func(_ string, value *xsync.MapOf[uint64, Entity]) bool {
 		value.Range(func(_ uint64, e Entity) bool {
 			err = e.PrivateFlush()
 			if err != nil {
@@ -42,7 +42,7 @@ func (orm *ormImplementation) flush() (err error) {
 		}
 	}
 	if len(orm.engine.registry.dirtyPublishers) > 0 {
-		orm.trackedEntities.Range(func(_ uint64, value *xsync.MapOf[uint64, Entity]) bool {
+		orm.trackedEntities.Range(func(_ string, value *xsync.MapOf[uint64, Entity]) bool {
 			value.Range(func(_ uint64, e Entity) bool {
 				eventType, changes := e.PrivateFlushEvent()
 				if eventType == 0 {
@@ -66,7 +66,7 @@ func (orm *ormImplementation) flush() (err error) {
 		}
 	}
 	if orm.engine.afterInsertHandlers != nil || orm.engine.afterUpdateHandlers != nil || orm.engine.afterDeleteHandlers != nil {
-		orm.trackedEntities.Range(func(cacheIndex uint64, value *xsync.MapOf[uint64, Entity]) bool {
+		orm.trackedEntities.Range(func(cacheIndex string, value *xsync.MapOf[uint64, Entity]) bool {
 			value.Range(func(_ uint64, e Entity) bool {
 				eventType, changes := e.PrivateFlushEvent()
 				switch eventType {
@@ -91,7 +91,7 @@ func (orm *ormImplementation) flush() (err error) {
 			return err
 		}
 	}
-	orm.trackedEntities.Range(func(_ uint64, value *xsync.MapOf[uint64, Entity]) bool {
+	orm.trackedEntities.Range(func(_ string, value *xsync.MapOf[uint64, Entity]) bool {
 		value.Range(func(_ uint64, e Entity) bool {
 			e.PrivateFlushed()
 			return true

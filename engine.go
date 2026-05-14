@@ -37,7 +37,7 @@ type Engine interface {
 type engineRegistryImplementation struct {
 	engine                  *engineImplementation
 	entitySchemas           map[reflect.Type]*entitySchema
-	entitySchemasByIndex    map[uint64]*entitySchema
+	entitySchemasByIndex    map[string]*entitySchema
 	defaultQueryLogger      *defaultLogLogger
 	dbTables                map[string]map[string]bool
 	options                 map[string]any
@@ -64,11 +64,11 @@ type engineImplementation struct {
 	natsServers         map[string]Nats
 	redisServers        map[string]RedisCache
 	options             map[string]any
-	afterInsertHandlers map[uint64]func(Context, Entity) error
-	afterUpdateHandlers map[uint64]func(Context, Entity, map[string]any) error
-	afterDeleteHandlers map[uint64]func(Context, Entity) error
-	entityLoaders       map[uint64]func(Context, uint64) (Entity, bool, error)
-	entityDBPools       map[uint64]string
+	afterInsertHandlers map[string]func(Context, Entity) error
+	afterUpdateHandlers map[string]func(Context, Entity, map[string]any) error
+	afterDeleteHandlers map[string]func(Context, Entity) error
+	entityLoaders       map[string]func(Context, uint64) (Entity, bool, error)
+	entityDBPools       map[string]string
 }
 
 func (e *engineImplementation) NewContext(context context.Context) Context {
@@ -143,36 +143,36 @@ func (er *engineRegistryImplementation) getDefaultQueryLogger() LogHandler {
 	return er.defaultQueryLogger
 }
 
-func RegisterEntityLoader(engine Engine, cacheIndex uint64, dbPool string, loader func(Context, uint64) (Entity, bool, error)) {
+func RegisterEntityLoader(engine Engine, cacheIndex string, dbPool string, loader func(Context, uint64) (Entity, bool, error)) {
 	e := engine.(*engineImplementation)
 	if e.entityLoaders == nil {
-		e.entityLoaders = make(map[uint64]func(Context, uint64) (Entity, bool, error))
-		e.entityDBPools = make(map[uint64]string)
+		e.entityLoaders = make(map[string]func(Context, uint64) (Entity, bool, error))
+		e.entityDBPools = make(map[string]string)
 	}
 	e.entityLoaders[cacheIndex] = loader
 	e.entityDBPools[cacheIndex] = dbPool
 }
 
-func RegisterAfterInsertHandler(engine Engine, cacheIndex uint64, handler func(Context, Entity) error) {
+func RegisterAfterInsertHandler(engine Engine, cacheIndex string, handler func(Context, Entity) error) {
 	e := engine.(*engineImplementation)
 	if e.afterInsertHandlers == nil {
-		e.afterInsertHandlers = make(map[uint64]func(Context, Entity) error)
+		e.afterInsertHandlers = make(map[string]func(Context, Entity) error)
 	}
 	e.afterInsertHandlers[cacheIndex] = handler
 }
 
-func RegisterAfterUpdateHandler(engine Engine, cacheIndex uint64, handler func(Context, Entity, map[string]any) error) {
+func RegisterAfterUpdateHandler(engine Engine, cacheIndex string, handler func(Context, Entity, map[string]any) error) {
 	e := engine.(*engineImplementation)
 	if e.afterUpdateHandlers == nil {
-		e.afterUpdateHandlers = make(map[uint64]func(Context, Entity, map[string]any) error)
+		e.afterUpdateHandlers = make(map[string]func(Context, Entity, map[string]any) error)
 	}
 	e.afterUpdateHandlers[cacheIndex] = handler
 }
 
-func RegisterAfterDeleteHandler(engine Engine, cacheIndex uint64, handler func(Context, Entity) error) {
+func RegisterAfterDeleteHandler(engine Engine, cacheIndex string, handler func(Context, Entity) error) {
 	e := engine.(*engineImplementation)
 	if e.afterDeleteHandlers == nil {
-		e.afterDeleteHandlers = make(map[uint64]func(Context, Entity) error)
+		e.afterDeleteHandlers = make(map[string]func(Context, Entity) error)
 	}
 	e.afterDeleteHandlers[cacheIndex] = handler
 }

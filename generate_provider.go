@@ -12,7 +12,7 @@ func (g *codeGenerator) generateProviderAndSQLRow(schema *entitySchema, names *e
 	g.addLine("\ttableName string")
 	g.addLine("\tdbCode string")
 	g.addLine("\tredisCode string")
-	g.addLine("\tcacheIndex uint64")
+	g.addLine("\tcacheIndex string")
 	g.addLine("\tuuidRedisKeyMutex *sync.Mutex")
 	if schema.hasRedisCache {
 		g.addLine("\tredisCachePrefix string")
@@ -37,7 +37,7 @@ func (g *codeGenerator) generateProviderAndSQLRow(schema *entitySchema, names *e
 	g.addLine(fmt.Sprintf("\ttableName: \"%s\",", schema.tableName))
 	g.addLine(fmt.Sprintf("\tdbCode: \"%s\",", schema.mysqlPoolCode))
 	g.addLine(fmt.Sprintf("\tredisCode: \"%s\",", schema.getForcedRedisCode()))
-	g.addLine(fmt.Sprintf("\tcacheIndex: %d,", schema.index))
+	g.addLine(fmt.Sprintf("\tcacheIndex: %q,", schema.index))
 	if schema.hasRedisCache {
 		g.addLine(fmt.Sprintf("\tredisCachePrefix: \"%s\",", schema.cacheKey+":"))
 		g.addLine(fmt.Sprintf("\tredisCacheStamp: \"%s\",", schema.structureHash))

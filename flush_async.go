@@ -35,7 +35,7 @@ type AsyncSQLQuery struct {
 
 // AsyncEntityEvent holds metadata about an entity change for firing hooks in the async consumer.
 type AsyncEntityEvent struct {
-	CacheIndex uint64                   `json:"cache_index"`
+	CacheIndex string                   `json:"cache_index"`
 	EntityID   uint64                   `json:"entity_id"`
 	FlushType  uint8                    `json:"flush_type"` // 1=insert, 2=update, 3=delete
 	Changes    map[string]AsyncSQLParam `json:"changes,omitempty"`
@@ -258,7 +258,7 @@ func (orm *ormImplementation) FlushAsync(immediateRedisUpdates bool) error {
 	}
 
 	var flushErr error
-	orm.trackedEntities.Range(func(_ uint64, value *xsync.MapOf[uint64, Entity]) bool {
+	orm.trackedEntities.Range(func(_ string, value *xsync.MapOf[uint64, Entity]) bool {
 		value.Range(func(_ uint64, e Entity) bool {
 			flushErr = e.PrivateFlush()
 			return flushErr == nil
@@ -275,7 +275,7 @@ func (orm *ormImplementation) FlushAsync(immediateRedisUpdates bool) error {
 	var entityEventsByPool map[string][]AsyncEntityEvent
 	if orm.engine.entityLoaders != nil {
 		entityEventsByPool = make(map[string][]AsyncEntityEvent)
-		orm.trackedEntities.Range(func(cacheIndex uint64, value *xsync.MapOf[uint64, Entity]) bool {
+		orm.trackedEntities.Range(func(cacheIndex string, value *xsync.MapOf[uint64, Entity]) bool {
 			pool, hasPool := orm.engine.entityDBPools[cacheIndex]
 			if !hasPool {
 				return true
@@ -387,7 +387,7 @@ func (orm *ormImplementation) FlushAsync(immediateRedisUpdates bool) error {
 		}
 	}
 
-	orm.trackedEntities.Range(func(_ uint64, value *xsync.MapOf[uint64, Entity]) bool {
+	orm.trackedEntities.Range(func(_ string, value *xsync.MapOf[uint64, Entity]) bool {
 		value.Range(func(_ uint64, e Entity) bool {
 			e.PrivateFlushed()
 			return true

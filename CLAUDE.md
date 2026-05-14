@@ -68,7 +68,7 @@ Entity registration: `registry.RegisterEntity(&MyEntity{})`, then call `registry
 **Generated output structure (per entity):**
 
 - **`XxxSQLRow` struct** — flat struct with fields `F0`, `F1`, `F2`... for reflection-free `Scan()`
-- **`XxxProvider` singleton** — holds static metadata (tableName, dbCode, redisCode, cacheIndex, redisCachePrefix, stamp, TTL) and exposes all query methods
+- **`XxxProvider` singleton** — holds static metadata (tableName, dbCode, redisCode, cacheIndex, redisCachePrefix, stamp, TTL) and exposes all query methods. `cacheIndex` is the fully qualified entity type name as a string (e.g. `"app/entities.User"`); it keys `engine.entityLoaders`, `entityDBPools`, `afterInsertHandlers`/`afterUpdateHandlers`/`afterDeleteHandlers`, `ormImplementation.trackedEntities`/`cachedEntities`, and is serialised on `AsyncEntityEvent.CacheIndex`. Using the type name keeps the value stable across registrations (so in-flight NATS async-flush messages still route correctly after deploys that add new entities) and self-documenting in payloads and logs.
 - **`XxxEntity` struct** — user-facing entity; holds `ctx`, `id`, `new`, `deleted`, `originDatabaseValues` (SQLRow)
 
 ### Caching (Three Tiers)

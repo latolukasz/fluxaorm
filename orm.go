@@ -40,17 +40,17 @@ type Context interface {
 	getClickhouseLoggers() (bool, []LogHandler)
 	getNatsLoggers() (bool, []LogHandler)
 	getRedisLoggers() (bool, []LogHandler)
-	Track(e Entity, cacheIndex uint64)
+	Track(e Entity, cacheIndex string)
 	getMetricsSourceTag() string
-	GetFromContextCache(cacheIndex uint64, id uint64) Entity
-	SetInContextCache(cacheIndex uint64, id uint64, entity Entity)
+	GetFromContextCache(cacheIndex string, id uint64) Entity
+	SetInContextCache(cacheIndex string, id uint64, entity Entity)
 }
 
 type ormImplementation struct {
 	context                  context.Context
 	engine                   *engineImplementation
-	trackedEntities          *xsync.MapOf[uint64, *xsync.MapOf[uint64, Entity]]
-	cachedEntities           *xsync.MapOf[uint64, *xsync.MapOf[uint64, Entity]]
+	trackedEntities          *xsync.MapOf[string, *xsync.MapOf[uint64, Entity]]
+	cachedEntities           *xsync.MapOf[string, *xsync.MapOf[uint64, Entity]]
 	cachedEntitiesFirstAdded int64
 	contextCacheTTL          int64
 	queryLoggersDB           []LogHandler
@@ -189,13 +189,11 @@ func (orm *ormImplementation) getLocalCacheLoggers() (bool, []LogHandler) {
 	return false, nil
 }
 
-func (orm *ormImplementation) Track(f Entity, cacheIndex uint64) {
+func (orm *ormImplementation) Track(f Entity, cacheIndex string) {
 	orm.mutexFlush.Lock()
 	defer orm.mutexFlush.Unlock()
 	if orm.trackedEntities == nil {
-		orm.trackedEntities = xsync.NewTypedMapOf[uint64, *xsync.MapOf[uint64, Entity]](func(seed maphash.Seed, u uint64) uint64 {
-			return u
-		})
+		orm.trackedEntities = xsync.NewMapOf[*xsync.MapOf[uint64, Entity]]()
 	}
 	entities, loaded := orm.trackedEntities.LoadOrCompute(cacheIndex, func() *xsync.MapOf[uint64, Entity] {
 		entities := xsync.NewTypedMapOf[uint64, Entity](func(seed maphash.Seed, u uint64) uint64 {
@@ -230,7 +228,7 @@ func (orm *ormImplementation) SetContextCacheTTL(ttl time.Duration) {
 	orm.contextCacheTTL = ttl.Milliseconds()
 }
 
-func (orm *ormImplementation) GetFromContextCache(cacheIndex uint64, id uint64) Entity {
+func (orm *ormImplementation) GetFromContextCache(cacheIndex string, id uint64) Entity {
 	if orm.disabledContextCache || orm.cachedEntities == nil {
 		return nil
 	}
@@ -250,14 +248,12 @@ func (orm *ormImplementation) GetFromContextCache(cacheIndex uint64, id uint64) 
 	return entity
 }
 
-func (orm *ormImplementation) SetInContextCache(cacheIndex uint64, id uint64, entity Entity) {
+func (orm *ormImplementation) SetInContextCache(cacheIndex string, id uint64, entity Entity) {
 	if orm.disabledContextCache {
 		return
 	}
 	if orm.cachedEntities == nil {
-		orm.cachedEntities = xsync.NewTypedMapOf[uint64, *xsync.MapOf[uint64, Entity]](func(seed maphash.Seed, u uint64) uint64 {
-			return u
-		})
+		orm.cachedEntities = xsync.NewMapOf[*xsync.MapOf[uint64, Entity]]()
 	}
 	entities, _ := orm.cachedEntities.LoadOrCompute(cacheIndex, func() *xsync.MapOf[uint64, Entity] {
 		return xsync.NewTypedMapOf[uint64, Entity](func(seed maphash.Seed, u uint64) uint64 {
