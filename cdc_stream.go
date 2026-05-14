@@ -514,6 +514,22 @@ func resolveDirtyStreams(r *registry, e *engineImplementation) error {
 			isCDC:     true,
 			cdcStream: ds.stream,
 		}
+		// Auto-register the durable consumer settings on the pool so runtime
+		// `pool.Consumer("<stream>-workers")` lookups succeed without requiring
+		// a separate RegisterNatsConsumer call. The JetStream consumer itself
+		// is reconciled by GetNatsAlters.
+		if pool, ok := r.natsPools[ds.options.NatsPool]; ok {
+			durable := DurableForStream(name)
+			if _, has := pool.consumers[durable]; !has {
+				pool.consumers[durable] = &NatsConsumerSettings{
+					Name:           durable,
+					FilterSubjects: []string{dirtySubjectPrefix + string(name)},
+					AckWait:        ds.options.AckWait,
+					MaxAckPending:  ds.options.MaxAckPending,
+					MaxDeliver:     ds.options.MaxDeliver,
+				}
+			}
+		}
 	}
 
 	// Track which streams are referenced by an entity (for orphan detection).
