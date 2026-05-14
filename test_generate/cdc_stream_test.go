@@ -14,6 +14,7 @@ package test_generate
 import (
 	"context"
 	"encoding/json"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -146,4 +147,62 @@ func decodeDirtyEvent(data []byte, ev *entities.GenerateEntityDirtyDirtyEvent) e
 // The lifecycle is owned by the user's loop; tests just stop calling Consume.
 func assertConsumerClose(t *testing.T, _ fluxaorm.StreamConsumer) {
 	t.Helper()
+}
+
+// TestCDCWatchFields validates the WatchFields filter: Update events that
+// don't touch a watched column are dropped before the user handler fires;
+// Insert and Delete events always pass through.
+func TestCDCWatchFields(t *testing.T) {
+	registry := fluxaorm.NewRegistry()
+	ctx := fluxaorm.PrepareTablesWithCDC(t, registry, []fluxaorm.CDCStream{entities.StreamTestStream}, generateEntityDirty{})
+	defer ctx.Engine().Nats("nats").Close()
+
+	var fired atomic.Int32
+	consumer := fluxaorm.NewCDCConsumer(ctx.Engine(), entities.StreamTestStream).
+		OnGenerateEntityDirty(func(_ fluxaorm.Context, _ *entities.GenerateEntityDirtyDirtyEvent) error {
+			fired.Add(1)
+			return nil
+		}, fluxaorm.WatchFields(entities.GenerateEntityDirtyProvider.Fields.Age)).
+		Build()
+
+	// drain pumps the consumer until either the expected handler-fired count is
+	// reached or the deadline elapses. Returns the observed count.
+	drain := func(expected int32, deadline time.Duration) int32 {
+		end := time.Now().Add(deadline)
+		for time.Now().Before(end) {
+			pumpCtx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+			_ = consumer.Consume(pumpCtx, 16, 1*time.Second)
+			cancel()
+			if fired.Load() >= expected {
+				return fired.Load()
+			}
+		}
+		return fired.Load()
+	}
+
+	// INSERT — always fires regardless of WatchFields.
+	e, err := entities.GenerateEntityDirtyProvider.New(ctx)
+	assert.NoError(t, err)
+	e.SetName("watchfields-init")
+	e.SetAge(20)
+	assert.NoError(t, ctx.Flush())
+	assert.Equal(t, int32(1), drain(1, 10*time.Second), "Insert must fire even without watched field changes")
+
+	// UPDATE Name only — Age unchanged, handler must be skipped.
+	e.SetName("watchfields-name-only")
+	assert.NoError(t, ctx.Flush())
+	// Give the dispatch path time to receive + filter the message; the counter
+	// must not advance.
+	_ = drain(2, 3*time.Second)
+	assert.Equal(t, int32(1), fired.Load(), "Update touching only unwatched fields must be filtered out")
+
+	// UPDATE Age — watched field changed, handler must fire.
+	e.SetAge(30)
+	assert.NoError(t, ctx.Flush())
+	assert.Equal(t, int32(2), drain(2, 10*time.Second), "Update touching a watched field must fire")
+
+	// DELETE — always fires regardless of WatchFields.
+	e.Delete()
+	assert.NoError(t, ctx.Flush())
+	assert.Equal(t, int32(3), drain(3, 10*time.Second), "Delete must fire even with WatchFields set")
 }

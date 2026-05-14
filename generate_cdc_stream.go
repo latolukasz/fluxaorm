@@ -29,7 +29,11 @@ func (g *codeGenerator) generateCDCStreamForEntity(schema *entitySchema, names *
 	g.addImport("time")
 
 	// Event type alias.
-	g.addLine(fmt.Sprintf("// %sDirtyEvent is the CDC envelope emitted for this entity.", entityName))
+	g.addLine(fmt.Sprintf("// %sDirtyEvent is the CDC envelope emitted for %s changes. `Before` and `After`", entityName, entityName))
+	g.addLine("// are map[string]any keyed by entity column names — Insert sets only After,")
+	g.addLine("// Delete sets only Before, Update sets both. Values originate from JSON decode,")
+	g.addLine("// so numbers arrive as float64; use type-asserting helpers when reading them.")
+	g.addLine("// Typed-struct snapshots are a planned enhancement.")
 	g.addLine(fmt.Sprintf("type %sDirtyEvent = fluxaorm.DirtyEvent[map[string]any]", entityName))
 	g.addLine("")
 

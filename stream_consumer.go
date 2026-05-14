@@ -30,32 +30,15 @@ type StreamConsumer interface {
 	Consume(ctx context.Context, batch int, timeout time.Duration) error
 }
 
-// StreamConsumerOption configures a StreamConsumer / CDCConsumer at construction.
-type StreamConsumerOption func(*streamConsumerConfig)
-
-type streamConsumerConfig struct {
-	description string
-}
-
-// WithDescription attaches a human-readable description; used for metrics/log labels only.
-func WithDescription(d string) StreamConsumerOption {
-	return func(c *streamConsumerConfig) { c.description = d }
-}
-
 // NewStreamConsumer creates a generic consumer for any registered NATS stream.
 // The JetStream durable used is the auto-derived `<streamName>-workers`. Multiple
 // processes constructing a consumer for the same stream automatically share workload.
-func NewStreamConsumer(engine Engine, stream NatsStreamName, handler StreamHandler, opts ...StreamConsumerOption) StreamConsumer {
-	cfg := &streamConsumerConfig{}
-	for _, opt := range opts {
-		opt(cfg)
-	}
+func NewStreamConsumer(engine Engine, stream NatsStreamName, handler StreamHandler) StreamConsumer {
 	return &streamConsumerImpl{
 		engine:      engine,
 		streamName:  stream,
 		durableName: DurableForStream(stream),
 		handler:     handler,
-		cfg:         cfg,
 	}
 }
 
@@ -70,7 +53,6 @@ type streamConsumerImpl struct {
 	streamName  NatsStreamName
 	durableName string
 	handler     StreamHandler
-	cfg         *streamConsumerConfig
 
 	mu       sync.Mutex
 	consumer NatsConsumer

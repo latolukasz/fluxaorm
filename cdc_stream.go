@@ -142,7 +142,6 @@ type CDCBuilder struct {
 	engine   Engine
 	stream   CDCStream
 	dispatch map[string]CDCDispatch
-	cfg      *streamConsumerConfig
 }
 
 // AddDispatch registers a typed dispatch closure for an entity type name.
@@ -162,7 +161,6 @@ func (b *CDCBuilder) Build() StreamConsumer {
 			engine:      b.engine,
 			streamName:  b.stream.Name(),
 			durableName: b.stream.Durable(),
-			cfg:         b.cfg,
 		},
 		dispatch: b.dispatch,
 	}
@@ -175,16 +173,11 @@ func (b *CDCBuilder) Build() StreamConsumer {
 //	consumer := fluxaorm.NewCDCConsumer(orm, gen.StreamOrderIndexer).
 //	    OnOrders(handleOrder).
 //	    Build()
-func NewCDCConsumer[B any](engine Engine, stream CDCStreamRef[B], opts ...StreamConsumerOption) *B {
-	cfg := &streamConsumerConfig{}
-	for _, opt := range opts {
-		opt(cfg)
-	}
+func NewCDCConsumer[B any](engine Engine, stream CDCStreamRef[B]) *B {
 	core := &CDCBuilder{
 		engine:   engine,
 		stream:   stream,
 		dispatch: make(map[string]CDCDispatch),
-		cfg:      cfg,
 	}
 	return stream.newBuilder(core)
 }
