@@ -1,6 +1,8 @@
 package fluxaorm
 
 import (
+	"reflect"
+
 	"github.com/puzpuzpuz/xsync/v2"
 )
 
@@ -40,14 +42,18 @@ func (orm *ormImplementation) flush() (err error) {
 		}
 	}
 	if len(orm.engine.registry.dirtyPublishers) > 0 {
-		orm.trackedEntities.Range(func(cacheIndex uint64, value *xsync.MapOf[uint64, Entity]) bool {
-			publisher, hasPub := orm.engine.registry.dirtyPublishers[cacheIndex]
-			if !hasPub {
-				return true
-			}
+		orm.trackedEntities.Range(func(_ uint64, value *xsync.MapOf[uint64, Entity]) bool {
 			value.Range(func(_ uint64, e Entity) bool {
 				eventType, changes := e.PrivateFlushEvent()
 				if eventType == 0 {
+					return true
+				}
+				et := reflect.TypeOf(e)
+				if et.Kind() == reflect.Ptr {
+					et = et.Elem()
+				}
+				publisher, hasPub := orm.engine.registry.dirtyPublishers[et]
+				if !hasPub {
 					return true
 				}
 				err = publishDirtyEvent(orm, publisher, e, dirtyOpFromFlushType(eventType), changes)

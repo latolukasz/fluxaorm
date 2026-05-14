@@ -154,7 +154,10 @@ func assertConsumerClose(t *testing.T, _ fluxaorm.StreamConsumer) {
 // Insert and Delete events always pass through.
 func TestCDCWatchFields(t *testing.T) {
 	registry := fluxaorm.NewRegistry()
-	ctx := fluxaorm.PrepareTablesWithCDC(t, registry, []fluxaorm.CDCStream{entities.StreamTestStream}, generateEntityDirty{})
+	// generateEntityDirty is tagged into both streams; both must be registered
+	// even though this test only consumes from `test_stream`.
+	cdcStreams := []fluxaorm.CDCStream{entities.StreamTestStream, entities.StreamTestStreamB}
+	ctx := fluxaorm.PrepareTablesWithCDC(t, registry, cdcStreams, generateEntityDirty{})
 	defer ctx.Engine().Nats("nats").Close()
 
 	var fired atomic.Int32

@@ -51,7 +51,7 @@ type engineRegistryImplementation struct {
 	natsIgnoredConsumers    map[string]map[string]bool
 	dirtyStreams            map[NatsStreamName]*resolvedDirtyStream
 	streamRegistry          map[NatsStreamName]*streamRegistryEntry
-	dirtyPublishers         map[uint64]*dirtyPublisherEntry
+	dirtyPublishers         map[reflect.Type]*dirtyPublisherEntry
 	hasMetrics              bool
 	metricsRegistry         *metricsRegistry
 }

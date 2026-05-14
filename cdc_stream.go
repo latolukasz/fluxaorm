@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"reflect"
 	"regexp"
+	"strings"
 	"sync"
 	"time"
 
@@ -288,9 +289,11 @@ func dirtyEventHasFieldChanges[T any](ev *DirtyEvent[T], fields []string) bool {
 	beforeVal := reflect.ValueOf(*ev.Before)
 	afterVal := reflect.ValueOf(*ev.After)
 	for _, f := range fields {
-		b := beforeVal.FieldByName(f)
-		a := afterVal.FieldByName(f)
-		if !b.IsValid() || !a.IsValid() {
+		b, a := fieldValue(beforeVal, f), fieldValue(afterVal, f)
+		if b.IsValid() != a.IsValid() {
+			return true
+		}
+		if !b.IsValid() {
 			continue
 		}
 		if !reflect.DeepEqual(b.Interface(), a.Interface()) {
@@ -298,6 +301,21 @@ func dirtyEventHasFieldChanges[T any](ev *DirtyEvent[T], fields []string) bool {
 		}
 	}
 	return false
+}
+
+// fieldValue extracts a snapshot field for the WatchFields comparison.
+// Handles both the MVP map[string]any snapshot shape and the eventual typed
+// struct case, returning an invalid Value when the field is absent so the
+// caller can distinguish "missing" from "zero value".
+func fieldValue(v reflect.Value, name string) reflect.Value {
+	switch v.Kind() {
+	case reflect.Map:
+		return v.MapIndex(reflect.ValueOf(name))
+	case reflect.Struct:
+		return v.FieldByName(name)
+	default:
+		return reflect.Value{}
+	}
 }
 
 // ----- Publisher registration -----
@@ -359,6 +377,43 @@ func getDirtyPublisher(t reflect.Type) (*dirtyPublisherEntry, bool) {
 	defer dirtyPublishersMu.RUnlock()
 	entry, ok := dirtyPublishers[t]
 	return entry, ok
+}
+
+// getDirtyPublisherByEntityName returns the publisher whose generated entity
+// struct has the given Go name. This is the lookup `resolveDirtyStreams` uses
+// because the schema's reflect.Type points at the user-supplied source struct
+// (e.g. ProductEntity) while the publisher init() registers under the generated
+// entity struct (e.g. Products) — they're distinct types in distinct packages,
+// so a reflect.Type lookup would always miss. The generated name follows the
+// `capitalizeFirst(tableName)` convention used by the code generator.
+func getDirtyPublisherByEntityName(name string) (*dirtyPublisherEntry, bool) {
+	dirtyPublishersMu.RLock()
+	defer dirtyPublishersMu.RUnlock()
+	for _, entry := range dirtyPublishers {
+		if entry.entityName == name {
+			return entry, true
+		}
+	}
+	return nil, false
+}
+
+// generatedEntityName produces the Go identifier for the entity struct that
+// fluxaorm.Generate emits from a schema's tableName. Mirrors codeGenerator's
+// capitalizeFirst (split on `_`, capitalize each part's first letter) so the
+// publisher-name lookup at Validate() time matches the name the generator used.
+func generatedEntityName(tableName string) string {
+	parts := strings.Split(tableName, "_")
+	for i, part := range parts {
+		if part == "" {
+			continue
+		}
+		b := []byte(part)
+		if b[0] >= 'a' && b[0] <= 'z' {
+			b[0] = b[0] - ('a' - 'A')
+		}
+		parts[i] = string(b)
+	}
+	return strings.Join(parts, "")
 }
 
 // ----- Registration helpers used by the registry -----
@@ -497,7 +552,7 @@ func resolveDirtyStreams(r *registry, e *engineImplementation) error {
 	reg := e.registry
 	reg.dirtyStreams = make(map[NatsStreamName]*resolvedDirtyStream)
 	reg.streamRegistry = make(map[NatsStreamName]*streamRegistryEntry)
-	reg.dirtyPublishers = make(map[uint64]*dirtyPublisherEntry)
+	reg.dirtyPublishers = make(map[reflect.Type]*dirtyPublisherEntry)
 
 	// Copy registered CDC streams.
 	for name, ds := range r.dirtyStreams {
@@ -539,11 +594,26 @@ func resolveDirtyStreams(r *registry, e *engineImplementation) error {
 			referenced[name] = true
 		}
 		// (3) If a publisher entry already exists (init() block ran), index it
-		// by schema index for O(1) flush-path lookup. Missing publishers are
-		// tolerated here and re-checked at publish time so TestGenerate can run
-		// Validate before the freshly-generated init() blocks are compiled in.
-		if entry, ok := getDirtyPublisher(schema.t); ok {
-			reg.dirtyPublishers[schema.index] = entry
+		// by schema index for O(1) flush-path lookup. Match by generated entity
+		// name (capitalizeFirst of tableName) because the publisher init() runs
+		// in the generated package keyed by the generated entity's reflect.Type
+		// — distinct from the source struct the user passed to RegisterEntity.
+		// Fall back to reflect.Type lookup for callers that register a publisher
+		// for the same struct they passed to RegisterEntity. Missing publishers
+		// are tolerated here so TestGenerate can run Validate before the freshly
+		// generated init() blocks are compiled in.
+		// Match publisher by generated entity name (capitalizeFirst of tableName)
+		// because publishers register from the generated package using the generated
+		// struct's reflect.Type, while schema.t is the source struct the user passed
+		// to RegisterEntity (often a different type, e.g. ProductEntity vs Products).
+		// Fall back to reflect.Type for callers that register a publisher for the
+		// same struct they passed to RegisterEntity. Missing publishers are tolerated
+		// here so TestGenerate can run Validate before the freshly generated init()
+		// blocks compile in.
+		if entry, ok := getDirtyPublisherByEntityName(generatedEntityName(schema.tableName)); ok {
+			reg.dirtyPublishers[entry.reflectType] = entry
+		} else if entry, ok := getDirtyPublisher(schema.t); ok {
+			reg.dirtyPublishers[entry.reflectType] = entry
 		}
 	}
 
