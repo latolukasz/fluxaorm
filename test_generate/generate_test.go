@@ -1219,6 +1219,14 @@ func TestGenerate(t *testing.T) {
 		assert.NotEmpty(t, p.DBCode())
 	}
 
+	// AllCDCStreams: emitted by the generator for one-loop registration in apps.
+	assert.Len(t, entities.AllCDCStreams, 2)
+	for _, s := range entities.AllCDCStreams {
+		assert.NotEmpty(t, s.Name())
+		assert.NotEmpty(t, s.Subject())
+		assert.NotEmpty(t, s.Durable())
+	}
+
 	// ClearRedisCache: insert entity to populate redis cache, then clear it
 	clearEntity, errNew := entities.GenerateEntityProvider.New(ctx)
 	assert.NoError(t, errNew)

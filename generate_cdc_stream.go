@@ -188,6 +188,19 @@ func (g *codeGenerator) generateDirtyStreamsFile(schemas map[reflect.Type]*entit
 		g.addLine(fmt.Sprintf("\tStream%s = fluxaorm.NewCDCStreamRef[%sCDCBuilder](\"%s\", new%sCDCBuilder)", ident, ident, name, ident))
 	}
 	g.addLine(")")
+	g.addLine("")
+
+	// AllCDCStreams enumerates every typed CDC stream ref in this package so
+	// applications can register them in one loop instead of maintaining a
+	// hand-written list that drifts as entity tags change.
+	g.addLine("// AllCDCStreams lists every generated CDC stream ref so apps can register")
+	g.addLine("// them with one loop (`for _, s := range gen.AllCDCStreams { ... }`).")
+	g.addLine("var AllCDCStreams = []fluxaorm.CDCStream{")
+	for _, name := range streamNames {
+		ident := g.capitalizeStreamName(name)
+		g.addLine(fmt.Sprintf("\tStream%s,", ident))
+	}
+	g.addLine("}")
 
 	filePath := filepath.Join(g.dir, "dirty_streams.go")
 	f, err := os.Create(filePath)

@@ -504,7 +504,7 @@ func dirtyOpFromFlushType(t uint8) DirtyOp {
 func publishDirtyEvent(orm Context, publisher *dirtyPublisherEntry, e Entity, op DirtyOp, beforeOrigin map[string]any) error {
 	payload, err := publisher.buildEvent(e, op, beforeOrigin)
 	if err != nil {
-		return err
+		return fmt.Errorf("build dirty event for %s: %w", publisher.entityName, err)
 	}
 	if payload == nil {
 		return nil
@@ -522,7 +522,7 @@ func publishDirtyEvent(orm Context, publisher *dirtyPublisherEntry, e Entity, op
 		msg := newDirtyMessage(streamName, publisher.entityName, op, payload)
 		msg.Headers.Set("Nats-Msg-Id", fmt.Sprintf("%s:%s:%d", streamName, publisher.entityName, msgIDHash(payload)))
 		if err := pool.Publish(orm, msg); err != nil {
-			return err
+			return fmt.Errorf("publish %s to stream %s: %w", publisher.entityName, streamName, err)
 		}
 	}
 	return nil
