@@ -39,27 +39,28 @@ func (g *codeGenerator) generateCDCStreamForEntity(schema *entitySchema, names *
 		streamRefs = append(streamRefs, "Stream"+g.capitalizeStreamName(string(s))+".Name()")
 	}
 
-	// snapshotAfter helper — uses typed getters for current state.
+	// snapshotAfter helper — overlays pending databaseBind values onto origin
+	// values, giving the post-change state for both inserts (origin holds new
+	// values since SetX writes directly to origin on new=true) and updates
+	// (databaseBind holds changed columns). Type-agnostic so reference columns
+	// and complex types work without special-casing.
 	g.addLine(fmt.Sprintf("func %s(e *%s) map[string]any {", snapshotAfterFn, entityName))
-	g.addLine("\tsnap := map[string]any{")
-	g.addLine(fmt.Sprintf("\t\t\"ID\": e.GetID(),"))
+	g.addLine("\tsnap := map[string]any{\"ID\": e.GetID()}")
+	g.addLine("\tbind := e.PrivateGetDatabaseBind()")
 	for _, col := range g.snapshotColumnNames(schema) {
-		getter := "Get" + g.capitalizeFirst(col)
-		g.addLine(fmt.Sprintf("\t\t%q: e.%s(),", col, getter))
+		g.addLine(fmt.Sprintf("\tif bind != nil { if v, ok := bind[%q]; ok { snap[%q] = v } else { snap[%q] = e.privateGetOriginalColumnValue(%q) } } else { snap[%q] = e.privateGetOriginalColumnValue(%q) }", col, col, col, col, col, col))
 	}
-	g.addLine("\t}")
 	g.addLine("\treturn snap")
 	g.addLine("}")
 	g.addLine("")
 
-	// snapshotFromOrigin helper — reads origin values via privateGetOriginalColumnValue.
+	// snapshotFromOrigin helper — reads origin values for all columns.
+	// Used for Before (Update) and Before (Delete) — the original pre-change state.
 	g.addLine(fmt.Sprintf("func %s(e *%s) map[string]any {", snapshotBeforeFn, entityName))
-	g.addLine("\tsnap := map[string]any{")
-	g.addLine(fmt.Sprintf("\t\t\"ID\": e.GetID(),"))
+	g.addLine("\tsnap := map[string]any{\"ID\": e.GetID()}")
 	for _, col := range g.snapshotColumnNames(schema) {
-		g.addLine(fmt.Sprintf("\t\t%q: e.privateGetOriginalColumnValue(%q),", col, col))
+		g.addLine(fmt.Sprintf("\tsnap[%q] = e.privateGetOriginalColumnValue(%q)", col, col))
 	}
-	g.addLine("\t}")
 	g.addLine("\treturn snap")
 	g.addLine("}")
 	g.addLine("")
