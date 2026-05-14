@@ -111,29 +111,6 @@ func (b NatsBatch) IsEmpty() bool {
 	return len(b.messages) == 0
 }
 
-// EachDebeziumEvent iterates over Debezium CDC events in the batch.
-// Tombstone records (nil Data) are skipped silently.
-// If the handler returns a non-nil error, iteration stops and that error is returned.
-func (b NatsBatch) EachDebeziumEvent(fn func(entityID uint64, event *DebeziumEvent) error) error {
-	for _, msg := range b.messages {
-		if msg.Data == nil {
-			continue
-		}
-		entityID, err := ParseDebeziumKey(msg)
-		if err != nil {
-			return fmt.Errorf("msg subject '%s' seq %d: %w", msg.Subject, msg.Sequence, err)
-		}
-		event, err := ParseDebeziumEvent(msg)
-		if err != nil {
-			return fmt.Errorf("msg subject '%s' seq %d: %w", msg.Subject, msg.Sequence, err)
-		}
-		if err := fn(entityID, event); err != nil {
-			return err
-		}
-	}
-	return nil
-}
-
 type Nats interface {
 	GetCode() string
 	GetURLs() []string

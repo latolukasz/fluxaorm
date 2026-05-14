@@ -49,10 +49,11 @@ type engineRegistryImplementation struct {
 	natsIgnoredSubjects     map[string]map[string]bool
 	natsConsumers           []*NatsConsumerBuilder
 	natsIgnoredConsumers    map[string]map[string]bool
+	dirtyStreams            map[NatsStreamName]*resolvedDirtyStream
+	streamRegistry          map[NatsStreamName]*streamRegistryEntry
+	dirtyPublishers         map[uint64]*dirtyPublisherEntry
 	hasMetrics              bool
 	metricsRegistry         *metricsRegistry
-	debeziumNatsPools       map[string]bool
-	debeziumOptions         map[string]*DebeziumOptions
 }
 
 type engineImplementation struct {

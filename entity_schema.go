@@ -141,7 +141,7 @@ type entitySchema struct {
 	redisSearchPrefix       string
 	searchableFields        []searchableFieldDef
 	pendingSearchableFields map[string]pendingSearchableField
-	debeziumNatsPool        string
+	dirtyStreams            []NatsStreamName
 	cachedUniqueIndexes     map[string]bool
 	hasCachedUniqueIndexes  bool
 	uniqueIndexFIndexes     map[string][]int
@@ -341,12 +341,30 @@ func (e *entitySchema) init(registry *registry, entityType reflect.Type) error {
 		}
 		e.redisSearchPoolCode = redisSearchPoolCode
 	}
-	debeziumNatsPool := e.getTag("debezium", DefaultPoolCode, "")
-	if debeziumNatsPool != "" {
-		if _, has := registry.natsPools[debeziumNatsPool]; !has {
-			return fmt.Errorf("nats pool '%s' not found for debezium in entity '%s'", debeziumNatsPool, entityType.Name())
+	dirtyTag := e.getTag("dirty", "", "")
+	if dirtyTag != "" {
+		parts := strings.Split(dirtyTag, ",")
+		streams := make([]NatsStreamName, 0, len(parts))
+		seen := make(map[NatsStreamName]bool, len(parts))
+		for _, raw := range parts {
+			s := strings.TrimSpace(raw)
+			if s == "" {
+				continue
+			}
+			if !validDirtyStreamName(s) {
+				return fmt.Errorf("invalid stream name '%s' in orm:\"dirty=...\" on entity '%s' (must match [a-zA-Z0-9_-]+)", s, entityType.Name())
+			}
+			name := NatsStreamName(s)
+			if seen[name] {
+				return fmt.Errorf("duplicate stream '%s' in orm:\"dirty=...\" on entity '%s'", s, entityType.Name())
+			}
+			seen[name] = true
+			streams = append(streams, name)
 		}
-		e.debeziumNatsPool = debeziumNatsPool
+		if len(streams) == 0 {
+			return fmt.Errorf("orm:\"dirty=...\" on entity '%s' is empty", entityType.Name())
+		}
+		e.dirtyStreams = streams
 	}
 	e.tableName = e.getTag("table", entityType.Name(), entityType.Name())
 	redisCacheName := e.getTag("redisCache", DefaultPoolCode, "")

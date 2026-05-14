@@ -109,6 +109,12 @@ func Generate(engine Engine, outputDirectory string) error {
 		return err
 	}
 
+	// Generate dirty_streams.go + per-stream builder files if any entity is tagged.
+	err = generator.generateDirtyStreamsFile(engine.Registry().(*engineRegistryImplementation).entitySchemas)
+	if err != nil {
+		return err
+	}
+
 	return nil
 }
 

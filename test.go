@@ -32,22 +32,39 @@ func PrepareTablesWithNats(t *testing.T, registry Registry, entities ...any) (or
 	return ctx
 }
 
-func PrepareTablesWithDebezium(t *testing.T, registry Registry, entities ...any) (orm Context) {
+// PrepareTablesWithCDC sets up MySQL/Redis/NATS plus auto-registers each CDC
+// stream referenced by the tagged entities with default options. Production
+// callers should call registry.RegisterCDCStream explicitly; this helper
+// exists so tests don't have to mirror that boilerplate.
+//
+// The `cdcStreams` slice is the list of typed CDC stream refs the test will
+// publish to / consume from. Each is registered with defaults before Validate().
+func PrepareTablesWithCDC(t *testing.T, registry Registry, cdcStreams []CDCStream, entities ...any) (orm Context) {
 	registry.RegisterNats([]string{"nats://localhost:9944"}, "nats", nil)
-	registry.RegisterDebeziumServer("nats", &DebeziumOptions{
-		MySQLHost: "host.docker.internal",
-		MySQLPort: "3397",
-		NatsURLs:  []string{"nats://nats:4222"},
-	})
 	registry.RegisterAsyncFlush("nats", nil)
+	for _, ref := range cdcStreams {
+		registry.RegisterCDCStream(ref, CDCStreamOptions{NatsPool: "nats"})
+	}
 	ctx := prepareTables(t, registry, &MySQLOptions{}, entities...)
 	applyNatsAlters(t, ctx)
+	// Purge every CDC stream so test runs are independent.
+	pool := ctx.Engine().Nats("nats")
+	if pool != nil {
+		if js, err := pool.GetJetStream(); err == nil {
+			for _, ref := range cdcStreams {
+				stream, sErr := js.Stream(ctx.Context(), dirtyStreamPrefix+string(ref.Name()))
+				if sErr == nil && stream != nil {
+					_ = stream.Purge(ctx.Context())
+				}
+			}
+		}
+	}
 	return ctx
 }
 
-// applyNatsAlters reconciles JetStream state for tests so the async-flush stream and
-// any Debezium CDC streams exist (and the durable consumers are created) before tests publish.
-// Purges any pre-existing messages in `FLUXA_ASYNC_SQL` to keep tests independent.
+// applyNatsAlters reconciles JetStream state for tests so the async-flush stream
+// and any user-registered streams exist (and the durable consumers are created)
+// before tests publish. Purges `FLUXA_ASYNC_SQL` to keep tests independent.
 func applyNatsAlters(t *testing.T, ctx Context) {
 	alters, err := GetNatsAlters(ctx)
 	assert.NoError(t, err)

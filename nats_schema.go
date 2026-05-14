@@ -117,14 +117,13 @@ func (b *NatsStreamBuilder) toConfig() jetstream.StreamConfig {
 }
 
 type NatsConsumerBuilder struct {
-	poolCode            string
-	name                string
-	filterSubjects      []string
-	ackWait             time.Duration
-	maxAckPending       int
-	maxDeliver          int
-	deliverPolicy       jetstream.DeliverPolicy
-	debeziumEntityTypes []any
+	poolCode       string
+	name           string
+	filterSubjects []string
+	ackWait        time.Duration
+	maxAckPending  int
+	maxDeliver     int
+	deliverPolicy  jetstream.DeliverPolicy
 }
 
 func NewNatsConsumer(name, poolCode string) *NatsConsumerBuilder {
@@ -160,13 +159,6 @@ func (b *NatsConsumerBuilder) MaxDeliver(n int) *NatsConsumerBuilder {
 
 func (b *NatsConsumerBuilder) DeliverPolicy(p jetstream.DeliverPolicy) *NatsConsumerBuilder {
 	b.deliverPolicy = p
-	return b
-}
-
-// DebeziumEntities registers Debezium-emitting entities for this consumer.
-// During registry Validate(), each entity's Debezium subject is resolved and added to FilterSubjects.
-func (b *NatsConsumerBuilder) DebeziumEntities(entities ...any) *NatsConsumerBuilder {
-	b.debeziumEntityTypes = append(b.debeziumEntityTypes, entities...)
 	return b
 }
 
@@ -223,10 +215,9 @@ func (a NatsAlter) Exec(ctx Context) error {
 }
 
 // GetNatsAlters compares registered NATS stream/consumer definitions with the actual broker state
-// and returns the operations needed to synchronize them. Manages three categories of streams:
+// and returns the operations needed to synchronize them. Manages two categories of streams:
 //  1. Async-flush stream (FLUXA_ASYNC_SQL)
-//  2. Per-MySQL-pool Debezium CDC streams (FLUXA_DBZ_<mysqlPool>)
-//  3. User-registered streams from RegisterNatsStream
+//  2. User-registered streams from RegisterNatsStream
 func GetNatsAlters(ctx Context) ([]NatsAlter, error) {
 	reg := ctx.Engine().Registry().(*engineRegistryImplementation)
 
@@ -300,37 +291,34 @@ func collectDesiredStreams(ctx Context, reg *engineRegistryImplementation) map[s
 		out[reg.asyncFlushNatsPool][AsyncSQLStreamName] = builder.toConfig()
 	}
 
-	debeziumPoolsForMySQL := make(map[string]string)
-	for _, schema := range reg.entitySchemas {
-		if schema.debeziumNatsPool == "" {
-			continue
-		}
-		debeziumPoolsForMySQL[schema.mysqlPoolCode] = schema.debeziumNatsPool
-	}
-	for mysqlPool, natsPool := range debeziumPoolsForMySQL {
-		streamName := "FLUXA_DBZ_" + mysqlPool
-		subject := "fluxa_" + mysqlPool + ".>"
-		streamBuilder := NewNatsStream(streamName, natsPool).Subjects(subject)
-		if opts, ok := reg.debeziumOptions[natsPool]; ok && opts != nil && opts.StreamConfig != nil {
-			merged := opts.StreamConfig
-			merged.poolCode = natsPool
-			merged.streamName = streamName
-			if !merged.overridden["subjects"] {
-				merged.subjects = []string{subject}
-			}
-			streamBuilder = merged
-		}
-		if out[natsPool] == nil {
-			out[natsPool] = make(map[string]jetstream.StreamConfig)
-		}
-		out[natsPool][streamName] = streamBuilder.toConfig()
-	}
-
 	for _, b := range reg.natsStreams {
 		if out[b.poolCode] == nil {
 			out[b.poolCode] = make(map[string]jetstream.StreamConfig)
 		}
 		out[b.poolCode][b.streamName] = b.toConfig()
+	}
+
+	// CDC streams: one JetStream stream per registered CDC stream.
+	// Subject auto-set to fluxa.dirty.<name>; retention LimitsPolicy.
+	for name, ds := range reg.dirtyStreams {
+		streamName := dirtyStreamPrefix + string(name)
+		subject := dirtySubjectPrefix + string(name)
+		builder := NewNatsStream(streamName, ds.options.NatsPool).
+			Subjects(subject).
+			Duplicates(ds.options.DuplicateWindow)
+		if ds.options.Replicas > 0 {
+			builder.Replicas(ds.options.Replicas)
+		}
+		if ds.options.MaxAge > 0 {
+			builder.MaxAge(ds.options.MaxAge)
+		}
+		if ds.options.Storage != 0 {
+			builder.Storage(ds.options.Storage)
+		}
+		if out[ds.options.NatsPool] == nil {
+			out[ds.options.NatsPool] = make(map[string]jetstream.StreamConfig)
+		}
+		out[ds.options.NatsPool][streamName] = builder.toConfig()
 	}
 	_ = ctx
 	return out
@@ -359,6 +347,18 @@ func collectDesiredConsumers(reg *engineRegistryImplementation) map[string][]*Na
 
 	for _, b := range reg.natsConsumers {
 		out[b.poolCode] = append(out[b.poolCode], b)
+	}
+
+	// CDC durable consumers: one per registered CDC stream, named "<stream>-workers".
+	for name, ds := range reg.dirtyStreams {
+		durable := DurableForStream(name)
+		subject := dirtySubjectPrefix + string(name)
+		b := NewNatsConsumer(durable, ds.options.NatsPool).
+			FilterSubjects(subject).
+			MaxAckPending(ds.options.MaxAckPending).
+			AckWait(ds.options.AckWait).
+			MaxDeliver(ds.options.MaxDeliver)
+		out[ds.options.NatsPool] = append(out[ds.options.NatsPool], b)
 	}
 	return out
 }

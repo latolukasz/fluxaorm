@@ -7,7 +7,8 @@
       "Bash(rtk read *)",
       "Bash(rtk wc *)",
       "Bash(go get *)",
-      "Bash(rtk go *)"
+      "Bash(rtk go *)",
+      "Bash(rtk make *)"
     ]
   },
   "plansDirectory": ".claude/plans"

@@ -100,14 +100,6 @@ func (g *codeGenerator) generateProviderAndSQLRow(schema *entitySchema, names *e
 		g.addLine("")
 	}
 
-	// DebeziumSubjectName method (only when entity has debezium tag)
-	if schema.debeziumNatsPool != "" {
-		g.addLine(fmt.Sprintf("func (p %s) DebeziumSubjectName(ctx fluxaorm.Context) string {", names.providerNamePrivate))
-		g.addLine("\treturn \"fluxa_\" + p.dbCode + \".\" + ctx.Engine().DB(p.dbCode).GetConfig().GetDatabaseName() + \".\" + p.tableName")
-		g.addLine("}")
-		g.addLine("")
-	}
-
 	g.addLine(fmt.Sprintf("type %s struct {", names.sqlRowName))
 	g.filedIndex = 0
 	g.addLine(strings.TrimRight(g.addSQLRowLines(schema.fields), "\t\n"))

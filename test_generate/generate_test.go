@@ -137,8 +137,10 @@ type generateEntityEnumRef struct {
 	Status string `orm:"enumName=TestEnum"`
 }
 
-type generateEntityDebezium struct {
-	ID   uint64 `orm:"debezium=nats"`
+// generateEntityDirty is the CDC test entity. Tagged into two streams so we
+// can exercise both single-stream-many-entities and many-streams-per-entity flows.
+type generateEntityDirty struct {
+	ID   uint64 `orm:"dirty=test_stream,test_stream_b"`
 	Name string `orm:"required;length=100"`
 	Age  uint16
 }
@@ -188,7 +190,15 @@ func (e generateEntityCachedUniqueFakeDelete) CachedUniqueIndexes() [][]string {
 //}
 
 func TestGenerate(t *testing.T) {
-	ctx := fluxaorm.PrepareTablesWithDebezium(t, fluxaorm.NewRegistry(), generateEntity{}, generateEntityNoRedis{}, generateReferenceEntity{}, generateEntityWithSearch{}, generateEntityWithTimestamps{}, generateEntityWithTimestampsRedis{}, generateEntityCachedUnique{}, generateEntityCachedUniqueNoRedis{}, generateEntityCachedUniqueFakeDelete{}, generateEntityWithIndex{}, generateEntityEnumRef{}, generateEntityDebezium{})
+	cdcStreams := []fluxaorm.CDCStream{
+		fluxaorm.NewCDCStreamByName("test_stream"),
+		fluxaorm.NewCDCStreamByName("test_stream_b"),
+	}
+	ctx := fluxaorm.PrepareTablesWithCDC(t, fluxaorm.NewRegistry(), cdcStreams,
+		generateEntity{}, generateEntityNoRedis{}, generateReferenceEntity{},
+		generateEntityWithSearch{}, generateEntityWithTimestamps{}, generateEntityWithTimestampsRedis{},
+		generateEntityCachedUnique{}, generateEntityCachedUniqueNoRedis{}, generateEntityCachedUniqueFakeDelete{},
+		generateEntityWithIndex{}, generateEntityEnumRef{}, generateEntityDirty{})
 	defer ctx.Engine().Nats("nats").Close()
 	_ = os.MkdirAll("entities", 0755)
 
@@ -1238,8 +1248,4 @@ func TestGenerate(t *testing.T) {
 	cacheKeys, _, errScan = redisClient.Scan(ctx, 0, entities.GenerateEntityProvider.RedisCachePrefix()+"*", 1000)
 	assert.NoError(t, errScan)
 	assert.Len(t, cacheKeys, 0)
-
-	// Verify DebeziumSubjectName on debezium-enabled provider
-	subjectName := entities.GenerateEntityDebeziumProvider.DebeziumSubjectName(ctx)
-	assert.Equal(t, "fluxa_default.test.generateEntityDebezium", subjectName)
 }

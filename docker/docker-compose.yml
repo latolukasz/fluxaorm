@@ -31,18 +31,8 @@ services:
       - ${LOCAL_IP}:${NATS_HTTP_PORT}:8222
     volumes:
       - orm_volume_nats:/data
-  debezium-server:
-    image: quay.io/debezium/server:2.7
-    volumes:
-      - ./debezium-server/conf:/debezium/conf
-      - orm_volume_debezium:/debezium/data
-    depends_on:
-      - mysql
-      - nats
-      - redis
 volumes:
   orm_volume_mysql: {}
   orm_volume_redis: {}
   orm_volume_clickhouse: {}
   orm_volume_nats: {}
-  orm_volume_debezium: {}

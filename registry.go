@@ -39,7 +39,7 @@ type Registry interface {
 	RegisterNatsStream(stream *NatsStreamBuilder)
 	RegisterNatsConsumer(consumer *NatsConsumerBuilder)
 	RegisterAsyncFlush(natsPool string, options *AsyncFlushOptions)
-	RegisterDebeziumServer(natsPool string, options *DebeziumOptions)
+	RegisterCDCStream(stream CDCStream, opts CDCStreamOptions)
 	EnableMetrics(factory promauto.Factory)
 }
 
@@ -52,12 +52,11 @@ type registry struct {
 	natsPools          map[string]*natsPoolConfig
 	natsStreams        []*NatsStreamBuilder
 	natsConsumers      []*NatsConsumerBuilder
+	dirtyStreams       map[NatsStreamName]*resolvedDirtyStream
 	entities           map[string]reflect.Type
 	options            map[string]any
 	asyncFlushNatsPool string
 	asyncFlushOptions  *AsyncFlushOptions
-	debeziumNatsPools  map[string]bool
-	debeziumOptions    map[string]*DebeziumOptions
 	metricsFactory     *promauto.Factory
 }
 
@@ -380,63 +379,8 @@ func (r *registry) Validate() (Engine, error) {
 	for key, value := range r.options {
 		e.registry.options[key] = value
 	}
-	// Resolve DebeziumEntities to subject filters for NATS consumers
-	for _, cons := range r.natsConsumers {
-		if len(cons.debeziumEntityTypes) == 0 {
-			continue
-		}
-		for _, entity := range cons.debeziumEntityTypes {
-			entityType := reflect.TypeOf(entity)
-			if entityType.Kind() == reflect.Ptr {
-				entityType = entityType.Elem()
-			}
-			schema, ok := e.registry.entitySchemas[entityType]
-			if !ok {
-				return nil, fmt.Errorf("entity '%s' not registered (used in debezium nats consumer '%s')", entityType.String(), cons.name)
-			}
-			if schema.debeziumNatsPool == "" {
-				return nil, fmt.Errorf("entity '%s' does not have debezium enabled (used in nats consumer '%s')", entityType.String(), cons.name)
-			}
-			db := e.dbServers[schema.mysqlPoolCode]
-			dbName := db.GetConfig().GetDatabaseName()
-			subject := "fluxa_" + schema.mysqlPoolCode + "." + dbName + "." + schema.tableName
-			cons.filterSubjects = append(cons.filterSubjects, subject)
-		}
-		pool := r.natsPools[cons.poolCode]
-		pool.consumers[cons.name] = cons.toSettings()
-	}
-	// Auto-register ignored NATS subjects for Debezium CDC
-	if len(r.debeziumNatsPools) > 0 {
-		e.registry.debeziumNatsPools = r.debeziumNatsPools
-		e.registry.debeziumOptions = r.debeziumOptions
-		debeziumIgnoredSubjects := make(map[string][]string) // natsPool -> subjects
-		mysqlPoolsSeen := make(map[string]bool)
-		for _, schema := range e.registry.entitySchemas {
-			if schema.debeziumNatsPool == "" {
-				continue
-			}
-			natsPool := schema.debeziumNatsPool
-			mysqlPool := schema.mysqlPoolCode
-			db := e.dbServers[mysqlPool]
-			dbName := db.GetConfig().GetDatabaseName()
-			subjectPrefix := "fluxa_" + mysqlPool
-			dataSubject := subjectPrefix + "." + dbName + "." + schema.tableName
-			debeziumIgnoredSubjects[natsPool] = append(debeziumIgnoredSubjects[natsPool], dataSubject)
-			if !mysqlPoolsSeen[mysqlPool] {
-				mysqlPoolsSeen[mysqlPool] = true
-			}
-		}
-		for natsPool, subjects := range debeziumIgnoredSubjects {
-			if e.registry.natsIgnoredSubjects == nil {
-				e.registry.natsIgnoredSubjects = make(map[string]map[string]bool)
-			}
-			if e.registry.natsIgnoredSubjects[natsPool] == nil {
-				e.registry.natsIgnoredSubjects[natsPool] = make(map[string]bool)
-			}
-			for _, subject := range subjects {
-				e.registry.natsIgnoredSubjects[natsPool][subject] = true
-			}
-		}
+	if err := resolveDirtyStreams(r, e); err != nil {
+		return nil, err
 	}
 	if e.registry.hasMetrics {
 		e.registry.metricsRegistry = initMetricsRegistry(*r.metricsFactory)
@@ -449,16 +393,19 @@ func (r *registry) RegisterAsyncFlush(natsPool string, options *AsyncFlushOption
 	r.asyncFlushOptions = options
 }
 
-func (r *registry) RegisterDebeziumServer(natsPool string, options *DebeziumOptions) {
-	if r.debeziumNatsPools == nil {
-		r.debeziumNatsPools = make(map[string]bool)
+// RegisterCDCStream records a CDC stream's JetStream tuning. The stream's subject
+// and JetStream name are fluxaorm-controlled (fluxa.dirty.<name> / FLUXA_DIRTY_<name>).
+// Multiple calls for the same stream override the previous registration.
+//
+// User code typically passes the generated typed ref (e.g. gen.StreamOrderIndexer)
+// for the first argument so there are no raw string literals.
+func (r *registry) RegisterCDCStream(stream CDCStream, opts CDCStreamOptions) {
+	if r.dirtyStreams == nil {
+		r.dirtyStreams = make(map[NatsStreamName]*resolvedDirtyStream)
 	}
-	r.debeziumNatsPools[natsPool] = true
-	if options != nil {
-		if r.debeziumOptions == nil {
-			r.debeziumOptions = make(map[string]*DebeziumOptions)
-		}
-		r.debeziumOptions[natsPool] = options
+	r.dirtyStreams[stream.Name()] = &resolvedDirtyStream{
+		stream:  stream,
+		options: applyCDCStreamDefaults(opts),
 	}
 }
 

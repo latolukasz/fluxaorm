@@ -39,6 +39,26 @@ func (orm *ormImplementation) flush() (err error) {
 			return err
 		}
 	}
+	if len(orm.engine.registry.dirtyPublishers) > 0 {
+		orm.trackedEntities.Range(func(cacheIndex uint64, value *xsync.MapOf[uint64, Entity]) bool {
+			publisher, hasPub := orm.engine.registry.dirtyPublishers[cacheIndex]
+			if !hasPub {
+				return true
+			}
+			value.Range(func(_ uint64, e Entity) bool {
+				eventType, changes := e.PrivateFlushEvent()
+				if eventType == 0 {
+					return true
+				}
+				err = publishDirtyEvent(orm, publisher, e, dirtyOpFromFlushType(eventType), changes)
+				return err == nil
+			})
+			return err == nil
+		})
+		if err != nil {
+			return err
+		}
+	}
 	if orm.engine.afterInsertHandlers != nil || orm.engine.afterUpdateHandlers != nil || orm.engine.afterDeleteHandlers != nil {
 		orm.trackedEntities.Range(func(cacheIndex uint64, value *xsync.MapOf[uint64, Entity]) bool {
 			value.Range(func(_ uint64, e Entity) bool {
