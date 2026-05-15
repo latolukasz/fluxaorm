@@ -118,6 +118,22 @@ func (r CDCStreamRef[B]) JetStreamName() string { return dirtyStreamPrefix + str
 // Durable returns the auto-derived JetStream durable consumer name.
 func (r CDCStreamRef[B]) Durable() string { return DurableForStream(r.name) }
 
+// Enqueue publishes a synthetic DirtyUpdate event for the given entity to this
+// stream only, without any database mutation. Use it to trigger downstream
+// consumers (indexers, listeners) to re-process an entity that hasn't otherwise
+// been flushed.
+//
+// The published event mirrors the entity's currently-loaded state for both
+// Before and After snapshots, so consumers using WatchFields correctly observe
+// zero changes — only consumers without WatchFields (full reindexers etc.) act
+// on it.
+//
+// Returns an error if the entity has no registered dirty publisher or isn't
+// tagged for this CDC stream.
+func (r CDCStreamRef[B]) Enqueue(orm Context, entity Entity) error {
+	return enqueueDirtyEvent(orm, entity, r.name)
+}
+
 // NewCDCStreamRef is the generator-facing factory. Called from generated
 // `entities/dirty_streams.go` to bind a stream name to its builder constructor.
 func NewCDCStreamRef[B any](name NatsStreamName, newBuilder func(core *CDCBuilder) *B) CDCStreamRef[B] {
@@ -547,6 +563,60 @@ func publishDirtyEvent(orm Context, publisher *dirtyPublisherEntry, e Entity, op
 		if err := pool.Publish(orm, msg); err != nil {
 			return fmt.Errorf("publish %s to stream %s: %w", publisher.entityName, streamName, err)
 		}
+	}
+	return nil
+}
+
+// enqueueDirtyEvent publishes a synthetic DirtyUpdate event for `entity` to a
+// single named stream. Unlike publishDirtyEvent, it does not fan out to all of
+// the entity's tagged streams and is not driven by a Flush — callers invoke it
+// explicitly via CDCStreamRef.Enqueue to request a re-process of the entity.
+//
+// Validates that the entity has a registered publisher and that `streamName`
+// is one of the entity's tagged streams. Each call publishes a fresh message
+// with a unique Nats-Msg-Id so dedup never collapses repeated enqueues.
+func enqueueDirtyEvent(orm Context, entity Entity, streamName NatsStreamName) error {
+	if entity == nil {
+		return fmt.Errorf("enqueue: entity is nil")
+	}
+	t := reflect.TypeOf(entity)
+	if t.Kind() == reflect.Ptr {
+		t = t.Elem()
+	}
+	reg := orm.Engine().Registry().(*engineRegistryImplementation)
+	publisher, ok := reg.dirtyPublishers[t]
+	if !ok {
+		return fmt.Errorf("no dirty publisher registered for entity %s", t.Name())
+	}
+	tagged := false
+	for _, s := range publisher.streams {
+		if s == streamName {
+			tagged = true
+			break
+		}
+	}
+	if !tagged {
+		return fmt.Errorf("entity %s is not tagged for CDC stream %s", publisher.entityName, streamName)
+	}
+	payload, err := publisher.buildEvent(entity, DirtyUpdate, nil)
+	if err != nil {
+		return fmt.Errorf("build dirty event for %s: %w", publisher.entityName, err)
+	}
+	if payload == nil {
+		return nil
+	}
+	ds, ok := reg.dirtyStreams[streamName]
+	if !ok {
+		return fmt.Errorf("CDC stream '%s' is not registered", streamName)
+	}
+	pool := orm.Engine().Nats(ds.options.NatsPool)
+	if pool == nil {
+		return fmt.Errorf("nats pool '%s' for CDC stream '%s' not configured", ds.options.NatsPool, streamName)
+	}
+	msg := newDirtyMessage(streamName, publisher.entityName, DirtyUpdate, payload)
+	msg.Headers.Set("Nats-Msg-Id", fmt.Sprintf("%s:%s:enqueue:%d:%d", streamName, publisher.entityName, entity.GetID(), time.Now().UnixNano()))
+	if err := pool.Publish(orm, msg); err != nil {
+		return fmt.Errorf("publish %s to stream %s: %w", publisher.entityName, streamName, err)
 	}
 	return nil
 }
