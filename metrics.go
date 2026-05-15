@@ -17,6 +17,8 @@ type metricsRegistry struct {
 	queriesClickhouseErrors *prometheus.CounterVec
 	queriesNats             *prometheus.HistogramVec
 	queriesNatsErrors       *prometheus.CounterVec
+	cdcMessages             *prometheus.CounterVec
+	streamLag               *prometheus.HistogramVec
 }
 
 func initMetricsRegistry(factory promauto.Factory) *metricsRegistry {
@@ -57,5 +59,17 @@ func initMetricsRegistry(factory promauto.Factory) *metricsRegistry {
 		Name: "fluxaorm_nats_operations_errors",
 		Help: "Total number of NATS operation errors",
 	}, []string{"pool", "source", "consumer"})
+	reg.cdcMessages = factory.NewCounterVec(prometheus.CounterOpts{
+		Name: "fluxaorm_cdc_messages_total",
+		Help: "Total number of CDC events fetched from JetStream",
+	}, []string{"stream", "entity", "op"})
+	// Lag is dispatch-to-consume; broker-side publish-accept timestamp serves as
+	// the dispatch reference. Buckets span 1ms → ~256s to cover both hot streams
+	// and worst-case backlog scenarios.
+	reg.streamLag = factory.NewHistogramVec(prometheus.HistogramOpts{
+		Name:    "fluxaorm_stream_consume_lag_seconds",
+		Help:    "Time from publish (JetStream broker timestamp) to consume per stream",
+		Buckets: prometheus.ExponentialBuckets(0.001, 4, 10),
+	}, []string{"stream"})
 	return reg
 }

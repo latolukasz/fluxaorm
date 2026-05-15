@@ -101,7 +101,12 @@ func (c *streamConsumerImpl) Consume(ctx context.Context, batch int, timeout tim
 		// remaining error is a fatal transport-level error.
 		return fetchErr
 	}
+	metrics, hasMetrics := c.engine.Registry().getMetricsRegistry()
+	streamName := string(c.streamName)
 	for _, msg := range natsBatch.Records() {
+		if hasMetrics && !msg.Timestamp.IsZero() {
+			metrics.streamLag.WithLabelValues(streamName).Observe(time.Since(msg.Timestamp).Seconds())
+		}
 		if err := c.handler(ormCtx, msg); err != nil {
 			// Per-message handler error: log and leave unacked.
 			c.logHandlerError(ormCtx, msg, err)

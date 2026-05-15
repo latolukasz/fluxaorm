@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"reflect"
 	"regexp"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -34,6 +35,20 @@ func (op DirtyOp) String() string {
 		return "delete"
 	}
 	return "unknown"
+}
+
+// dirtyOpLabel parses the Dirty-Op header value into a human-readable op name
+// for metrics. Falls back to "unknown" for missing or unparseable headers so
+// the metric label never collapses to an empty string.
+func dirtyOpLabel(headerValue string) string {
+	if headerValue == "" {
+		return "unknown"
+	}
+	n, err := strconv.ParseUint(headerValue, 10, 8)
+	if err != nil {
+		return "unknown"
+	}
+	return DirtyOp(n).String()
 }
 
 // DirtyEvent is the typed change envelope published when an entity tagged
@@ -207,8 +222,16 @@ func (c *cdcStreamConsumerImpl) Consume(ctx context.Context, batch int, timeout 
 	if fetchErr := natsBatch.Error(); fetchErr != nil {
 		return fetchErr
 	}
+	metrics, hasMetrics := c.base.engine.Registry().getMetricsRegistry()
+	streamName := string(c.base.streamName)
 	for _, msg := range natsBatch.Records() {
 		entityName := msg.Headers.Get(HeaderDirtyEntity)
+		if hasMetrics {
+			metrics.cdcMessages.WithLabelValues(streamName, entityName, dirtyOpLabel(msg.Headers.Get(HeaderDirtyOp))).Inc()
+			if !msg.Timestamp.IsZero() {
+				metrics.streamLag.WithLabelValues(streamName).Observe(time.Since(msg.Timestamp).Seconds())
+			}
+		}
 		dispatch, ok := c.dispatch[entityName]
 		if !ok {
 			// No handler registered for this entity — skip + ack (forward-compat).
