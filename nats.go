@@ -20,14 +20,16 @@ type AsyncFlushOptions struct {
 }
 
 type NatsPoolOptions struct {
-	ClientID         string
-	MaxReconnects    int
-	ReconnectWait    time.Duration
-	ReconnectBufSize int
-	PingInterval     time.Duration
-	Auth             *NatsAuthConfig
-	IgnoredSubjects  []string
-	IgnoredConsumers []string
+	ClientID            string
+	MaxReconnects       int
+	ReconnectWait       time.Duration
+	ReconnectBufSize    int
+	PingInterval        time.Duration
+	ConnectTimeout      time.Duration
+	RetryOnFailedConnect bool
+	Auth                *NatsAuthConfig
+	IgnoredSubjects     []string
+	IgnoredConsumers    []string
 }
 
 type NatsAuthConfig struct {
@@ -166,6 +168,12 @@ func buildNatsConnectOpts(cfg *natsPoolConfig) []nats.Option {
 	if cfg.options.PingInterval > 0 {
 		opts = append(opts, nats.PingInterval(cfg.options.PingInterval))
 	}
+	if cfg.options.ConnectTimeout > 0 {
+		opts = append(opts, nats.Timeout(cfg.options.ConnectTimeout))
+	}
+	if cfg.options.RetryOnFailedConnect {
+		opts = append(opts, nats.RetryOnFailedConnect(true))
+	}
 	if auth := cfg.options.Auth; auth != nil {
 		switch {
 		case auth.CredsFile != "":
@@ -200,10 +208,19 @@ func (p *natsPoolImplementation) initProducer() error {
 		p.js = nil
 	}
 
-	url := strings.Join(p.config.urls, ",")
+	urls := make([]string, 0, len(p.config.urls))
+	for _, u := range p.config.urls {
+		if u = strings.TrimSpace(u); u != "" {
+			urls = append(urls, u)
+		}
+	}
+	if len(urls) == 0 {
+		return fmt.Errorf("nats pool '%s': no urls configured", p.config.code)
+	}
+	url := strings.Join(urls, ",")
 	nc, err := nats.Connect(url, buildNatsConnectOpts(p.config)...)
 	if err != nil {
-		return fmt.Errorf("nats pool '%s': failed to connect: %w", p.config.code, err)
+		return fmt.Errorf("nats pool '%s': failed to connect to any of %d urls: %w", p.config.code, len(urls), err)
 	}
 	js, err := jetstream.New(nc)
 	if err != nil {

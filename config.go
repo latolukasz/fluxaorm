@@ -70,9 +70,11 @@ type ConfigNats struct {
 	Code             string               `yaml:"code" validate:"required"`
 	URLs             []string             `yaml:"urls" validate:"required"`
 	ClientID         string               `yaml:"clientID"`
-	MaxReconnects    int                  `yaml:"maxReconnects"`
-	ReconnectWaitMs  int                  `yaml:"reconnectWaitMs"`
-	ReconnectBufSize int                  `yaml:"reconnectBufSize"`
+	MaxReconnects        int                  `yaml:"maxReconnects"`
+	ReconnectWaitMs      int                  `yaml:"reconnectWaitMs"`
+	ReconnectBufSize     int                  `yaml:"reconnectBufSize"`
+	ConnectTimeoutMs     int                  `yaml:"connectTimeoutMs"`
+	RetryOnFailedConnect bool                 `yaml:"retryOnFailedConnect"`
 	AuthToken        string               `yaml:"authToken"`
 	AuthUser         string               `yaml:"authUser"`
 	AuthPassword     string               `yaml:"authPassword"`
@@ -147,14 +149,18 @@ func (r *registry) InitByConfig(config *Config) error {
 	}
 	for _, pool := range config.NatsPools {
 		options := &NatsPoolOptions{
-			ClientID:         pool.ClientID,
-			MaxReconnects:    pool.MaxReconnects,
-			ReconnectBufSize: pool.ReconnectBufSize,
-			IgnoredSubjects:  pool.IgnoredSubjects,
-			IgnoredConsumers: pool.IgnoredConsumers,
+			ClientID:             pool.ClientID,
+			MaxReconnects:        pool.MaxReconnects,
+			ReconnectBufSize:     pool.ReconnectBufSize,
+			RetryOnFailedConnect: pool.RetryOnFailedConnect,
+			IgnoredSubjects:      pool.IgnoredSubjects,
+			IgnoredConsumers:     pool.IgnoredConsumers,
 		}
 		if pool.ReconnectWaitMs > 0 {
 			options.ReconnectWait = time.Duration(pool.ReconnectWaitMs) * time.Millisecond
+		}
+		if pool.ConnectTimeoutMs > 0 {
+			options.ConnectTimeout = time.Duration(pool.ConnectTimeoutMs) * time.Millisecond
 		}
 		if pool.AuthToken != "" || pool.AuthUser != "" || pool.AuthCredsFile != "" || pool.AuthNKeySeed != "" {
 			options.Auth = &NatsAuthConfig{
