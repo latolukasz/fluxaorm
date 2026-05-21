@@ -66,7 +66,7 @@ type ormImplementation struct {
 	disabledContextCache     bool
 	meta                     Meta
 	redisRecordMode          bool
-	redisPipeLines           map[string]*RedisPipeLine
+	redisPipeLines           []*RedisPipeLine
 	dbPipeLines              map[string]*DatabasePipeline
 	mutexFlush               sync.Mutex
 	mutexData                sync.Mutex
@@ -101,20 +101,11 @@ func (orm *ormImplementation) Clone() Context {
 }
 
 func (orm *ormImplementation) RedisPipeLine(pool string) *RedisPipeLine {
-	if orm.redisPipeLines != nil {
-		pipeline, has := orm.redisPipeLines[pool]
-		if has {
-			return pipeline
-		}
-	}
-	orm.mutexData.Lock()
-	defer orm.mutexData.Unlock()
-	if orm.redisPipeLines == nil {
-		orm.redisPipeLines = make(map[string]*RedisPipeLine)
-	}
 	r := orm.engine.Redis(pool).(*redisCache)
 	pipeline := &RedisPipeLine{ctx: orm, pool: pool, r: r, pipeLine: r.client.Pipeline(), recordMode: orm.redisRecordMode}
-	orm.redisPipeLines[pool] = pipeline
+	orm.mutexData.Lock()
+	defer orm.mutexData.Unlock()
+	orm.redisPipeLines = append(orm.redisPipeLines, pipeline)
 	return pipeline
 }
 
