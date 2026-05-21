@@ -198,7 +198,7 @@ func (orm *ormImplementation) Track(f Entity, cacheIndex string) {
 	}
 	if orm.cachedEntities != nil {
 		if cached, ok := orm.cachedEntities.Load(cacheIndex); ok {
-			cached.Delete(f.GetID())
+			cached.Store(f.GetID(), f)
 		}
 	}
 }
