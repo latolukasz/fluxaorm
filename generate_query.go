@@ -223,10 +223,8 @@ func (g *codeGenerator) generateGetByIDs(schema *entitySchema, names *entityName
 }
 
 func (g *codeGenerator) generateNewMethods(schema *entitySchema, names *entityNames) {
-	g.addLine(fmt.Sprintf("func (p %s) New(ctx fluxaorm.Context) (*%s, error)  {", names.providerNamePrivate, names.entityName))
-	g.addLine(fmt.Sprintf("\tid, err := p.uuid(ctx)"))
-	g.addLine(fmt.Sprintf("\tif err != nil {\n\t\treturn nil, err\n\t}"))
-	g.addLine(fmt.Sprintf("\treturn p.NewWithID(ctx, id), nil"))
+	g.addLine(fmt.Sprintf("func (p %s) New(ctx fluxaorm.Context) *%s  {", names.providerNamePrivate, names.entityName))
+	g.addLine(fmt.Sprintf("\treturn p.NewWithID(ctx, ctx.Engine().NextID())"))
 	g.addLine("}")
 	g.addLine("")
 	defaults := collectRequiredEnumDefaults(schema.fields)

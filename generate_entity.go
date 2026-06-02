@@ -47,7 +47,6 @@ func (g *codeGenerator) generateCodeForEntity(schema *entitySchema) error {
 		g.generateSearchManyInRedisWithTotal(schema, names)
 		g.generateReindexRedisSearch(schema, names)
 	}
-	g.generateUUID(schema, names)
 	g.generateEntityStruct(schema, names)
 
 	g.filedIndex = 0

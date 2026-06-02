@@ -32,6 +32,8 @@ type Engine interface {
 	Redis(code string) RedisCache
 	Registry() EngineRegistry
 	Option(key string) any
+	NextID() uint64
+	SetNodeID(node int64)
 }
 
 type engineRegistryImplementation struct {
@@ -69,6 +71,15 @@ type engineImplementation struct {
 	afterDeleteHandlers map[string]func(Context, Entity) error
 	entityLoaders       map[string]func(Context, uint64) (Entity, bool, error)
 	entityDBPools       map[string]string
+	idGenerator         *snowflakeGenerator
+}
+
+func (e *engineImplementation) NextID() uint64 {
+	return e.idGenerator.next()
+}
+
+func (e *engineImplementation) SetNodeID(node int64) {
+	e.idGenerator.setNode(node)
 }
 
 func (e *engineImplementation) NewContext(context context.Context) Context {

@@ -6,14 +6,11 @@ import (
 )
 
 func (g *codeGenerator) generateProviderAndSQLRow(schema *entitySchema, names *entityNames) {
-	g.addImport("sync")
-
 	g.addLine(fmt.Sprintf("type %s struct {", names.providerNamePrivate))
 	g.addLine("\ttableName string")
 	g.addLine("\tdbCode string")
 	g.addLine("\tredisCode string")
 	g.addLine("\tcacheIndex string")
-	g.addLine("\tuuidRedisKeyMutex *sync.Mutex")
 	if schema.hasRedisCache {
 		g.addLine("\tredisCachePrefix string")
 		g.addLine("\tredisCacheStamp string")
@@ -50,7 +47,6 @@ func (g *codeGenerator) generateProviderAndSQLRow(schema *entitySchema, names *e
 		g.addLine(fmt.Sprintf("\tredisSearchIndex:  \"%s\",", schema.redisSearchIndex))
 		g.addLine(fmt.Sprintf("\tredisSearchPrefix: \"%s\",", schema.redisSearchPrefix))
 	}
-	g.addLine(fmt.Sprintf("\tuuidRedisKeyMutex: &sync.Mutex{},"))
 	g.generateTypedFieldsInit(schema, names)
 	g.generateRedisSearchFieldsInit(schema, names)
 	g.addLine("}")

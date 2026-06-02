@@ -73,6 +73,7 @@ func (r *registry) Validate() (Engine, error) {
 	l := len(r.entities)
 	e.registry.entitySchemas = make(map[reflect.Type]*entitySchema, l)
 	e.options = make(map[string]any)
+	e.idGenerator = newSnowflakeGenerator(0)
 	if e.dbServers == nil {
 		e.dbServers = make(map[string]DB)
 	}
@@ -418,6 +419,7 @@ func (r *registry) ValidateForCodeGen() (Engine, error) {
 	e.registry.options = make(map[string]any)
 	e.registry.entitySchemas = make(map[reflect.Type]*entitySchema, len(r.entities))
 	e.options = make(map[string]any)
+	e.idGenerator = newSnowflakeGenerator(0)
 	e.dbServers = make(map[string]DB)
 	e.registry.dbTables = make(map[string]map[string]bool)
 	e.natsServers = make(map[string]Nats)
