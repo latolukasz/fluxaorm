@@ -1,6 +1,7 @@
 package fluxaorm
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -303,7 +304,13 @@ func BuildCDCDispatch[T any](handler func(ctx Context, ev *DirtyEvent[T]) error,
 	}
 	return func(ctx Context, msg *NatsMessage) error {
 		ev := &DirtyEvent[T]{}
-		if err := json.Unmarshal(msg.Data, ev); err != nil {
+		// UseNumber keeps numeric Before/After snapshot values (T == map[string]any)
+		// as json.Number rather than float64. Snapshots carry uint64 entity IDs and
+		// FK references that exceed float64's 2^53 exact range, which a float decode
+		// would silently round.
+		dec := json.NewDecoder(bytes.NewReader(msg.Data))
+		dec.UseNumber()
+		if err := dec.Decode(ev); err != nil {
 			return fmt.Errorf("dirty event unmarshal: %w", err)
 		}
 		if len(cfg.watchFields) > 0 && ev.Op == DirtyUpdate {
