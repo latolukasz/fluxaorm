@@ -425,6 +425,8 @@ func (g *codeGenerator) generateSearchOne(schema *entitySchema, names *entityNam
 			g.addLine("\t\t}")
 			g.addLine("\t\tif _allEq {")
 			for _, idx := range indexes {
+				// Each index gets its own scope so shared columns don't redeclare vars.
+				g.addLine("\t\t\t{")
 				// Build variable declarations for each column
 				varDecls := ""
 				hasChecks := ""
@@ -496,6 +498,7 @@ func (g *codeGenerator) generateSearchOne(schema *entitySchema, names *entityNam
 				g.addLine("\t\t\t\t\treturn nil, false, _err")
 				g.addLine("\t\t\t\t}")
 				g.addLine("\t\t\t\treturn p.GetByID(ctx, _foundID)")
+				g.addLine("\t\t\t}")
 				g.addLine("\t\t\t}")
 			}
 			g.addLine("\t\t}")
