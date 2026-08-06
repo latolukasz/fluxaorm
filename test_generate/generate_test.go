@@ -145,6 +145,13 @@ type generateEntityDirty struct {
 	Age  uint16
 }
 
+// generateEntityDirtyB shares test_stream with generateEntityDirty so the
+// consumer's group-by-entity batching has more than one group to split.
+type generateEntityDirtyB struct {
+	ID    uint64 `orm:"dirty=test_stream"`
+	Label string `orm:"required;length=100"`
+}
+
 func (e generateEntity) UniqueIndexes() [][]string {
 	return [][]string{{"Age", "Balance"}}
 }
@@ -198,15 +205,14 @@ func TestGenerate(t *testing.T) {
 		generateEntity{}, generateEntityNoRedis{}, generateReferenceEntity{},
 		generateEntityWithSearch{}, generateEntityWithTimestamps{}, generateEntityWithTimestampsRedis{},
 		generateEntityCachedUnique{}, generateEntityCachedUniqueNoRedis{}, generateEntityCachedUniqueFakeDelete{},
-		generateEntityWithIndex{}, generateEntityEnumRef{}, generateEntityDirty{})
+		generateEntityWithIndex{}, generateEntityEnumRef{}, generateEntityDirty{}, generateEntityDirtyB{})
 	defer ctx.Engine().Nats("nats").Close()
 	_ = os.MkdirAll("entities", 0755)
 
 	err := fluxaorm.Generate(ctx.Engine(), "entities")
 	assert.NoError(t, err)
 
-	e, errNew := entities.GenerateEntityProvider.New(ctx)
-	assert.NoError(t, errNew)
+	e := entities.GenerateEntityProvider.New(ctx)
 	assert.NotEmpty(t, e.GetID())
 	assert.Equal(t, uint64(0), e.GetAge())
 	assert.Equal(t, int64(0), e.GetBalance())
@@ -238,8 +244,7 @@ func TestGenerate(t *testing.T) {
 	assert.Nil(t, e.GetJsonAddress())
 	assert.NotNil(t, e)
 
-	e2, errNew := entities.GenerateEntityNoRedisProvider.New(ctx)
-	assert.NoError(t, errNew)
+	e2 := entities.GenerateEntityNoRedisProvider.New(ctx)
 	assert.NotEmpty(t, e2.GetID())
 	assert.Equal(t, uint64(0), e2.GetAge())
 	assert.Equal(t, int64(0), e2.GetBalance())
@@ -460,8 +465,7 @@ func TestGenerate(t *testing.T) {
 	e2.SetTime(now2)
 	e.SetDate(now2)
 	e2.SetDate(now2)
-	ref, errNew := entities.GenerateReferenceEntityProvider.New(ctx)
-	assert.NoError(t, errNew)
+	ref := entities.GenerateReferenceEntityProvider.New(ctx)
 	ref.SetName("Test Reference")
 	e.SetReferenceRequired(ref.GetID())
 	e2.SetReferenceRequired(ref.GetID())
@@ -624,8 +628,7 @@ func TestGenerate(t *testing.T) {
 	assert.Nil(t, searchResults2)
 
 	// SearchMany and SearchManyWithTotal: generateReferenceEntity (FakeDelete)
-	ref2, errNew := entities.GenerateReferenceEntityProvider.New(ctx)
-	assert.NoError(t, errNew)
+	ref2 := entities.GenerateReferenceEntityProvider.New(ctx)
 	ref2.SetName("Test Reference 2")
 	assert.NoError(t, ctx.Flush())
 
@@ -794,18 +797,15 @@ func TestGenerate(t *testing.T) {
 	assert.NoError(t, err)
 	assert.Len(t, alters, 0)
 
-	es1, errNew := entities.GenerateEntityWithSearchProvider.New(ctx)
-	assert.NoError(t, errNew)
+	es1 := entities.GenerateEntityWithSearchProvider.New(ctx)
 	es1.SetAge(10)
 	es1.SetName("Alice")
 	es1.SetScore(1.5)
-	es2, errNew := entities.GenerateEntityWithSearchProvider.New(ctx)
-	assert.NoError(t, errNew)
+	es2 := entities.GenerateEntityWithSearchProvider.New(ctx)
 	es2.SetAge(20)
 	es2.SetName("Bob")
 	es2.SetScore(2.5)
-	es3, errNew := entities.GenerateEntityWithSearchProvider.New(ctx)
-	assert.NoError(t, errNew)
+	es3 := entities.GenerateEntityWithSearchProvider.New(ctx)
 	es3.SetAge(30)
 	es3.SetName("Charlie")
 	es3.SetScore(3.5)
@@ -913,8 +913,7 @@ func TestGenerate(t *testing.T) {
 
 	// ---- Timestamp auto-set tests (no Redis cache) ----
 	beforeInsert := time.Now().UTC().Truncate(time.Second)
-	ts1, errNew := entities.GenerateEntityWithTimestampsProvider.New(ctx)
-	assert.NoError(t, errNew)
+	ts1 := entities.GenerateEntityWithTimestampsProvider.New(ctx)
 	ts1.SetName("TimestampTest")
 	assert.NoError(t, ctx.Flush())
 	afterInsert := time.Now().UTC().Truncate(time.Second).Add(time.Second)
@@ -947,8 +946,7 @@ func TestGenerate(t *testing.T) {
 
 	// INSERT with explicit CreatedAt: should preserve user value
 	customTime := time.Date(2020, 1, 1, 12, 0, 0, 0, time.UTC)
-	ts2, errNew := entities.GenerateEntityWithTimestampsProvider.New(ctx)
-	assert.NoError(t, errNew)
+	ts2 := entities.GenerateEntityWithTimestampsProvider.New(ctx)
 	ts2.SetName("CustomCreatedAt")
 	ts2.SetCreatedAt(customTime)
 	assert.NoError(t, ctx.Flush())
@@ -961,8 +959,7 @@ func TestGenerate(t *testing.T) {
 
 	// ---- Timestamp auto-set tests (with Redis cache) ----
 	beforeInsertR := time.Now().UTC().Truncate(time.Second)
-	tsr1, errNew := entities.GenerateEntityWithTimestampsRedisProvider.New(ctx)
-	assert.NoError(t, errNew)
+	tsr1 := entities.GenerateEntityWithTimestampsRedisProvider.New(ctx)
 	tsr1.SetName("TimestampRedisTest")
 	assert.NoError(t, ctx.Flush())
 	afterInsertR := time.Now().UTC().Truncate(time.Second).Add(time.Second)
@@ -990,8 +987,7 @@ func TestGenerate(t *testing.T) {
 
 	// Test non-cached unique index getter (AgeBalance on generateEntity)
 	ctx.DisableContextCache()
-	eIdx, errNew := entities.GenerateEntityProvider.New(ctx)
-	assert.NoError(t, errNew)
+	eIdx := entities.GenerateEntityProvider.New(ctx)
 	eIdx.SetAge(25)
 	eIdx.SetBalance(10)
 	eIdx.SetTime(now)
@@ -1017,8 +1013,7 @@ func TestGenerate(t *testing.T) {
 	assert.Nil(t, eByIdx)
 
 	// Test cached unique index getter (generateEntityCachedUnique)
-	cu, errNew := entities.GenerateEntityCachedUniqueProvider.New(ctx)
-	assert.NoError(t, errNew)
+	cu := entities.GenerateEntityCachedUniqueProvider.New(ctx)
 	cu.SetName("Alice")
 	cu.SetAge(30)
 	cu.SetEmail("alice@example.com")
@@ -1102,8 +1097,7 @@ func TestGenerate(t *testing.T) {
 	assert.Nil(t, cuDelEmail)
 
 	// Test cached unique index without Redis entity cache (generateEntityCachedUniqueNoRedis)
-	cunr, errNew := entities.GenerateEntityCachedUniqueNoRedisProvider.New(ctx)
-	assert.NoError(t, errNew)
+	cunr := entities.GenerateEntityCachedUniqueNoRedisProvider.New(ctx)
 	cunr.SetCode("test123")
 	cunr.SetValue(42)
 	assert.NoError(t, ctx.Flush())
@@ -1116,8 +1110,7 @@ func TestGenerate(t *testing.T) {
 	assert.Equal(t, cunr.GetID(), cunrByCode.GetID())
 
 	// Test FakeDelete removes cached unique index key
-	cufd, errNew := entities.GenerateEntityCachedUniqueFakeDeleteProvider.New(ctx)
-	assert.NoError(t, errNew)
+	cufd := entities.GenerateEntityCachedUniqueFakeDeleteProvider.New(ctx)
 	cufd.SetName("FakeDeleteTest")
 	assert.NoError(t, ctx.Flush())
 	cufdByName, found, err := entities.GenerateEntityCachedUniqueFakeDeleteProvider.SearchOne(ctx, fluxaorm.NewQuery().Filter(
@@ -1138,8 +1131,7 @@ func TestGenerate(t *testing.T) {
 	assert.Nil(t, cufdAfterDelete)
 
 	// ---- enumName-only reference tests ----
-	eRef, errNew := entities.GenerateEntityEnumRefProvider.New(ctx)
-	assert.NoError(t, errNew)
+	eRef := entities.GenerateEntityEnumRefProvider.New(ctx)
 	assert.Nil(t, eRef.GetStatus())
 	val := enums.TestEnumList.A
 	eRef.SetStatus(&val)
@@ -1228,8 +1220,7 @@ func TestGenerate(t *testing.T) {
 	}
 
 	// ClearRedisCache: insert entity to populate redis cache, then clear it
-	clearEntity, errNew := entities.GenerateEntityProvider.New(ctx)
-	assert.NoError(t, errNew)
+	clearEntity := entities.GenerateEntityProvider.New(ctx)
 	clearEntity.SetName("clear_test")
 	clearEntity.SetTestEnum(enums.TestEnumList.A)
 	clearEntity.SetTime(time.Now().UTC())

@@ -17,6 +17,7 @@ type metricsRegistry struct {
 	queriesClickhouseErrors *prometheus.CounterVec
 	queriesNats             *prometheus.HistogramVec
 	queriesNatsErrors       *prometheus.CounterVec
+	natsPublishBatchSize    *prometheus.HistogramVec
 	cdcMessages             *prometheus.CounterVec
 	streamLag               *prometheus.HistogramVec
 }
@@ -59,6 +60,13 @@ func initMetricsRegistry(factory promauto.Factory) *metricsRegistry {
 		Name: "fluxaorm_nats_operations_errors",
 		Help: "Total number of NATS operation errors",
 	}, []string{"pool", "source", "consumer"})
+	// Batch size shows whether PublishBatch is actually amortising round-trips or
+	// degenerating into a stream of single-message publishes.
+	reg.natsPublishBatchSize = factory.NewHistogramVec(prometheus.HistogramOpts{
+		Name:    "fluxaorm_nats_publish_batch_size",
+		Help:    "Number of messages per batched NATS publish",
+		Buckets: prometheus.ExponentialBuckets(1, 2, 12),
+	}, []string{"pool", "source"})
 	reg.cdcMessages = factory.NewCounterVec(prometheus.CounterOpts{
 		Name: "fluxaorm_cdc_messages_total",
 		Help: "Total number of CDC events fetched from JetStream",

@@ -201,6 +201,23 @@ func (g *codeGenerator) generateDirtyStreamsFile(schemas map[reflect.Type]*entit
 		g.addLine(fmt.Sprintf("\tStream%s,", ident))
 	}
 	g.addLine("}")
+	g.addLine("")
+
+	// CDCStreamEntities makes "which entities feed this stream" a generated fact,
+	// so applications can assert their own per-stream registries against the
+	// `dirty=` tags instead of hand-maintaining a list that silently drifts.
+	g.addLine("// CDCStreamEntities lists the entity providers tagged into each CDC stream, so")
+	g.addLine("// apps can assert their own per-stream registries stay in sync with the tags.")
+	g.addLine("var CDCStreamEntities = map[fluxaorm.NatsStreamName][]fluxaorm.EntityProvider{")
+	for _, name := range streamNames {
+		ident := g.capitalizeStreamName(name)
+		providers := make([]string, 0, len(streamToEntities[name]))
+		for _, entityName := range streamToEntities[name] {
+			providers = append(providers, "&"+entityName+"Provider")
+		}
+		g.addLine(fmt.Sprintf("\tStream%s.Name(): {%s},", ident, strings.Join(providers, ", ")))
+	}
+	g.addLine("}")
 
 	filePath := filepath.Join(g.dir, "dirty_streams.go")
 	f, err := os.Create(filePath)
@@ -249,7 +266,7 @@ func (g *codeGenerator) generateCDCStreamBuilderFile(streamName string, infos []
 	g.addLine("}")
 	g.addLine("")
 
-	// One OnX method per entity tagged into this stream.
+	// One OnX + OnXBatch method per entity tagged into this stream.
 	for _, info := range infos {
 		entityName := info.entityName
 		methodName := "On" + entityName
@@ -260,6 +277,20 @@ func (g *codeGenerator) generateCDCStreamBuilderFile(streamName string, infos []
 		g.addLine("\topts ...fluxaorm.CDCHandlerOption,")
 		g.addLine(fmt.Sprintf(") *%s {", builderTypeName))
 		g.addLine(fmt.Sprintf("\tb.AddDispatch(\"%s\", fluxaorm.BuildCDCDispatch[map[string]any](handler, opts...))", entityName))
+		g.addLine("\treturn b")
+		g.addLine("}")
+		g.addLine("")
+
+		batchMethodName := methodName + "Batch"
+		g.addLine(fmt.Sprintf("// %s registers a batch handler for %s change events in the %q stream.", batchMethodName, entityName, streamName))
+		g.addLine(fmt.Sprintf("// Every %s message in one fetched batch is passed together. Returning nil acks", entityName))
+		g.addLine("// them all; returning err redelivers them all, so the handler must be idempotent.")
+		g.addLine(fmt.Sprintf("// Registering both %s and %s for the same entity panics at Build().", methodName, batchMethodName))
+		g.addLine(fmt.Sprintf("func (b *%s) %s(", builderTypeName, batchMethodName))
+		g.addLine(fmt.Sprintf("\thandler func(ctx fluxaorm.Context, evs []*%sDirtyEvent) error,", entityName))
+		g.addLine("\topts ...fluxaorm.CDCHandlerOption,")
+		g.addLine(fmt.Sprintf(") *%s {", builderTypeName))
+		g.addLine(fmt.Sprintf("\tb.AddBatchDispatch(\"%s\", fluxaorm.BuildCDCBatchDispatch[map[string]any](handler, opts...))", entityName))
 		g.addLine("\treturn b")
 		g.addLine("}")
 		g.addLine("")

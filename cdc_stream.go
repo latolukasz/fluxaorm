@@ -129,10 +129,13 @@ func (r CDCStreamRef[B]) Durable() string { return DurableForStream(r.name) }
 // zero changes — only consumers without WatchFields (full reindexers etc.) act
 // on it.
 //
-// Returns an error if the entity has no registered dirty publisher or isn't
+// All entities are published in one batch, so replaying a page of rows costs one
+// round-trip rather than one per entity.
+//
+// Returns an error if any entity has no registered dirty publisher or isn't
 // tagged for this CDC stream.
-func (r CDCStreamRef[B]) Enqueue(orm Context, entity Entity) error {
-	return enqueueDirtyEvent(orm, entity, r.name)
+func (r CDCStreamRef[B]) Enqueue(orm Context, entities []Entity) error {
+	return enqueueDirtyEvents(orm, entities, r.name)
 }
 
 // NewCDCStreamRef is the generator-facing factory. Called from generated
@@ -166,15 +169,21 @@ func NewCDCStreamByName(name NatsStreamName) CDCStream {
 // Generated typed handlers wrap themselves into this type via BuildCDCDispatch[T].
 type CDCDispatch func(ctx Context, msg *NatsMessage) error
 
+// CDCBatchDispatch handles every message for one entity within a single fetched
+// batch. Returning nil acks the whole group; returning err leaves the whole group
+// unacked for redelivery, so batch handlers must be idempotent.
+type CDCBatchDispatch func(ctx Context, msgs []*NatsMessage) error
+
 // CDCBuilder is the shared state struct embedded by every generated per-stream
 // builder. Exported so generated code in the entities package can call AddDispatch.
 //
 // Users never construct a CDCBuilder directly — `NewCDCConsumer` does it via the
 // typed stream ref's factory closure.
 type CDCBuilder struct {
-	engine   Engine
-	stream   CDCStream
-	dispatch map[string]CDCDispatch
+	engine        Engine
+	stream        CDCStream
+	dispatch      map[string]CDCDispatch
+	batchDispatch map[string]CDCBatchDispatch
 }
 
 // AddDispatch registers a typed dispatch closure for an entity type name.
@@ -183,19 +192,36 @@ func (b *CDCBuilder) AddDispatch(entityTypeName string, d CDCDispatch) {
 	b.dispatch[entityTypeName] = d
 }
 
+// AddBatchDispatch registers a typed batch dispatch closure for an entity type
+// name. Called from generated OnXBatch methods. Not for direct use.
+func (b *CDCBuilder) AddBatchDispatch(entityTypeName string, d CDCBatchDispatch) {
+	b.batchDispatch[entityTypeName] = d
+}
+
 // Stream returns the underlying CDCStream — used by Build() and tests.
 func (b *CDCBuilder) Stream() CDCStream { return b.stream }
 
 // Build wraps the accumulated dispatch table into a StreamConsumer ready to be
 // driven by the user's lifecycle harness (cron.Job / fx / goroutine).
+//
+// Panics if an entity has both a per-message and a batch handler: that is a
+// wiring mistake, and silently preferring one would hide a dropped handler.
 func (b *CDCBuilder) Build() StreamConsumer {
+	for entityName := range b.batchDispatch {
+		if _, both := b.dispatch[entityName]; both {
+			panic(fmt.Sprintf(
+				"cdc stream '%s': entity '%s' has both a per-message and a batch handler registered; keep one",
+				b.stream.Name(), entityName))
+		}
+	}
 	return &cdcStreamConsumerImpl{
 		base: &streamConsumerImpl{
 			engine:      b.engine,
 			streamName:  b.stream.Name(),
 			durableName: b.stream.Durable(),
 		},
-		dispatch: b.dispatch,
+		dispatch:      b.dispatch,
+		batchDispatch: b.batchDispatch,
 	}
 }
 
@@ -208,9 +234,10 @@ func (b *CDCBuilder) Build() StreamConsumer {
 //	    Build()
 func NewCDCConsumer[B any](engine Engine, stream CDCStreamRef[B]) *B {
 	core := &CDCBuilder{
-		engine:   engine,
-		stream:   stream,
-		dispatch: make(map[string]CDCDispatch),
+		engine:        engine,
+		stream:        stream,
+		dispatch:      make(map[string]CDCDispatch),
+		batchDispatch: make(map[string]CDCBatchDispatch),
 	}
 	return stream.newBuilder(core)
 }
@@ -219,8 +246,9 @@ func NewCDCConsumer[B any](engine Engine, stream CDCStreamRef[B]) *B {
 // dispatch by `Dirty-Entity` header. Unknown entity names (e.g. a new entity added
 // after this consumer was deployed) are skipped with a debug log + ack, never panic.
 type cdcStreamConsumerImpl struct {
-	base     *streamConsumerImpl
-	dispatch map[string]CDCDispatch
+	base          *streamConsumerImpl
+	dispatch      map[string]CDCDispatch
+	batchDispatch map[string]CDCBatchDispatch
 }
 
 func (c *cdcStreamConsumerImpl) Consume(ctx context.Context, batch int, timeout time.Duration) error {
@@ -241,6 +269,12 @@ func (c *cdcStreamConsumerImpl) Consume(ctx context.Context, batch int, timeout 
 	}
 	metrics, hasMetrics := c.base.engine.Registry().getMetricsRegistry()
 	streamName := string(c.base.streamName)
+
+	// Group by entity so entities with a batch handler get one call for the whole
+	// fetch. Order of first appearance is kept so dispatch stays deterministic;
+	// grouping only reorders across entities, never within one.
+	order := make([]string, 0, len(c.batchDispatch)+1)
+	grouped := make(map[string][]*NatsMessage)
 	for _, msg := range natsBatch.Records() {
 		entityName := msg.Headers.Get(HeaderDirtyEntity)
 		if hasMetrics {
@@ -249,21 +283,51 @@ func (c *cdcStreamConsumerImpl) Consume(ctx context.Context, batch int, timeout 
 				metrics.streamLag.WithLabelValues(streamName).Observe(time.Since(msg.Timestamp).Seconds())
 			}
 		}
+		if _, seen := grouped[entityName]; !seen {
+			order = append(order, entityName)
+		}
+		grouped[entityName] = append(grouped[entityName], msg)
+	}
+
+	for _, entityName := range order {
+		msgs := grouped[entityName]
+		if batchDispatch, ok := c.batchDispatch[entityName]; ok {
+			c.dispatchBatch(ormCtx, batchDispatch, msgs)
+			continue
+		}
 		dispatch, ok := c.dispatch[entityName]
 		if !ok {
 			// No handler registered for this entity — skip + ack (forward-compat).
-			_ = msg.Ack()
+			for _, msg := range msgs {
+				_ = msg.Ack()
+			}
 			continue
 		}
-		if dispatchErr := dispatch(ormCtx, msg); dispatchErr != nil {
-			c.base.logHandlerError(ormCtx, msg, dispatchErr)
-			continue
+		for _, msg := range msgs {
+			if dispatchErr := dispatch(ormCtx, msg); dispatchErr != nil {
+				c.base.logHandlerError(ormCtx, msg, dispatchErr)
+				continue
+			}
+			if ackErr := msg.Ack(); ackErr != nil {
+				c.base.logHandlerError(ormCtx, msg, fmt.Errorf("ack: %w", ackErr))
+			}
 		}
+	}
+	return nil
+}
+
+// dispatchBatch runs one batch handler and acks the whole group on success. On
+// error nothing is acked, so JetStream redelivers the entire group.
+func (c *cdcStreamConsumerImpl) dispatchBatch(ormCtx Context, dispatch CDCBatchDispatch, msgs []*NatsMessage) {
+	if dispatchErr := dispatch(ormCtx, msgs); dispatchErr != nil {
+		c.base.logHandlerError(ormCtx, msgs[0], fmt.Errorf("batch of %d: %w", len(msgs), dispatchErr))
+		return
+	}
+	for _, msg := range msgs {
 		if ackErr := msg.Ack(); ackErr != nil {
 			c.base.logHandlerError(ormCtx, msg, fmt.Errorf("ack: %w", ackErr))
 		}
 	}
-	return nil
 }
 
 // CDCHandlerOption configures a single typed CDC handler (filtering, etc).
@@ -297,21 +361,65 @@ func CDCEntityName[T any]() string {
 //
 //	b.AddDispatch(fluxaorm.CDCEntityName[Orders](),
 //	    fluxaorm.BuildCDCDispatch[Orders](handler, opts...))
+//
+// BuildCDCBatchDispatch wraps a typed user batch handler into the generic
+// CDCBatchDispatch closure. Generated OnXBatch methods call this.
+//
+// Every message in the group is decoded up front and filtered through
+// WatchFields; if nothing survives the filter the handler is skipped and the
+// group acks. A decode failure fails the whole group rather than silently
+// dropping a message.
+func BuildCDCBatchDispatch[T any](
+	handler func(ctx Context, evs []*DirtyEvent[T]) error, opts ...CDCHandlerOption,
+) CDCBatchDispatch {
+	cfg := &cdcHandlerConfig{}
+	for _, opt := range opts {
+		opt(cfg)
+	}
+	return func(ctx Context, msgs []*NatsMessage) error {
+		evs := make([]*DirtyEvent[T], 0, len(msgs))
+		for _, msg := range msgs {
+			ev, err := decodeDirtyEvent[T](msg)
+			if err != nil {
+				return err
+			}
+			if len(cfg.watchFields) > 0 && ev.Op == DirtyUpdate && !dirtyEventHasFieldChanges(ev, cfg.watchFields) {
+				continue
+			}
+			evs = append(evs, ev)
+		}
+		if len(evs) == 0 {
+			return nil
+		}
+		return handler(ctx, evs)
+	}
+}
+
+// decodeDirtyEvent unmarshals one CDC message into its typed envelope.
+//
+// UseNumber keeps numeric Before/After snapshot values (T == map[string]any) as
+// json.Number rather than float64. Snapshots carry uint64 entity IDs and FK
+// references that exceed float64's 2^53 exact range, which a float decode would
+// silently round.
+func decodeDirtyEvent[T any](msg *NatsMessage) (*DirtyEvent[T], error) {
+	ev := &DirtyEvent[T]{}
+	dec := json.NewDecoder(bytes.NewReader(msg.Data))
+	dec.UseNumber()
+	if err := dec.Decode(ev); err != nil {
+		return nil, fmt.Errorf("dirty event unmarshal: %w", err)
+	}
+	return ev, nil
+}
+
 func BuildCDCDispatch[T any](handler func(ctx Context, ev *DirtyEvent[T]) error, opts ...CDCHandlerOption) CDCDispatch {
 	cfg := &cdcHandlerConfig{}
 	for _, opt := range opts {
 		opt(cfg)
 	}
 	return func(ctx Context, msg *NatsMessage) error {
-		ev := &DirtyEvent[T]{}
-		// UseNumber keeps numeric Before/After snapshot values (T == map[string]any)
-		// as json.Number rather than float64. Snapshots carry uint64 entity IDs and
-		// FK references that exceed float64's 2^53 exact range, which a float decode
-		// would silently round.
-		dec := json.NewDecoder(bytes.NewReader(msg.Data))
-		dec.UseNumber()
-		if err := dec.Decode(ev); err != nil {
-			return fmt.Errorf("dirty event unmarshal: %w", err)
+		ev, err := decodeDirtyEvent[T](msg)
+		if err != nil {
+			return err
 		}
 		if len(cfg.watchFields) > 0 && ev.Op == DirtyUpdate {
 			if !dirtyEventHasFieldChanges(ev, cfg.watchFields) {
@@ -545,9 +653,17 @@ func dirtyOpFromFlushType(t uint8) DirtyOp {
 	return 0
 }
 
-// publishDirtyEvent serialises the event once and fans it out to all of the
-// entity's configured CDC streams. Returns the first publish error.
-func publishDirtyEvent(orm Context, publisher *dirtyPublisherEntry, e Entity, op DirtyOp, beforeOrigin map[string]any) error {
+// pendingDirtyMessages accumulates CDC messages across a whole Flush, keyed by
+// NATS pool, so each pool is published in one batch instead of one round-trip
+// per entity per stream.
+type pendingDirtyMessages map[string][]*NatsMessage
+
+// buildDirtyEvent serialises the event once and appends one message per configured
+// CDC stream to `pending`, grouped by the stream's NATS pool.
+func buildDirtyEvent(
+	orm Context, pending pendingDirtyMessages, publisher *dirtyPublisherEntry,
+	e Entity, op DirtyOp, beforeOrigin map[string]any,
+) error {
 	payload, err := publisher.buildEvent(e, op, beforeOrigin)
 	if err != nil {
 		return fmt.Errorf("build dirty event for %s: %w", publisher.entityName, err)
@@ -561,57 +677,45 @@ func publishDirtyEvent(orm Context, publisher *dirtyPublisherEntry, e Entity, op
 		if !ok {
 			return fmt.Errorf("entity '%s' references unregistered CDC stream '%s'", publisher.entityName, streamName)
 		}
-		pool := orm.Engine().Nats(ds.options.NatsPool)
-		if pool == nil {
+		if pool := orm.Engine().Nats(ds.options.NatsPool); pool == nil {
 			return fmt.Errorf("nats pool '%s' for CDC stream '%s' not configured", ds.options.NatsPool, streamName)
 		}
 		msg := newDirtyMessage(streamName, publisher.entityName, op, payload)
 		msg.Headers.Set("Nats-Msg-Id", fmt.Sprintf("%s:%s:%d", streamName, publisher.entityName, msgIDHash(payload)))
-		if err := pool.Publish(orm, msg); err != nil {
-			return fmt.Errorf("publish %s to stream %s: %w", publisher.entityName, streamName, err)
+		pending[ds.options.NatsPool] = append(pending[ds.options.NatsPool], msg)
+	}
+	return nil
+}
+
+// flushDirtyMessages publishes each pool's accumulated messages in one batch.
+// Called at the end of the Flush entity walk; Flush still waits for the acks, so
+// "flush succeeded ⇒ event durably published" continues to hold.
+func flushDirtyMessages(orm Context, pending pendingDirtyMessages) error {
+	for poolCode, msgs := range pending {
+		pool := orm.Engine().Nats(poolCode)
+		if pool == nil {
+			return fmt.Errorf("nats pool '%s' for CDC publish not configured", poolCode)
+		}
+		if err := pool.PublishBatch(orm, msgs); err != nil {
+			return fmt.Errorf("publish %d dirty events to pool %s: %w", len(msgs), poolCode, err)
 		}
 	}
 	return nil
 }
 
-// enqueueDirtyEvent publishes a synthetic DirtyUpdate event for `entity` to a
-// single named stream. Unlike publishDirtyEvent, it does not fan out to all of
-// the entity's tagged streams and is not driven by a Flush — callers invoke it
-// explicitly via CDCStreamRef.Enqueue to request a re-process of the entity.
+// enqueueDirtyEvents publishes synthetic DirtyUpdate events for `entities` to a
+// single named stream, in one batch. Unlike the Flush publisher it does not fan
+// out to all of an entity's tagged streams and is not driven by a Flush — callers
+// invoke it explicitly via CDCStreamRef.Enqueue to request a re-process.
 //
-// Validates that the entity has a registered publisher and that `streamName`
-// is one of the entity's tagged streams. Each call publishes a fresh message
-// with a unique Nats-Msg-Id so dedup never collapses repeated enqueues.
-func enqueueDirtyEvent(orm Context, entity Entity, streamName NatsStreamName) error {
-	if entity == nil {
-		return fmt.Errorf("enqueue: entity is nil")
-	}
-	t := reflect.TypeOf(entity)
-	if t.Kind() == reflect.Ptr {
-		t = t.Elem()
-	}
-	reg := orm.Engine().Registry().(*engineRegistryImplementation)
-	publisher, ok := reg.dirtyPublishers[t]
-	if !ok {
-		return fmt.Errorf("no dirty publisher registered for entity %s", t.Name())
-	}
-	tagged := false
-	for _, s := range publisher.streams {
-		if s == streamName {
-			tagged = true
-			break
-		}
-	}
-	if !tagged {
-		return fmt.Errorf("entity %s is not tagged for CDC stream %s", publisher.entityName, streamName)
-	}
-	payload, err := publisher.buildEvent(entity, DirtyUpdate, nil)
-	if err != nil {
-		return fmt.Errorf("build dirty event for %s: %w", publisher.entityName, err)
-	}
-	if payload == nil {
+// Validates that every entity has a registered publisher and that `streamName`
+// is one of its tagged streams. Each message gets a unique Nats-Msg-Id so dedup
+// never collapses repeated enqueues.
+func enqueueDirtyEvents(orm Context, entities []Entity, streamName NatsStreamName) error {
+	if len(entities) == 0 {
 		return nil
 	}
+	reg := orm.Engine().Registry().(*engineRegistryImplementation)
 	ds, ok := reg.dirtyStreams[streamName]
 	if !ok {
 		return fmt.Errorf("CDC stream '%s' is not registered", streamName)
@@ -620,10 +724,44 @@ func enqueueDirtyEvent(orm Context, entity Entity, streamName NatsStreamName) er
 	if pool == nil {
 		return fmt.Errorf("nats pool '%s' for CDC stream '%s' not configured", ds.options.NatsPool, streamName)
 	}
-	msg := newDirtyMessage(streamName, publisher.entityName, DirtyUpdate, payload)
-	msg.Headers.Set("Nats-Msg-Id", fmt.Sprintf("%s:%s:enqueue:%d:%d", streamName, publisher.entityName, entity.GetID(), time.Now().UnixNano()))
-	if err := pool.Publish(orm, msg); err != nil {
-		return fmt.Errorf("publish %s to stream %s: %w", publisher.entityName, streamName, err)
+
+	msgs := make([]*NatsMessage, 0, len(entities))
+	for _, entity := range entities {
+		if entity == nil {
+			return fmt.Errorf("enqueue: entity is nil")
+		}
+		t := reflect.TypeOf(entity)
+		if t.Kind() == reflect.Ptr {
+			t = t.Elem()
+		}
+		publisher, hasPub := reg.dirtyPublishers[t]
+		if !hasPub {
+			return fmt.Errorf("no dirty publisher registered for entity %s", t.Name())
+		}
+		tagged := false
+		for _, s := range publisher.streams {
+			if s == streamName {
+				tagged = true
+				break
+			}
+		}
+		if !tagged {
+			return fmt.Errorf("entity %s is not tagged for CDC stream %s", publisher.entityName, streamName)
+		}
+		payload, err := publisher.buildEvent(entity, DirtyUpdate, nil)
+		if err != nil {
+			return fmt.Errorf("build dirty event for %s: %w", publisher.entityName, err)
+		}
+		if payload == nil {
+			continue
+		}
+		msg := newDirtyMessage(streamName, publisher.entityName, DirtyUpdate, payload)
+		msg.Headers.Set("Nats-Msg-Id", fmt.Sprintf("%s:%s:enqueue:%d:%d", streamName, publisher.entityName, entity.GetID(), time.Now().UnixNano()))
+		msgs = append(msgs, msg)
+	}
+
+	if err := pool.PublishBatch(orm, msgs); err != nil {
+		return fmt.Errorf("enqueue %d events to stream %s: %w", len(msgs), streamName, err)
 	}
 	return nil
 }

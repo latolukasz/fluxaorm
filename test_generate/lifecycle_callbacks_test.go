@@ -25,8 +25,7 @@ func TestAfterInsertCallback(t *testing.T) {
 		return nil
 	})
 
-	e, errNew := entities.GenerateEntityWithTimestampsProvider.New(ctx)
-	assert.NoError(t, errNew)
+	e := entities.GenerateEntityWithTimestampsProvider.New(ctx)
 	e.SetName("InsertTest")
 	assert.NoError(t, ctx.Flush())
 
@@ -52,8 +51,7 @@ func TestAfterUpdateCallback(t *testing.T) {
 		return nil
 	})
 
-	e, errNew := entities.GenerateEntityWithTimestampsProvider.New(ctx)
-	assert.NoError(t, errNew)
+	e := entities.GenerateEntityWithTimestampsProvider.New(ctx)
 	e.SetName("Original")
 	assert.NoError(t, ctx.Flush())
 
@@ -82,8 +80,7 @@ func TestAfterDeleteCallback(t *testing.T) {
 		return nil
 	})
 
-	e, errNew := entities.GenerateEntityWithTimestampsProvider.New(ctx)
-	assert.NoError(t, errNew)
+	e := entities.GenerateEntityWithTimestampsProvider.New(ctx)
 	e.SetName("DeleteTest")
 	assert.NoError(t, ctx.Flush())
 
@@ -109,8 +106,7 @@ func TestAfterDeleteCallbackFakeDelete(t *testing.T) {
 		return nil
 	})
 
-	e, errNew := entities.GenerateReferenceEntityProvider.New(ctx)
-	assert.NoError(t, errNew)
+	e := entities.GenerateReferenceEntityProvider.New(ctx)
 	e.SetName("FakeDeleteTest")
 	assert.NoError(t, ctx.Flush())
 
@@ -134,8 +130,7 @@ func TestAfterFlushCallbacksNotFiredForFlushAsync(t *testing.T) {
 		return nil
 	})
 
-	e, errNew := entities.GenerateEntityWithTimestampsRedisProvider.New(ctx)
-	assert.NoError(t, errNew)
+	e := entities.GenerateEntityWithTimestampsRedisProvider.New(ctx)
 	e.SetName("AsyncTest")
 	assert.NoError(t, ctx.FlushAsync(true))
 
@@ -146,8 +141,7 @@ func TestAfterFlushCallbacksNoHandler(t *testing.T) {
 	ctx := fluxaorm.PrepareTables(t, fluxaorm.NewRegistry(), generateEntityWithTimestamps{})
 
 	// No handlers registered - flush should work fine
-	e, errNew := entities.GenerateEntityWithTimestampsProvider.New(ctx)
-	assert.NoError(t, errNew)
+	e := entities.GenerateEntityWithTimestampsProvider.New(ctx)
 	e.SetName("NoHandler")
 	assert.NoError(t, ctx.Flush())
 
@@ -166,8 +160,7 @@ func TestAfterUpdateExcludesUpdatedAt(t *testing.T) {
 		return nil
 	})
 
-	e, errNew := entities.GenerateEntityWithTimestampsProvider.New(ctx)
-	assert.NoError(t, errNew)
+	e := entities.GenerateEntityWithTimestampsProvider.New(ctx)
 	e.SetName("Original")
 	assert.NoError(t, ctx.Flush())
 
@@ -201,14 +194,11 @@ func TestMultipleEntitiesInSingleFlush(t *testing.T) {
 		return nil
 	})
 
-	ts1, errNew := entities.GenerateEntityWithTimestampsProvider.New(ctx)
-	assert.NoError(t, errNew)
+	ts1 := entities.GenerateEntityWithTimestampsProvider.New(ctx)
 	ts1.SetName("First")
-	ts2, errNew := entities.GenerateEntityWithTimestampsProvider.New(ctx)
-	assert.NoError(t, errNew)
+	ts2 := entities.GenerateEntityWithTimestampsProvider.New(ctx)
 	ts2.SetName("Second")
-	ref, errNew := entities.GenerateReferenceEntityProvider.New(ctx)
-	assert.NoError(t, errNew)
+	ref := entities.GenerateReferenceEntityProvider.New(ctx)
 	ref.SetName("Ref")
 
 	assert.NoError(t, ctx.Flush())
@@ -230,8 +220,7 @@ func TestAfterCallbackErrorPropagation(t *testing.T) {
 		return expectedErr
 	})
 
-	e, errNew := entities.GenerateEntityWithTimestampsProvider.New(ctx)
-	assert.NoError(t, errNew)
+	e := entities.GenerateEntityWithTimestampsProvider.New(ctx)
 	e.SetName("ErrorTest")
 	err := ctx.Flush()
 
@@ -256,8 +245,7 @@ func TestAfterInsertCallbackFiredByAsyncConsumer(t *testing.T) {
 		return nil
 	})
 
-	e, errNew := entities.GenerateEntityWithTimestampsRedisProvider.New(ctx)
-	assert.NoError(t, errNew)
+	e := entities.GenerateEntityWithTimestampsRedisProvider.New(ctx)
 	e.SetName("AsyncInsertTest")
 	assert.NoError(t, ctx.FlushAsync(true))
 
@@ -293,8 +281,7 @@ func TestAfterUpdateCallbackFiredByAsyncConsumer(t *testing.T) {
 	})
 
 	// Insert entity first (synchronously so it's in DB)
-	e, errNew := entities.GenerateEntityWithTimestampsRedisProvider.New(ctx)
-	assert.NoError(t, errNew)
+	e := entities.GenerateEntityWithTimestampsRedisProvider.New(ctx)
 	e.SetName("Original")
 	assert.NoError(t, ctx.Flush())
 	assert.False(t, updateCalled)
@@ -336,8 +323,7 @@ func TestAfterDeleteCallbackFiredByAsyncConsumer(t *testing.T) {
 	})
 
 	// Insert entity first (synchronously)
-	e, errNew := entities.GenerateEntityWithTimestampsRedisProvider.New(ctx)
-	assert.NoError(t, errNew)
+	e := entities.GenerateEntityWithTimestampsRedisProvider.New(ctx)
 	e.SetName("DeleteAsyncTest")
 	assert.NoError(t, ctx.Flush())
 
@@ -377,8 +363,7 @@ func TestAfterDeleteCallbackFiredByAsyncConsumerFakeDelete(t *testing.T) {
 	})
 
 	// Insert entity first (synchronously)
-	e, errNew := entities.GenerateReferenceEntityProvider.New(ctx)
-	assert.NoError(t, errNew)
+	e := entities.GenerateReferenceEntityProvider.New(ctx)
 	e.SetName("FakeDeleteAsyncTest")
 	assert.NoError(t, ctx.Flush())
 
@@ -410,8 +395,7 @@ func TestAfterCallbackErrorInAsyncConsumer(t *testing.T) {
 		return expectedErr
 	})
 
-	e, errNew := entities.GenerateEntityWithTimestampsRedisProvider.New(ctx)
-	assert.NoError(t, errNew)
+	e := entities.GenerateEntityWithTimestampsRedisProvider.New(ctx)
 	e.SetName("AsyncErrorTest")
 	assert.NoError(t, ctx.FlushAsync(true))
 

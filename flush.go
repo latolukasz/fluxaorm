@@ -42,6 +42,7 @@ func (orm *ormImplementation) flush() (err error) {
 		}
 	}
 	if len(orm.engine.registry.dirtyPublishers) > 0 {
+		pending := make(pendingDirtyMessages)
 		orm.trackedEntities.Range(func(_ string, value *xsync.MapOf[uint64, Entity]) bool {
 			value.Range(func(_ uint64, e Entity) bool {
 				eventType, changes := e.PrivateFlushEvent()
@@ -56,12 +57,15 @@ func (orm *ormImplementation) flush() (err error) {
 				if !hasPub {
 					return true
 				}
-				err = publishDirtyEvent(orm, publisher, e, dirtyOpFromFlushType(eventType), changes)
+				err = buildDirtyEvent(orm, pending, publisher, e, dirtyOpFromFlushType(eventType), changes)
 				return err == nil
 			})
 			return err == nil
 		})
 		if err != nil {
+			return err
+		}
+		if err = flushDirtyMessages(orm, pending); err != nil {
 			return err
 		}
 	}

@@ -20,16 +20,16 @@ type AsyncFlushOptions struct {
 }
 
 type NatsPoolOptions struct {
-	ClientID            string
-	MaxReconnects       int
-	ReconnectWait       time.Duration
-	ReconnectBufSize    int
-	PingInterval        time.Duration
-	ConnectTimeout      time.Duration
+	ClientID             string
+	MaxReconnects        int
+	ReconnectWait        time.Duration
+	ReconnectBufSize     int
+	PingInterval         time.Duration
+	ConnectTimeout       time.Duration
 	RetryOnFailedConnect bool
-	Auth                *NatsAuthConfig
-	IgnoredSubjects     []string
-	IgnoredConsumers    []string
+	Auth                 *NatsAuthConfig
+	IgnoredSubjects      []string
+	IgnoredConsumers     []string
 }
 
 type NatsAuthConfig struct {
@@ -119,6 +119,7 @@ type Nats interface {
 	GetPoolOptions() *NatsPoolOptions
 	Ping() error
 	Publish(ctx Context, msg *NatsMessage) error
+	PublishBatch(ctx Context, msgs []*NatsMessage) error
 	PublishAsync(ctx Context, msg *NatsMessage, callback func(*NatsMessage, error))
 	Consumer(name string) (NatsConsumer, error)
 	MustConsumer(name string) NatsConsumer
@@ -281,6 +282,56 @@ func (p *natsPoolImplementation) Publish(ctx Context, msg *NatsMessage) error {
 	return err
 }
 
+// PublishBatch writes every message to the connection without waiting on each
+// ack, then waits once for all of them. Publish order on the wire is preserved,
+// so the server assigns stream sequences in the same order a Publish loop would;
+// only ack completion is out of order. Returns the first ack error.
+func (p *natsPoolImplementation) PublishBatch(ctx Context, msgs []*NatsMessage) error {
+	if len(msgs) == 0 {
+		return nil
+	}
+	if err := p.initProducer(); err != nil {
+		return err
+	}
+	hasLogger, _ := ctx.getNatsLoggers()
+	start := time.Now()
+
+	futures := make([]jetstream.PubAckFuture, 0, len(msgs))
+	var err error
+	for _, msg := range msgs {
+		natsMsg := &nats.Msg{Subject: msg.Subject, Data: msg.Data, Header: msg.Headers}
+		future, publishErr := p.js.PublishMsgAsync(natsMsg)
+		if publishErr != nil {
+			err = publishErr
+			break
+		}
+		futures = append(futures, future)
+	}
+
+	for _, future := range futures {
+		select {
+		case <-future.Ok():
+		case ackErr := <-future.Err():
+			if err == nil {
+				err = ackErr
+			}
+		case <-ctx.Context().Done():
+			if err == nil {
+				err = ctx.Context().Err()
+			}
+		}
+	}
+
+	duration := time.Since(start)
+	if hasLogger {
+		p.fillLogFields(ctx, "PUBLISH_BATCH", fmt.Sprintf("messages: %d", len(msgs)), duration, err)
+	}
+	p.fillMetrics(ctx, duration, "publish", err)
+	p.fillBatchMetrics(ctx, len(msgs))
+
+	return err
+}
+
 func (p *natsPoolImplementation) PublishAsync(ctx Context, msg *NatsMessage, callback func(*NatsMessage, error)) {
 	if err := p.initProducer(); err != nil {
 		if callback != nil {
@@ -360,6 +411,13 @@ func (p *natsPoolImplementation) fillMetrics(ctx Context, duration time.Duration
 		if err != nil {
 			metrics.queriesNatsErrors.WithLabelValues(p.config.code, ctx.getMetricsSourceTag(), "").Inc()
 		}
+	}
+}
+
+func (p *natsPoolImplementation) fillBatchMetrics(ctx Context, size int) {
+	metrics, hasMetrics := ctx.Engine().Registry().getMetricsRegistry()
+	if hasMetrics {
+		metrics.natsPublishBatchSize.WithLabelValues(p.config.code, ctx.getMetricsSourceTag()).Observe(float64(size))
 	}
 }
 

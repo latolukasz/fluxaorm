@@ -17,10 +17,7 @@ import (
 func newTestEntity(t *testing.T, ctx fluxaorm.Context, name string) *entities.GenerateEntityNoRedis {
 	t.Helper()
 	now := time.Now().UTC()
-	e, err := entities.GenerateEntityNoRedisProvider.New(ctx)
-	if err != nil {
-		t.Fatalf("provider.New: %v", err)
-	}
+	e := entities.GenerateEntityNoRedisProvider.New(ctx)
 	e.SetName(name)
 	e.SetTestEnum(enums.TestEnumList.A)
 	e.SetTime(now)
@@ -94,8 +91,7 @@ func TestFlushAsyncDeferredCache(t *testing.T) {
 	defer ctx.Engine().Nats("nats").Close()
 
 	// Test 1: Insert with FlushAsync(false) → entity NOT in Redis cache AND NOT in MySQL
-	e, err := entities.GenerateEntityWithTimestampsRedisProvider.New(ctx)
-	assert.NoError(t, err)
+	e := entities.GenerateEntityWithTimestampsRedisProvider.New(ctx)
 	e.SetName("deferred-insert")
 	assert.NoError(t, ctx.FlushAsync(false))
 

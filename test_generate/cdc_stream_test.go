@@ -14,6 +14,8 @@ package test_generate
 import (
 	"context"
 	"encoding/json"
+	"errors"
+	"fmt"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -44,8 +46,7 @@ func TestCDCSyncPath(t *testing.T) {
 	defer assertConsumerClose(t, consumerA)
 
 	// INSERT
-	e, err := entities.GenerateEntityDirtyProvider.New(ctx)
-	assert.NoError(t, err)
+	e := entities.GenerateEntityDirtyProvider.New(ctx)
 	e.SetName("cdc-insert")
 	e.SetAge(25)
 	assert.NoError(t, ctx.Flush())
@@ -184,8 +185,7 @@ func TestCDCWatchFields(t *testing.T) {
 	}
 
 	// INSERT — always fires regardless of WatchFields.
-	e, err := entities.GenerateEntityDirtyProvider.New(ctx)
-	assert.NoError(t, err)
+	e := entities.GenerateEntityDirtyProvider.New(ctx)
 	e.SetName("watchfields-init")
 	e.SetAge(20)
 	assert.NoError(t, ctx.Flush())
@@ -208,4 +208,131 @@ func TestCDCWatchFields(t *testing.T) {
 	e.Delete()
 	assert.NoError(t, ctx.Flush())
 	assert.Equal(t, int32(3), drain(3, 10*time.Second), "Delete must fire even with WatchFields set")
+}
+
+// TestCDCBatchDispatch validates that a stream with batch handlers receives all
+// messages for one entity in a single handler call, grouped per entity type.
+func TestCDCBatchDispatch(t *testing.T) {
+	registry := fluxaorm.NewRegistry()
+	cdcStreams := []fluxaorm.CDCStream{entities.StreamTestStream, entities.StreamTestStreamB}
+	ctx := fluxaorm.PrepareTablesWithCDC(t, registry, cdcStreams,
+		generateEntityDirty{}, generateEntityDirtyB{})
+	defer ctx.Engine().Nats("nats").Close()
+
+	var aCalls, aEvents, bCalls, bEvents atomic.Int32
+	consumer := fluxaorm.NewCDCConsumer(ctx.Engine(), entities.StreamTestStream).
+		OnGenerateEntityDirtyBatch(func(_ fluxaorm.Context, evs []*entities.GenerateEntityDirtyDirtyEvent) error {
+			aCalls.Add(1)
+			aEvents.Add(int32(len(evs)))
+			return nil
+		}).
+		OnGenerateEntityDirtyBBatch(func(_ fluxaorm.Context, evs []*entities.GenerateEntityDirtyBDirtyEvent) error {
+			bCalls.Add(1)
+			bEvents.Add(int32(len(evs)))
+			return nil
+		}).
+		Build()
+
+	// One flush, many entities of two types -> one publish batch, and on the
+	// consumer side one handler call per entity type.
+	const perType = 5
+	for i := range perType {
+		a := entities.GenerateEntityDirtyProvider.New(ctx)
+		a.SetName(fmt.Sprintf("batch-a-%d", i))
+		a.SetAge(uint64(i))
+		b := entities.GenerateEntityDirtyBProvider.New(ctx)
+		b.SetLabel(fmt.Sprintf("batch-b-%d", i))
+	}
+	assert.NoError(t, ctx.Flush())
+
+	drainUntil(t, consumer, func() bool {
+		return aEvents.Load() >= perType && bEvents.Load() >= perType
+	}, 30*time.Second)
+
+	assert.Equal(t, int32(perType), aEvents.Load(), "all GenerateEntityDirty events delivered")
+	assert.Equal(t, int32(perType), bEvents.Load(), "all GenerateEntityDirtyB events delivered")
+	assert.Equal(t, int32(1), aCalls.Load(), "GenerateEntityDirty events must arrive in one batch call")
+	assert.Equal(t, int32(1), bCalls.Load(), "GenerateEntityDirtyB events must arrive in one batch call")
+}
+
+// TestCDCBatchDispatchErrorRedelivers validates that a batch handler returning an
+// error leaves the whole group unacked, so JetStream redelivers it.
+func TestCDCBatchDispatchErrorRedelivers(t *testing.T) {
+	registry := fluxaorm.NewRegistry()
+	cdcStreams := []fluxaorm.CDCStream{entities.StreamTestStream, entities.StreamTestStreamB}
+	ctx := fluxaorm.PrepareTablesWithCDC(t, registry, cdcStreams,
+		generateEntityDirty{}, generateEntityDirtyB{})
+	defer ctx.Engine().Nats("nats").Close()
+
+	var attempts, delivered atomic.Int32
+	consumer := fluxaorm.NewCDCConsumer(ctx.Engine(), entities.StreamTestStream).
+		OnGenerateEntityDirtyBatch(func(_ fluxaorm.Context, evs []*entities.GenerateEntityDirtyDirtyEvent) error {
+			if attempts.Add(1) == 1 {
+				return errors.New("forced batch failure")
+			}
+			delivered.Add(int32(len(evs)))
+			return nil
+		}).
+		Build()
+
+	const count = 3
+	for i := range count {
+		e := entities.GenerateEntityDirtyProvider.New(ctx)
+		e.SetName(fmt.Sprintf("batch-retry-%d", i))
+		e.SetAge(uint64(i))
+	}
+	assert.NoError(t, ctx.Flush())
+
+	// AckWait is 30s by default, so redelivery needs a generous window.
+	drainUntil(t, consumer, func() bool { return delivered.Load() >= count }, 90*time.Second)
+
+	assert.GreaterOrEqual(t, attempts.Load(), int32(2), "failed batch must be retried")
+	assert.Equal(t, int32(count), delivered.Load(), "whole group redelivered after failure")
+}
+
+// TestCDCBatchAndSingleHandlerConflictPanics validates the Build() guard: an
+// entity may have a per-message handler or a batch handler, never both.
+func TestCDCBatchAndSingleHandlerConflictPanics(t *testing.T) {
+	registry := fluxaorm.NewRegistry()
+	cdcStreams := []fluxaorm.CDCStream{entities.StreamTestStream, entities.StreamTestStreamB}
+	ctx := fluxaorm.PrepareTablesWithCDC(t, registry, cdcStreams,
+		generateEntityDirty{}, generateEntityDirtyB{})
+	defer ctx.Engine().Nats("nats").Close()
+
+	assert.Panics(t, func() {
+		fluxaorm.NewCDCConsumer(ctx.Engine(), entities.StreamTestStream).
+			OnGenerateEntityDirty(func(_ fluxaorm.Context, _ *entities.GenerateEntityDirtyDirtyEvent) error {
+				return nil
+			}).
+			OnGenerateEntityDirtyBatch(func(_ fluxaorm.Context, _ []*entities.GenerateEntityDirtyDirtyEvent) error {
+				return nil
+			}).
+			Build()
+	})
+
+	// Different entities on the same stream may mix the two styles freely.
+	assert.NotPanics(t, func() {
+		fluxaorm.NewCDCConsumer(ctx.Engine(), entities.StreamTestStream).
+			OnGenerateEntityDirty(func(_ fluxaorm.Context, _ *entities.GenerateEntityDirtyDirtyEvent) error {
+				return nil
+			}).
+			OnGenerateEntityDirtyBBatch(func(_ fluxaorm.Context, _ []*entities.GenerateEntityDirtyBDirtyEvent) error {
+				return nil
+			}).
+			Build()
+	})
+}
+
+// drainUntil pumps the consumer until done() reports true or the deadline passes.
+func drainUntil(t *testing.T, consumer fluxaorm.StreamConsumer, done func() bool, deadline time.Duration) {
+	t.Helper()
+	end := time.Now().Add(deadline)
+	for time.Now().Before(end) {
+		if done() {
+			return
+		}
+		pumpCtx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+		_ = consumer.Consume(pumpCtx, 32, 1*time.Second)
+		cancel()
+	}
 }
