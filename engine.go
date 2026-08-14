@@ -43,8 +43,6 @@ type engineRegistryImplementation struct {
 	defaultQueryLogger      *defaultLogLogger
 	dbTables                map[string]map[string]bool
 	options                 map[string]any
-	asyncFlushNatsPool      string
-	asyncFlushOptions       *AsyncFlushOptions
 	clickhouseTables        []*ClickhouseTableBuilder
 	clickhouseIgnoredTables map[string]map[string]bool
 	natsStreams             []*NatsStreamBuilder

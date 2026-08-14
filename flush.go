@@ -1,109 +1,36 @@
 package fluxaorm
 
-import (
-	"reflect"
-
-	"github.com/puzpuzpuz/xsync/v2"
-)
-
+// Flush writes every entity tracked on this context. It is the original unit of
+// work API, kept working by routing through the same path as Save, so the two
+// cannot drift apart.
 func (orm *ormImplementation) Flush() error {
-	return orm.flush()
+	tracked := orm.trackedSnapshot()
+	if len(tracked) == 0 {
+		return nil
+	}
+	if orm.tx != nil || len(tracked) == 1 {
+		return orm.writeEntities(tracked)
+	}
+	return orm.Transaction(func(Context) error {
+		return orm.writeEntities(tracked)
+	})
 }
 
-func (orm *ormImplementation) flush() (err error) {
+func (orm *ormImplementation) trackedSnapshot() []*pendingWrite {
 	orm.mutexFlush.Lock()
 	defer orm.mutexFlush.Unlock()
 	if orm.trackedEntities == nil || orm.trackedEntities.Size() == 0 {
 		return nil
 	}
-	orm.trackedEntities.Range(func(_ string, value *xsync.MapOf[uint64, Entity]) bool {
-		value.Range(func(_ uint64, e Entity) bool {
-			err = e.PrivateFlush()
-			if err != nil {
-				return false
-			}
+	var out []*pendingWrite
+	orm.trackedEntities.Range(func(cacheIndex string, entities *xsyncEntityMap) bool {
+		entities.Range(func(_ uint64, e Entity) bool {
+			out = append(out, &pendingWrite{entity: e, cacheIndex: cacheIndex})
 			return true
 		})
 		return true
 	})
-	if err != nil {
-		return err
-	}
-	for _, dbPipeline := range orm.dbPipeLines {
-		err = dbPipeline.Exec(orm)
-		if err != nil {
-			return err
-		}
-	}
-	for _, redisPipeline := range orm.redisPipeLines {
-		_, err = redisPipeline.Exec(orm)
-		if err != nil {
-			return err
-		}
-	}
-	if len(orm.engine.registry.dirtyPublishers) > 0 {
-		pending := make(pendingDirtyMessages)
-		orm.trackedEntities.Range(func(_ string, value *xsync.MapOf[uint64, Entity]) bool {
-			value.Range(func(_ uint64, e Entity) bool {
-				eventType, changes := e.PrivateFlushEvent()
-				if eventType == 0 {
-					return true
-				}
-				et := reflect.TypeOf(e)
-				if et.Kind() == reflect.Ptr {
-					et = et.Elem()
-				}
-				publisher, hasPub := orm.engine.registry.dirtyPublishers[et]
-				if !hasPub {
-					return true
-				}
-				err = buildDirtyEvent(orm, pending, publisher, e, dirtyOpFromFlushType(eventType), changes)
-				return err == nil
-			})
-			return err == nil
-		})
-		if err != nil {
-			return err
-		}
-		if err = flushDirtyMessages(orm, pending); err != nil {
-			return err
-		}
-	}
-	if orm.engine.afterInsertHandlers != nil || orm.engine.afterUpdateHandlers != nil || orm.engine.afterDeleteHandlers != nil {
-		orm.trackedEntities.Range(func(cacheIndex string, value *xsync.MapOf[uint64, Entity]) bool {
-			value.Range(func(_ uint64, e Entity) bool {
-				eventType, changes := e.PrivateFlushEvent()
-				switch eventType {
-				case 1:
-					if handler, ok := orm.engine.afterInsertHandlers[cacheIndex]; ok {
-						err = handler(orm, e)
-					}
-				case 2:
-					if handler, ok := orm.engine.afterUpdateHandlers[cacheIndex]; ok {
-						err = handler(orm, e, changes)
-					}
-				case 3:
-					if handler, ok := orm.engine.afterDeleteHandlers[cacheIndex]; ok {
-						err = handler(orm, e)
-					}
-				}
-				return err == nil
-			})
-			return err == nil
-		})
-		if err != nil {
-			return err
-		}
-	}
-	orm.trackedEntities.Range(func(_ string, value *xsync.MapOf[uint64, Entity]) bool {
-		value.Range(func(_ uint64, e Entity) bool {
-			e.PrivateFlushed()
-			return true
-		})
-		return true
-	})
-	orm.trackedEntities.Clear()
-	return nil
+	return out
 }
 
 func (orm *ormImplementation) ClearFlush() {
@@ -114,4 +41,5 @@ func (orm *ormImplementation) ClearFlush() {
 	}
 	orm.redisPipeLines = nil
 	orm.dbPipeLines = nil
+	orm.discardPendingInvalidations()
 }

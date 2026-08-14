@@ -12,180 +12,6 @@ import (
 	"github.com/stretchr/testify/assert"
 )
 
-type generateSubStruct struct {
-	Size uint8
-}
-
-type generateEntity struct {
-	ID                uint64 `orm:"redisCache"`
-	Age               uint32
-	Balance           int8
-	AgeNullable       *uint8
-	BalanceNullable   *int8
-	Name              string `orm:"required"`
-	Comment           string
-	TestEnum          string `orm:"enum=a,b,c;required;enumName=TestEnum"`
-	TestEnumOptional  string `orm:"enum=a,b,c;enumName=TestEnum"`
-	TestSet           string `orm:"set=a,b,c;required;enumName=TestEnum"`
-	TestSetOptional   string `orm:"set=a,b,c;enumName=TestEnum"`
-	Byte              []uint8
-	Bool              bool
-	BoolNullable      *bool
-	Float             float64
-	FloatNullable     *float64
-	TimeNullable      *time.Time `orm:"time"`
-	Time              time.Time  `orm:"time"`
-	DateNullable      *time.Time
-	Date              time.Time
-	ReferenceRequired fluxaorm.Reference[generateReferenceEntity] `orm:"required"`
-	ReferenceOptional fluxaorm.Reference[generateReferenceEntity]
-	Tags              fluxaorm.References[generateReferenceEntity] `orm:"required"`
-	TagsOptional      fluxaorm.References[generateReferenceEntity]
-	generateSubStruct
-	TestSub     generateSubStruct
-	JsonAddress *models.GenerateJsonAddress
-}
-
-type generateEntityNoRedis struct {
-	ID                uint64
-	Age               uint32
-	Balance           int8
-	AgeNullable       *uint8
-	BalanceNullable   *int8
-	Name              string `orm:"required"`
-	Comment           string
-	TestEnum          string `orm:"enum=a,b,c;required;enumName=TestEnum"`
-	TestEnumOptional  string `orm:"enum=a,b,c;enumName=TestEnum"`
-	TestSet           string `orm:"set=a,b,c;required;enumName=TestEnum"`
-	TestSetOptional   string `orm:"set=a,b,c;enumName=TestEnum"`
-	Byte              []uint8
-	Bool              bool
-	BoolNullable      *bool
-	Float             float64
-	FloatNullable     *float64
-	TimeNullable      *time.Time `orm:"time"`
-	Time              time.Time  `orm:"time"`
-	DateNullable      *time.Time
-	Date              time.Time
-	ReferenceRequired fluxaorm.Reference[generateReferenceEntity] `orm:"required"`
-	ReferenceOptional fluxaorm.Reference[generateReferenceEntity]
-	Tags              fluxaorm.References[generateReferenceEntity] `orm:"required"`
-	TagsOptional      fluxaorm.References[generateReferenceEntity]
-	generateSubStruct
-	TestSub     generateSubStruct
-	JsonAddress *models.GenerateJsonAddress
-}
-
-type generateReferenceEntity struct {
-	ID         uint16
-	Name       string
-	FakeDelete bool
-}
-
-type generateEntityWithSearch struct {
-	ID    uint64
-	Age   uint32  `orm:"searchable;sortable"`
-	Name  string  `orm:"required;searchable"`
-	Score float64 `orm:"searchable"`
-}
-
-type generateEntityWithTimestamps struct {
-	ID        uint64
-	Name      string `orm:"required"`
-	CreatedAt time.Time
-	UpdatedAt time.Time
-}
-
-type generateEntityWithTimestampsRedis struct {
-	ID        uint64 `orm:"redisCache"`
-	Name      string `orm:"required"`
-	CreatedAt time.Time
-	UpdatedAt time.Time
-}
-
-type generateEntityCachedUnique struct {
-	ID    uint64 `orm:"redisCache"`
-	Name  string
-	Age   uint8
-	Email string
-}
-
-type generateEntityCachedUniqueNoRedis struct {
-	ID    uint64
-	Code  string
-	Value int32
-}
-
-type generateEntityCachedUniqueFakeDelete struct {
-	ID         uint64 `orm:"redisCache"`
-	FakeDelete bool
-	Name       string
-}
-
-type generateEntityWithIndex struct {
-	ID   uint64
-	Age  uint32
-	Name string `orm:"required"`
-}
-
-func (e generateEntityWithIndex) Indexes() [][]string {
-	return [][]string{{"Age"}, {"Name", "Age"}}
-}
-
-type generateEntityEnumRef struct {
-	ID     uint64
-	Status string `orm:"enumName=TestEnum"`
-}
-
-// generateEntityDirty is the CDC test entity. Tagged into two streams so we
-// can exercise both single-stream-many-entities and many-streams-per-entity flows.
-type generateEntityDirty struct {
-	ID   uint64 `orm:"dirty=test_stream,test_stream_b"`
-	Name string `orm:"required;length=100"`
-	Age  uint16
-}
-
-// generateEntityDirtyB shares test_stream with generateEntityDirty so the
-// consumer's group-by-entity batching has more than one group to split.
-type generateEntityDirtyB struct {
-	ID    uint64 `orm:"dirty=test_stream"`
-	Label string `orm:"required;length=100"`
-}
-
-func (e generateEntity) UniqueIndexes() [][]string {
-	return [][]string{{"Age", "Balance"}}
-}
-
-func (e generateEntityCachedUnique) UniqueIndexes() [][]string {
-	return [][]string{
-		{"Name", "Age"},
-		{"Email"},
-	}
-}
-
-func (e generateEntityCachedUnique) CachedUniqueIndexes() [][]string {
-	return [][]string{
-		{"Name", "Age"},
-		{"Email"},
-	}
-}
-
-func (e generateEntityCachedUniqueNoRedis) UniqueIndexes() [][]string {
-	return [][]string{{"Code", "Value"}}
-}
-
-func (e generateEntityCachedUniqueNoRedis) CachedUniqueIndexes() [][]string {
-	return [][]string{{"Code", "Value"}}
-}
-
-func (e generateEntityCachedUniqueFakeDelete) UniqueIndexes() [][]string {
-	return [][]string{{"Name"}}
-}
-
-func (e generateEntityCachedUniqueFakeDelete) CachedUniqueIndexes() [][]string {
-	return [][]string{{"Name"}}
-}
-
 //func BenchmarkGenerate(b *testing.B) {
 //	b.ReportAllocs()
 //	v := struct {
@@ -201,11 +27,7 @@ func TestGenerate(t *testing.T) {
 		fluxaorm.NewCDCStreamByName("test_stream"),
 		fluxaorm.NewCDCStreamByName("test_stream_b"),
 	}
-	ctx := fluxaorm.PrepareTablesWithCDC(t, fluxaorm.NewRegistry(), cdcStreams,
-		generateEntity{}, generateEntityNoRedis{}, generateReferenceEntity{},
-		generateEntityWithSearch{}, generateEntityWithTimestamps{}, generateEntityWithTimestampsRedis{},
-		generateEntityCachedUnique{}, generateEntityCachedUniqueNoRedis{}, generateEntityCachedUniqueFakeDelete{},
-		generateEntityWithIndex{}, generateEntityEnumRef{}, generateEntityDirty{}, generateEntityDirtyB{})
+	ctx := fluxaorm.PrepareTablesWithCDC(t, fluxaorm.NewRegistry(), cdcStreams, FixtureEntities()...)
 	defer ctx.Engine().Nats("nats").Close()
 	_ = os.MkdirAll("entities", 0755)
 
@@ -1202,8 +1024,8 @@ func TestGenerate(t *testing.T) {
 	_, isRedisSearch = entityProvider.(fluxaorm.RedisSearchEntityProvider)
 	assert.False(t, isRedisSearch)
 
-	// AllProviders: correct length (12 entities)
-	assert.Len(t, entities.AllProviders, 12)
+	// AllProviders: correct length (13 entities)
+	assert.Len(t, entities.AllProviders, 13)
 
 	// AllProviders: all entries implement EntityProvider and have non-empty TableName
 	for _, p := range entities.AllProviders {

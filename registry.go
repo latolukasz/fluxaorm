@@ -38,26 +38,23 @@ type Registry interface {
 	RegisterNats(urls []string, poolCode string, options *NatsPoolOptions)
 	RegisterNatsStream(stream *NatsStreamBuilder)
 	RegisterNatsConsumer(consumer *NatsConsumerBuilder)
-	RegisterAsyncFlush(natsPool string, options *AsyncFlushOptions)
 	RegisterCDCStream(stream CDCStream, opts CDCStreamOptions)
 	EnableMetrics(factory promauto.Factory)
 }
 
 type registry struct {
-	mysqlPools         map[string]MySQLConfig
-	localCaches        map[string]LocalCache
-	redisPools         map[string]RedisPoolConfig
-	clickhousePools    map[string]ClickhouseConfig
-	clickhouseTables   []*ClickhouseTableBuilder
-	natsPools          map[string]*natsPoolConfig
-	natsStreams        []*NatsStreamBuilder
-	natsConsumers      []*NatsConsumerBuilder
-	dirtyStreams       map[NatsStreamName]*resolvedDirtyStream
-	entities           map[string]reflect.Type
-	options            map[string]any
-	asyncFlushNatsPool string
-	asyncFlushOptions  *AsyncFlushOptions
-	metricsFactory     *promauto.Factory
+	mysqlPools       map[string]MySQLConfig
+	localCaches      map[string]LocalCache
+	redisPools       map[string]RedisPoolConfig
+	clickhousePools  map[string]ClickhouseConfig
+	clickhouseTables []*ClickhouseTableBuilder
+	natsPools        map[string]*natsPoolConfig
+	natsStreams      []*NatsStreamBuilder
+	natsConsumers    []*NatsConsumerBuilder
+	dirtyStreams     map[NatsStreamName]*resolvedDirtyStream
+	entities         map[string]reflect.Type
+	options          map[string]any
+	metricsFactory   *promauto.Factory
 }
 
 func NewRegistry() Registry {
@@ -233,33 +230,6 @@ func (r *registry) Validate() (Engine, error) {
 			}
 		}
 	}
-	// Async flush configuration. Auto-register the async-flush consumer so callers can
-	// resolve it via `pool.Consumer(AsyncSQLStreamName)` without an extra explicit registration.
-	// The underlying JetStream stream/consumer are created by `GetNatsAlters`.
-	if r.asyncFlushNatsPool != "" {
-		pool, exists := r.natsPools[r.asyncFlushNatsPool]
-		if !exists {
-			return nil, fmt.Errorf("nats pool '%s' not registered for async flush", r.asyncFlushNatsPool)
-		}
-		e.registry.asyncFlushNatsPool = r.asyncFlushNatsPool
-		e.registry.asyncFlushOptions = r.asyncFlushOptions
-		if _, has := pool.consumers[AsyncSQLStreamName]; !has {
-			cb := NewNatsConsumer(AsyncSQLStreamName, r.asyncFlushNatsPool).
-				FilterSubjects(AsyncSQLSubject)
-			if r.asyncFlushOptions != nil {
-				if r.asyncFlushOptions.MaxAckPending > 0 {
-					cb.MaxAckPending(r.asyncFlushOptions.MaxAckPending)
-				}
-				if r.asyncFlushOptions.AckWait > 0 {
-					cb.AckWait(r.asyncFlushOptions.AckWait)
-				}
-				if r.asyncFlushOptions.MaxDeliver != 0 {
-					cb.MaxDeliver(r.asyncFlushOptions.MaxDeliver)
-				}
-			}
-			pool.consumers[AsyncSQLStreamName] = cb.toSettings()
-		}
-	}
 	// Validate and register NATS consumer definitions
 	if len(r.natsConsumers) > 0 {
 		seenConsumerNames := make(map[string]string) // poolCode.name -> poolCode
@@ -386,11 +356,6 @@ func (r *registry) Validate() (Engine, error) {
 		e.registry.metricsRegistry = initMetricsRegistry(*r.metricsFactory)
 	}
 	return e, nil
-}
-
-func (r *registry) RegisterAsyncFlush(natsPool string, options *AsyncFlushOptions) {
-	r.asyncFlushNatsPool = natsPool
-	r.asyncFlushOptions = options
 }
 
 // RegisterCDCStream records a CDC stream's JetStream tuning. The stream's subject

@@ -2,7 +2,6 @@ package fluxaorm
 
 import (
 	"context"
-	"encoding/json"
 	"reflect"
 	"testing"
 
@@ -130,28 +129,6 @@ func TestRegisterEntityLoaderUsesStringIndex(t *testing.T) {
 	assert.Equal(t, "A", called)
 	_, _, _ = impl.entityLoaders[idxB](nil, 0)
 	assert.Equal(t, "B", called)
-}
-
-// TestAsyncEntityEventJSONRoundTrip: the wire format carries the string
-// cacheIndex under the cache_index JSON field unchanged across encode/decode.
-func TestAsyncEntityEventJSONRoundTrip(t *testing.T) {
-	in := AsyncEntityEvent{
-		CacheIndex: "app/entities.User",
-		EntityID:   42,
-		FlushType:  2,
-		Changes: map[string]AsyncSQLParam{
-			"name": {Type: "s", Val: "alice"},
-		},
-	}
-	raw, err := json.Marshal(in)
-	assert.NoError(t, err)
-	assert.Contains(t, string(raw), `"cache_index":"app/entities.User"`)
-
-	var out AsyncEntityEvent
-	assert.NoError(t, json.Unmarshal(raw, &out))
-	assert.Equal(t, in.CacheIndex, out.CacheIndex)
-	assert.Equal(t, in.EntityID, out.EntityID)
-	assert.Equal(t, in.FlushType, out.FlushType)
 }
 
 // TestContextCacheKeysByStringIndex: GetFromContextCache / SetInContextCache

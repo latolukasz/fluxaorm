@@ -21,15 +21,31 @@ func (dp *DatabasePipeline) AddQueryForTable(table, query string, parameters ...
 	dp.tables = append(dp.tables, table)
 }
 
+func (dp *DatabasePipeline) discard() {
+	dp.queries = dp.queries[:0]
+	dp.parameters = dp.parameters[:0]
+	dp.tables = dp.tables[:0]
+}
+
 func (dp *DatabasePipeline) Exec(ctx Context) error {
 	if len(dp.queries) == 0 {
 		return nil
 	}
-	defer func() {
-		dp.queries = dp.queries[:0]
-		dp.parameters = dp.parameters[:0]
-		dp.tables = dp.tables[:0]
-	}()
+	defer dp.discard()
+	// Inside a transaction the statements join it. Opening a nested Begin would
+	// panic: the transaction client has no Begin.
+	if orm, ok := ctx.(*ormImplementation); ok && orm.tx != nil {
+		tx, err := orm.txFor(dp.pool)
+		if err != nil {
+			return err
+		}
+		for i, query := range dp.queries {
+			if _, err = tx.Exec(ctx, query, dp.parameters[i]...); err != nil {
+				return err
+			}
+		}
+		return nil
+	}
 	if len(dp.queries) == 1 {
 		_, err := dp.db.Exec(ctx, dp.queries[0], dp.parameters[0]...)
 		return err

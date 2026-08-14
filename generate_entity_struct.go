@@ -72,7 +72,7 @@ func (g *codeGenerator) getUniqueIndexColInfo(schema *entitySchema, colName stri
 	return info
 }
 
-func (g *codeGenerator) generateUniqueIndexKeyFromOrigin(schema *entitySchema, names *entityNames, indexName string, cols []uniqueIndexColInfo, indent string, keyVar string, operation string, isInsert bool) {
+func (g *codeGenerator) generateUniqueIndexKeyFromOrigin(schema *entitySchema, names *entityNames, indexName string, cols []uniqueIndexColInfo, indent string, keyVar string, isInsert bool) {
 	g.addImport("hash/fnv")
 	g.addImport("fmt")
 	g.addImport("strconv")
@@ -106,19 +106,11 @@ func (g *codeGenerator) generateUniqueIndexKeyFromOrigin(schema *entitySchema, n
 			g.addLine(fmt.Sprintf("%s}", indent))
 			g.addLine(fmt.Sprintf("%sif %s_valid {", indent, keyVar))
 			g.generateUniqueIndexHashDualSource(cols, indent+"\t", keyVar, names, indexName)
-			if operation == "set" {
-				g.addLine(fmt.Sprintf("%s\te.ctx.RedisPipeLine(%s.redisCode).Set(%s, strconv.FormatUint(e.GetID(), 10), 0)", indent, names.providerName, keyVar))
-			} else {
-				g.addLine(fmt.Sprintf("%s\te.ctx.RedisPipeLine(%s.redisCode).Del(%s)", indent, names.providerName, keyVar))
-			}
+			g.addLine(fmt.Sprintf("%s\te.ctx.InvalidateCacheKey(%s.redisCode, %s)", indent, names.providerName, keyVar))
 			g.addLine(fmt.Sprintf("%s}", indent))
 		} else {
 			g.generateUniqueIndexHashDualSource(cols, indent, keyVar, names, indexName)
-			if operation == "set" {
-				g.addLine(fmt.Sprintf("%se.ctx.RedisPipeLine(%s.redisCode).Set(%s, strconv.FormatUint(e.GetID(), 10), 0)", indent, names.providerName, keyVar))
-			} else {
-				g.addLine(fmt.Sprintf("%se.ctx.RedisPipeLine(%s.redisCode).Del(%s)", indent, names.providerName, keyVar))
-			}
+			g.addLine(fmt.Sprintf("%se.ctx.InvalidateCacheKey(%s.redisCode, %s)", indent, names.providerName, keyVar))
 		}
 	} else {
 		// INSERT path or no Redis cache — originDatabaseValues is always available
@@ -134,19 +126,11 @@ func (g *codeGenerator) generateUniqueIndexKeyFromOrigin(schema *entitySchema, n
 			}
 			g.addLine(fmt.Sprintf("%sif %s {", indent, validChecks))
 			g.generateUniqueIndexHashFromDB(cols, indent+"\t", keyVar, names, indexName)
-			if operation == "set" {
-				g.addLine(fmt.Sprintf("%s\te.ctx.RedisPipeLine(%s.redisCode).Set(%s, strconv.FormatUint(e.GetID(), 10), 0)", indent, names.providerName, keyVar))
-			} else {
-				g.addLine(fmt.Sprintf("%s\te.ctx.RedisPipeLine(%s.redisCode).Del(%s)", indent, names.providerName, keyVar))
-			}
+			g.addLine(fmt.Sprintf("%s\te.ctx.InvalidateCacheKey(%s.redisCode, %s)", indent, names.providerName, keyVar))
 			g.addLine(fmt.Sprintf("%s}", indent))
 		} else {
 			g.generateUniqueIndexHashFromDB(cols, indent, keyVar, names, indexName)
-			if operation == "set" {
-				g.addLine(fmt.Sprintf("%se.ctx.RedisPipeLine(%s.redisCode).Set(%s, strconv.FormatUint(e.GetID(), 10), 0)", indent, names.providerName, keyVar))
-			} else {
-				g.addLine(fmt.Sprintf("%se.ctx.RedisPipeLine(%s.redisCode).Del(%s)", indent, names.providerName, keyVar))
-			}
+			g.addLine(fmt.Sprintf("%se.ctx.InvalidateCacheKey(%s.redisCode, %s)", indent, names.providerName, keyVar))
 		}
 	}
 }
@@ -660,7 +644,7 @@ func (g *codeGenerator) generateEntityStruct(schema *entitySchema, names *entity
 	}
 	insertQueryLine += ")\n"
 	if schema.hasRedisCache {
-		insertQueryLine += fmt.Sprintf("\t\te.ctx.RedisPipeLine(%s.redisCode).RPush(%s.redisCachePrefix+strconv.FormatUint(e.GetID(), 10), e.originDatabaseValues.redisValues()...)", names.providerName, names.providerName)
+		insertQueryLine += fmt.Sprintf("\t\te.ctx.InvalidateCacheKey(%s.redisCode, %s.redisCachePrefix+strconv.FormatUint(e.GetID(), 10))", names.providerName, names.providerName)
 	}
 	g.addLine(insertQueryLine)
 
@@ -676,7 +660,7 @@ func (g *codeGenerator) generateEntityStruct(schema *entitySchema, names *entity
 				cols[i] = g.getUniqueIndexColInfo(schema, colName, fIndexes[i])
 			}
 			keyVar := fmt.Sprintf("_uKey%d", idxNum)
-			g.generateUniqueIndexKeyFromOrigin(schema, names, idxName, cols, "\t\t", keyVar, "set", true)
+			g.generateUniqueIndexKeyFromOrigin(schema, names, idxName, cols, "\t\t", keyVar, true)
 			idxNum++
 		}
 	}
@@ -729,7 +713,7 @@ func (g *codeGenerator) generateEntityStruct(schema *entitySchema, names *entity
 	g.addLine(fmt.Sprintf("\t\tsqlQuery := \"DELETE FROM `%s` WHERE `ID` = ?\"", schema.tableName))
 	g.addLine(fmt.Sprintf("\t\te.ctx.DatabasePipeLine(%s.dbCode).AddQueryForTable(%s.tableName, sqlQuery, e.GetID())", names.providerName, names.providerName))
 	if schema.hasRedisCache {
-		g.addLine(fmt.Sprintf("\t\te.ctx.RedisPipeLine(%s.redisCode).Del(%s.redisCachePrefix + strconv.FormatUint(e.GetID(), 10))", names.providerName, names.providerName))
+		g.addLine(fmt.Sprintf("\t\te.ctx.InvalidateCacheKey(%s.redisCode, %s.redisCachePrefix+strconv.FormatUint(e.GetID(), 10))", names.providerName, names.providerName))
 	}
 	if schema.hasRedisSearch {
 		g.addLine(fmt.Sprintf("\t\te.ctx.RedisPipeLine(%s.redisSearchCode).Del(%s.redisSearchPrefix + strconv.FormatUint(e.GetID(), 10))", names.providerName, names.providerName))
@@ -746,7 +730,7 @@ func (g *codeGenerator) generateEntityStruct(schema *entitySchema, names *entity
 				cols[i] = g.getUniqueIndexColInfo(schema, colName, fIndexes[i])
 			}
 			keyVar := fmt.Sprintf("_udKey%d", idxNum)
-			g.generateUniqueIndexKeyFromOrigin(schema, names, idxName, cols, "\t\t", keyVar, "del", false)
+			g.generateUniqueIndexKeyFromOrigin(schema, names, idxName, cols, "\t\t", keyVar, false)
 			idxNum++
 		}
 	}
@@ -834,11 +818,7 @@ func (g *codeGenerator) generateEntityStruct(schema *entitySchema, names *entity
 	g.addLine("\t\tsqlQuery += \" WHERE `ID`=\" + strconv.FormatUint(e.id, 10)")
 	g.addLine(fmt.Sprintf("\t\te.ctx.DatabasePipeLine(%s.dbCode).AddQueryForTable(%s.tableName, sqlQuery, updateParams...)", names.providerName, names.providerName))
 	if schema.hasRedisCache {
-		g.addLine(fmt.Sprintf("\t\tredisPipeLine := e.ctx.RedisPipeLine(%s.redisCode)", names.providerName))
-		g.addLine(fmt.Sprintf("\t\tredisKey := %s.redisCachePrefix + strconv.FormatUint(e.GetID(), 10)", names.providerName))
-		g.addLine("\t\tfor index, value := range e.redisBind {")
-		g.addLine("\t\t\tredisPipeLine.LSet(redisKey, index, value)")
-		g.addLine("\t\t}")
+		g.addLine(fmt.Sprintf("\t\te.ctx.InvalidateCacheKey(%s.redisCode, %s.redisCachePrefix+strconv.FormatUint(e.GetID(), 10))", names.providerName, names.providerName))
 	}
 
 	// Redis Search UPDATE
@@ -950,7 +930,7 @@ func (g *codeGenerator) generateEntityStruct(schema *entitySchema, names *entity
 					cols[i] = g.getUniqueIndexColInfo(schema, colName, fIndexes[i])
 				}
 				keyVar := fmt.Sprintf("_ufKey%d", idxNum)
-				g.generateUniqueIndexKeyFromOrigin(schema, names, idxName, cols, "\t\t\t", keyVar, "del", false)
+				g.generateUniqueIndexKeyFromOrigin(schema, names, idxName, cols, "\t\t\t", keyVar, false)
 				idxNum++
 			}
 			g.addLine("\t\t} else {")
@@ -987,7 +967,7 @@ func (g *codeGenerator) generateEntityStruct(schema *entitySchema, names *entity
 
 			// Old key (from origin)
 			oldKeyVar := fmt.Sprintf("_uOldKey%d", idxNum)
-			g.generateUniqueIndexKeyFromOrigin(schema, names, idxName, cols, innerIndent, oldKeyVar, "del", false)
+			g.generateUniqueIndexKeyFromOrigin(schema, names, idxName, cols, innerIndent, oldKeyVar, false)
 
 			// New key (from bind with fallback to origin)
 			hasNullableCol := false
@@ -1056,11 +1036,11 @@ func (g *codeGenerator) generateEntityStruct(schema *entitySchema, names *entity
 				}
 				g.addLine(fmt.Sprintf("%sif %s {", innerIndent, validChecks))
 				g.generateUniqueIndexHashFromVars(cols, idxNum, innerIndent+"\t", newKeyVar, names, idxName)
-				g.addLine(fmt.Sprintf("%s\te.ctx.RedisPipeLine(%s.redisCode).Set(%s, strconv.FormatUint(e.GetID(), 10), 0)", innerIndent, names.providerName, newKeyVar))
+				g.addLine(fmt.Sprintf("%s\te.ctx.InvalidateCacheKey(%s.redisCode, %s)", innerIndent, names.providerName, newKeyVar))
 				g.addLine(fmt.Sprintf("%s}", innerIndent))
 			} else {
 				g.generateUniqueIndexHashFromVars(cols, idxNum, innerIndent, newKeyVar, names, idxName)
-				g.addLine(fmt.Sprintf("%se.ctx.RedisPipeLine(%s.redisCode).Set(%s, strconv.FormatUint(e.GetID(), 10), 0)", innerIndent, names.providerName, newKeyVar))
+				g.addLine(fmt.Sprintf("%se.ctx.InvalidateCacheKey(%s.redisCode, %s)", innerIndent, names.providerName, newKeyVar))
 			}
 
 			g.addLine(fmt.Sprintf("%s}", updateIndent))
@@ -1089,6 +1069,23 @@ func (g *codeGenerator) generateEntityStruct(schema *entitySchema, names *entity
 	// PrivateGetDatabaseBind
 	g.addLine(fmt.Sprintf("func (e *%s) PrivateGetDatabaseBind() map[string]any {", names.entityName))
 	g.addLine("\treturn e.databaseBind")
+	g.addLine("}")
+	g.addLine("")
+
+	// Optional capabilities Save type-asserts for. Reflecting on the generated
+	// struct would miss, because schemas are keyed by the source struct.
+	g.addLine(fmt.Sprintf("func (e *%s) PrivateCacheIndex() string {", names.entityName))
+	g.addLine(fmt.Sprintf("\treturn %s.cacheIndex", names.providerName))
+	g.addLine("}")
+	g.addLine("")
+
+	g.addLine(fmt.Sprintf("func (e *%s) PrivateIsNew() bool {", names.entityName))
+	g.addLine("\treturn e.new")
+	g.addLine("}")
+	g.addLine("")
+
+	g.addLine(fmt.Sprintf("func (e *%s) PrivateContext() fluxaorm.Context {", names.entityName))
+	g.addLine("\treturn e.ctx")
 	g.addLine("}")
 	g.addLine("")
 
@@ -1257,6 +1254,7 @@ func (g *codeGenerator) generatePrivateFlushed(schema *entitySchema, names *enti
 	if schema.hasRedisCache {
 		g.addLine("\te.redisBind = nil")
 	}
+	g.addLine("\te.deleted = false")
 	g.addLine("\te.flushType = 0")
 	g.addLine("\te.flushChanges = nil")
 	g.addLine("}")

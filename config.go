@@ -67,32 +67,23 @@ type ConfigNatsStream struct {
 }
 
 type ConfigNats struct {
-	Code             string               `yaml:"code" validate:"required"`
-	URLs             []string             `yaml:"urls" validate:"required"`
-	ClientID         string               `yaml:"clientID"`
+	Code                 string               `yaml:"code" validate:"required"`
+	URLs                 []string             `yaml:"urls" validate:"required"`
+	ClientID             string               `yaml:"clientID"`
 	MaxReconnects        int                  `yaml:"maxReconnects"`
 	ReconnectWaitMs      int                  `yaml:"reconnectWaitMs"`
 	ReconnectBufSize     int                  `yaml:"reconnectBufSize"`
 	ConnectTimeoutMs     int                  `yaml:"connectTimeoutMs"`
 	RetryOnFailedConnect bool                 `yaml:"retryOnFailedConnect"`
-	AuthToken        string               `yaml:"authToken"`
-	AuthUser         string               `yaml:"authUser"`
-	AuthPassword     string               `yaml:"authPassword"`
-	AuthCredsFile    string               `yaml:"authCredsFile"`
-	AuthNKeySeed     string               `yaml:"authNKeySeed"`
-	IgnoredSubjects  []string             `yaml:"ignoredSubjects"`
-	IgnoredConsumers []string             `yaml:"ignoredConsumers"`
-	Consumers        []ConfigNatsConsumer `yaml:"consumers"`
-	Streams          []ConfigNatsStream   `yaml:"streams"`
-}
-
-type ConfigAsyncFlush struct {
-	NatsPool          string `yaml:"natsPool" validate:"required"`
-	StreamReplicas    int    `yaml:"streamReplicas"`
-	DuplicateWindowMs int    `yaml:"duplicateWindowMs"`
-	MaxAckPending     int    `yaml:"maxAckPending"`
-	AckWaitMs         int    `yaml:"ackWaitMs"`
-	MaxDeliver        int    `yaml:"maxDeliver"`
+	AuthToken            string               `yaml:"authToken"`
+	AuthUser             string               `yaml:"authUser"`
+	AuthPassword         string               `yaml:"authPassword"`
+	AuthCredsFile        string               `yaml:"authCredsFile"`
+	AuthNKeySeed         string               `yaml:"authNKeySeed"`
+	IgnoredSubjects      []string             `yaml:"ignoredSubjects"`
+	IgnoredConsumers     []string             `yaml:"ignoredConsumers"`
+	Consumers            []ConfigNatsConsumer `yaml:"consumers"`
+	Streams              []ConfigNatsStream   `yaml:"streams"`
 }
 
 type Config struct {
@@ -102,7 +93,6 @@ type Config struct {
 	LocalCachePools    []ConfigLocalCache    `yaml:"localCachePools"`
 	ClickhousePools    []ConfigClickhouse    `yaml:"clickhousePools"`
 	NatsPools          []ConfigNats          `yaml:"natsPools"`
-	AsyncFlush         *ConfigAsyncFlush     `yaml:"asyncFlush"`
 }
 
 func (r *registry) InitByConfig(config *Config) error {
@@ -204,20 +194,6 @@ func (r *registry) InitByConfig(config *Config) error {
 			}
 			r.RegisterNatsStream(builder)
 		}
-	}
-	if config.AsyncFlush != nil {
-		opts := &AsyncFlushOptions{
-			StreamReplicas: config.AsyncFlush.StreamReplicas,
-			MaxAckPending:  config.AsyncFlush.MaxAckPending,
-			MaxDeliver:     config.AsyncFlush.MaxDeliver,
-		}
-		if config.AsyncFlush.DuplicateWindowMs > 0 {
-			opts.DuplicateWindow = time.Duration(config.AsyncFlush.DuplicateWindowMs) * time.Millisecond
-		}
-		if config.AsyncFlush.AckWaitMs > 0 {
-			opts.AckWait = time.Duration(config.AsyncFlush.AckWaitMs) * time.Millisecond
-		}
-		r.RegisterAsyncFlush(config.AsyncFlush.NatsPool, opts)
 	}
 	return nil
 }

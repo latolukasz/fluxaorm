@@ -8,12 +8,6 @@ import (
 	"github.com/nats-io/nats.go/jetstream"
 )
 
-const (
-	AsyncSQLStreamName = "FLUXA_ASYNC_SQL"
-	AsyncSQLSubject    = "fluxa.async.sql"
-	AsyncSQLDLQSubject = "fluxa.async.sql.failed"
-)
-
 type NatsStreamBuilder struct {
 	poolCode        string
 	streamName      string
@@ -272,25 +266,6 @@ func GetNatsAlters(ctx Context) ([]NatsAlter, error) {
 func collectDesiredStreams(ctx Context, reg *engineRegistryImplementation) map[string]map[string]jetstream.StreamConfig {
 	out := make(map[string]map[string]jetstream.StreamConfig)
 
-	if reg.asyncFlushNatsPool != "" {
-		opts := reg.asyncFlushOptions
-		builder := NewNatsStream(AsyncSQLStreamName, reg.asyncFlushNatsPool).
-			Subjects(AsyncSQLSubject, AsyncSQLDLQSubject).
-			Duplicates(10 * time.Minute)
-		if opts != nil {
-			if opts.StreamReplicas > 0 {
-				builder.Replicas(opts.StreamReplicas)
-			}
-			if opts.DuplicateWindow > 0 {
-				builder.Duplicates(opts.DuplicateWindow)
-			}
-		}
-		if out[reg.asyncFlushNatsPool] == nil {
-			out[reg.asyncFlushNatsPool] = make(map[string]jetstream.StreamConfig)
-		}
-		out[reg.asyncFlushNatsPool][AsyncSQLStreamName] = builder.toConfig()
-	}
-
 	for _, b := range reg.natsStreams {
 		if out[b.poolCode] == nil {
 			out[b.poolCode] = make(map[string]jetstream.StreamConfig)
@@ -326,24 +301,6 @@ func collectDesiredStreams(ctx Context, reg *engineRegistryImplementation) map[s
 
 func collectDesiredConsumers(reg *engineRegistryImplementation) map[string][]*NatsConsumerBuilder {
 	out := make(map[string][]*NatsConsumerBuilder)
-
-	if reg.asyncFlushNatsPool != "" {
-		opts := reg.asyncFlushOptions
-		b := NewNatsConsumer(AsyncSQLStreamName, reg.asyncFlushNatsPool).
-			FilterSubjects(AsyncSQLSubject)
-		if opts != nil {
-			if opts.MaxAckPending > 0 {
-				b.MaxAckPending(opts.MaxAckPending)
-			}
-			if opts.AckWait > 0 {
-				b.AckWait(opts.AckWait)
-			}
-			if opts.MaxDeliver != 0 {
-				b.MaxDeliver(opts.MaxDeliver)
-			}
-		}
-		out[reg.asyncFlushNatsPool] = append(out[reg.asyncFlushNatsPool], b)
-	}
 
 	for _, b := range reg.natsConsumers {
 		out[b.poolCode] = append(out[b.poolCode], b)

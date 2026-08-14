@@ -10,7 +10,7 @@ import (
 )
 
 type metricsEntity struct {
-	ID   uint32
+	ID   uint64
 	Name string
 }
 

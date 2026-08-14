@@ -804,9 +804,10 @@ func checkStruct(engine Engine, entitySchema *entitySchema, t reflect.Type, inde
 		if !hasID || len(f.Index) != 1 || f.Index[0] != 0 {
 			return nil, errors.New("field ID on position 1 is missing")
 		}
-		idType := f.Type.String()
-		if !strings.HasPrefix(idType, "uint") {
-			return nil, errors.New("ID column must be uint")
+		// IDs come from the snowflake generator, which needs the full 64-bit
+		// range. A narrower column silently truncates or fails with MySQL 1264.
+		if f.Type.String() != "uint64" {
+			return nil, fmt.Errorf("ID column must be uint64, got %s on %s", f.Type.String(), t.String())
 		}
 	}
 	maxFields := t.NumField() - 1

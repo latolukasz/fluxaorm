@@ -11,14 +11,6 @@ import (
 	"github.com/nats-io/nats.go/jetstream"
 )
 
-type AsyncFlushOptions struct {
-	StreamReplicas  int
-	DuplicateWindow time.Duration
-	MaxAckPending   int
-	AckWait         time.Duration
-	MaxDeliver      int
-}
-
 type NatsPoolOptions struct {
 	ClientID             string
 	MaxReconnects        int

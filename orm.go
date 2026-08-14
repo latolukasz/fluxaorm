@@ -11,6 +11,8 @@ import (
 
 const defaultContextCacheTTL int64 = 1000 // milliseconds
 
+type xsyncEntityMap = xsync.MapOf[uint64, Entity]
+
 type Meta map[string]string
 
 func (m Meta) Get(key string) string {
@@ -25,9 +27,14 @@ type Context interface {
 	DisableContextCache()
 	SetContextCacheTTL(ttl time.Duration)
 	Flush() error
-	FlushAsync(immediateRedisUpdates bool) error
-	GetAsyncSQLConsumer() (AsyncSQLConsumer, error)
 	ClearFlush()
+	Save(entities ...Entity) error
+	Delete(entities ...Entity) error
+	ForceDelete(entities ...Entity) error
+	Transaction(fn func(tx Context) error) error
+	InTransaction() bool
+	DB(pool string) DBBase
+	InvalidateCacheKey(pool, key string)
 	RedisPipeLine(pool string) *RedisPipeLine
 	DatabasePipeLine(pool string) *DatabasePipeline
 	RegisterQueryLogger(handler LogHandler, options QueryLoggerOptions)
@@ -65,9 +72,10 @@ type ormImplementation struct {
 	hasNatsLogger            bool
 	disabledContextCache     bool
 	meta                     Meta
-	redisRecordMode          bool
 	redisPipeLines           []*RedisPipeLine
 	dbPipeLines              map[string]*DatabasePipeline
+	tx                       *txState
+	pendingInvalidations     map[string]map[string]bool
 	mutexFlush               sync.Mutex
 	mutexData                sync.Mutex
 }
@@ -77,6 +85,15 @@ func (orm *ormImplementation) Context() context.Context {
 }
 
 func (orm *ormImplementation) CloneWithContext(context context.Context) Context {
+	orm.mutexData.Lock()
+	var meta Meta
+	if orm.meta != nil {
+		meta = make(Meta, len(orm.meta))
+		for k, v := range orm.meta {
+			meta[k] = v
+		}
+	}
+	orm.mutexData.Unlock()
 	return &ormImplementation{
 		context:                context,
 		engine:                 orm.engine,
@@ -90,7 +107,7 @@ func (orm *ormImplementation) CloneWithContext(context context.Context) Context 
 		hasLocalCacheLogger:    orm.hasLocalCacheLogger,
 		hasClickhouseLogger:    orm.hasClickhouseLogger,
 		hasNatsLogger:          orm.hasNatsLogger,
-		meta:                   orm.meta,
+		meta:                   meta,
 		disabledContextCache:   orm.disabledContextCache,
 		contextCacheTTL:        orm.contextCacheTTL,
 	}
@@ -102,7 +119,7 @@ func (orm *ormImplementation) Clone() Context {
 
 func (orm *ormImplementation) RedisPipeLine(pool string) *RedisPipeLine {
 	r := orm.engine.Redis(pool).(*redisCache)
-	pipeline := &RedisPipeLine{ctx: orm, pool: pool, r: r, pipeLine: r.client.Pipeline(), recordMode: orm.redisRecordMode}
+	pipeline := &RedisPipeLine{ctx: orm, pool: pool, r: r, pipeLine: r.client.Pipeline()}
 	orm.mutexData.Lock()
 	defer orm.mutexData.Unlock()
 	orm.redisPipeLines = append(orm.redisPipeLines, pipeline)
@@ -224,9 +241,7 @@ func (orm *ormImplementation) GetFromContextCache(cacheIndex string, id uint64) 
 		return nil
 	}
 	if orm.cachedEntitiesFirstAdded > 0 && time.Now().UnixMilli()-orm.cachedEntitiesFirstAdded > orm.contextCacheTTL {
-		orm.cachedEntities.Clear()
-		orm.cachedEntitiesFirstAdded = 0
-		return nil
+		orm.evictContextCache()
 	}
 	entities, ok := orm.cachedEntities.Load(cacheIndex)
 	if !ok {
@@ -237,6 +252,46 @@ func (orm *ormImplementation) GetFromContextCache(cacheIndex string, id uint64) 
 		return nil
 	}
 	return entity
+}
+
+func (orm *ormImplementation) removeFromContextCache(cacheIndex string, id uint64) {
+	if orm.cachedEntities == nil {
+		return
+	}
+	if entities, ok := orm.cachedEntities.Load(cacheIndex); ok {
+		entities.Delete(id)
+	}
+}
+
+// evictContextCache drops expired identity-map entries but keeps entities that
+// still hold unsaved changes - dropping those would serve a stale row to code
+// running later in the same request.
+func (orm *ormImplementation) evictContextCache() {
+	if orm.trackedEntities == nil || orm.trackedEntities.Size() == 0 {
+		orm.cachedEntities.Clear()
+		orm.cachedEntitiesFirstAdded = 0
+		return
+	}
+	kept := false
+	orm.cachedEntities.Range(func(cacheIndex string, entities *xsync.MapOf[uint64, Entity]) bool {
+		tracked, hasTracked := orm.trackedEntities.Load(cacheIndex)
+		entities.Range(func(id uint64, _ Entity) bool {
+			if hasTracked {
+				if _, dirty := tracked.Load(id); dirty {
+					kept = true
+					return true
+				}
+			}
+			entities.Delete(id)
+			return true
+		})
+		return true
+	})
+	if kept {
+		orm.cachedEntitiesFirstAdded = time.Now().UnixMilli()
+	} else {
+		orm.cachedEntitiesFirstAdded = 0
+	}
 }
 
 func (orm *ormImplementation) SetInContextCache(cacheIndex string, id uint64, entity Entity) {
