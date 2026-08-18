@@ -116,9 +116,6 @@ func (g *codeGenerator) generateProviderAndSQLRow(schema *entitySchema, names *e
 
 	// OnAfterInsert
 	g.addLine(fmt.Sprintf("func (p %s) OnAfterInsert(engine fluxaorm.Engine, handler func(ctx fluxaorm.Context, entity *%s) error) {", names.providerNamePrivate, names.entityName))
-	g.addLine(fmt.Sprintf("\tfluxaorm.RegisterEntityLoader(engine, p.cacheIndex, p.dbCode, func(ctx fluxaorm.Context, id uint64) (fluxaorm.Entity, bool, error) {"))
-	g.addLine(fmt.Sprintf("\t\treturn p.GetByID(ctx, id)"))
-	g.addLine("\t})")
 	g.addLine(fmt.Sprintf("\tfluxaorm.RegisterAfterInsertHandler(engine, p.cacheIndex, func(ctx fluxaorm.Context, e fluxaorm.Entity) error {"))
 	g.addLine(fmt.Sprintf("\t\treturn handler(ctx, e.(*%s))", names.entityName))
 	g.addLine("\t})")
@@ -127,9 +124,6 @@ func (g *codeGenerator) generateProviderAndSQLRow(schema *entitySchema, names *e
 
 	// OnAfterUpdate
 	g.addLine(fmt.Sprintf("func (p %s) OnAfterUpdate(engine fluxaorm.Engine, handler func(ctx fluxaorm.Context, entity *%s, changes map[string]any) error) {", names.providerNamePrivate, names.entityName))
-	g.addLine(fmt.Sprintf("\tfluxaorm.RegisterEntityLoader(engine, p.cacheIndex, p.dbCode, func(ctx fluxaorm.Context, id uint64) (fluxaorm.Entity, bool, error) {"))
-	g.addLine(fmt.Sprintf("\t\treturn p.GetByID(ctx, id)"))
-	g.addLine("\t})")
 	g.addLine(fmt.Sprintf("\tfluxaorm.RegisterAfterUpdateHandler(engine, p.cacheIndex, func(ctx fluxaorm.Context, e fluxaorm.Entity, changes map[string]any) error {"))
 	g.addLine(fmt.Sprintf("\t\treturn handler(ctx, e.(*%s), changes)", names.entityName))
 	g.addLine("\t})")
@@ -138,9 +132,6 @@ func (g *codeGenerator) generateProviderAndSQLRow(schema *entitySchema, names *e
 
 	// OnAfterDelete
 	g.addLine(fmt.Sprintf("func (p %s) OnAfterDelete(engine fluxaorm.Engine, handler func(ctx fluxaorm.Context, entity *%s) error) {", names.providerNamePrivate, names.entityName))
-	g.addLine(fmt.Sprintf("\tfluxaorm.RegisterEntityLoader(engine, p.cacheIndex, p.dbCode, func(ctx fluxaorm.Context, id uint64) (fluxaorm.Entity, bool, error) {"))
-	g.addLine(fmt.Sprintf("\t\treturn p.GetByID(ctx, id)"))
-	g.addLine("\t})")
 	g.addLine(fmt.Sprintf("\tfluxaorm.RegisterAfterDeleteHandler(engine, p.cacheIndex, func(ctx fluxaorm.Context, e fluxaorm.Entity) error {"))
 	g.addLine(fmt.Sprintf("\t\treturn handler(ctx, e.(*%s))", names.entityName))
 	g.addLine("\t})")

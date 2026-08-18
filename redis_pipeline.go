@@ -28,11 +28,6 @@ func (rp *RedisPipeLine) RPush(key string, values ...any) {
 	rp.pipeLine.RPush(rp.ctx.Context(), key, values...)
 }
 
-func (rp *RedisPipeLine) LSet(key string, index int64, value any) {
-	rp.commands++
-	rp.pipeLine.LSet(rp.ctx.Context(), key, index, value)
-}
-
 func (rp *RedisPipeLine) Del(key ...string) {
 	rp.commands++
 	rp.pipeLine.Del(rp.ctx.Context(), key...)

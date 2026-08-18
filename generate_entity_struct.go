@@ -553,7 +553,6 @@ func (g *codeGenerator) generateEntityStruct(schema *entitySchema, names *entity
 	g.addLine(fmt.Sprintf("\toriginDatabaseValues *%s", names.sqlRowName))
 	g.addLine("\tdatabaseBind map[string]any")
 	if schema.hasRedisCache {
-		g.addLine("\tredisBind map[int64]any")
 		g.addLine("\toriginRedisValues []string")
 	}
 	g.addLine("\tflushType uint8")
@@ -592,16 +591,6 @@ func (g *codeGenerator) generateEntityStruct(schema *entitySchema, names *entity
 	g.addLine(fmt.Sprintf("\te.databaseBind[column] = value"))
 	g.addLine("}")
 	g.addLine("")
-
-	if schema.hasRedisCache {
-		g.addLine(fmt.Sprintf("func (e *%s) addToRedisBind(index int64, value any) {", names.entityName))
-		g.addLine("\tif e.redisBind == nil {")
-		g.addLine("\t\te.redisBind = make(map[int64]any)")
-		g.addLine("\t}")
-		g.addLine(fmt.Sprintf("\te.redisBind[index] = value"))
-		g.addLine("}")
-		g.addLine("")
-	}
 
 	if schema.hasRedisSearch {
 		g.addImport("strconv")
@@ -798,10 +787,6 @@ func (g *codeGenerator) generateEntityStruct(schema *entitySchema, names *entity
 	if schema.hasUpdatedAt {
 		g.addImport("time")
 		g.addLine("\t\te.databaseBind[\"UpdatedAt\"] = time.Now().UTC().Truncate(time.Second)")
-		if schema.hasRedisCache {
-			g.addLine("\t\tif e.redisBind == nil { e.redisBind = make(map[int64]any) }")
-			g.addLine(fmt.Sprintf("\t\te.redisBind[%d] = e.databaseBind[\"UpdatedAt\"].(time.Time).Unix()", schema.updatedAtFIndex+1))
-		}
 	}
 	g.addLine(fmt.Sprintf("\t\tsqlQuery := \"UPDATE `%s` SET\" ", schema.tableName))
 	g.addLine("\t\ti := 0")
@@ -1251,9 +1236,6 @@ func (g *codeGenerator) generatePrivateFlushed(schema *entitySchema, names *enti
 	g.addLine("\t\t}")
 	g.addLine("\t}")
 	g.addLine("\te.databaseBind = nil")
-	if schema.hasRedisCache {
-		g.addLine("\te.redisBind = nil")
-	}
 	g.addLine("\te.deleted = false")
 	g.addLine("\te.flushType = 0")
 	g.addLine("\te.flushChanges = nil")

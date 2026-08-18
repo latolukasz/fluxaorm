@@ -104,33 +104,6 @@ func TestCacheIndexSchemasByIndexLookup(t *testing.T) {
 	}
 }
 
-// TestRegisterEntityLoaderUsesStringIndex: handlers keyed by string cacheIndex
-// land in the correct engine map.
-func TestRegisterEntityLoaderUsesStringIndex(t *testing.T) {
-	engine := validateForCacheIndex(t, cacheIndexEntityA{}, cacheIndexEntityB{})
-	idxA := entityCacheIndexFor(t, engine, cacheIndexEntityA{})
-	idxB := entityCacheIndexFor(t, engine, cacheIndexEntityB{})
-
-	called := ""
-	RegisterEntityLoader(engine, idxA, "poolA", func(_ Context, _ uint64) (Entity, bool, error) {
-		called = "A"
-		return nil, false, nil
-	})
-	RegisterEntityLoader(engine, idxB, "poolB", func(_ Context, _ uint64) (Entity, bool, error) {
-		called = "B"
-		return nil, false, nil
-	})
-
-	impl := engine.(*engineImplementation)
-	assert.Equal(t, "poolA", impl.entityDBPools[idxA])
-	assert.Equal(t, "poolB", impl.entityDBPools[idxB])
-
-	_, _, _ = impl.entityLoaders[idxA](nil, 0)
-	assert.Equal(t, "A", called)
-	_, _, _ = impl.entityLoaders[idxB](nil, 0)
-	assert.Equal(t, "B", called)
-}
-
 // TestContextCacheKeysByStringIndex: GetFromContextCache / SetInContextCache
 // isolate entries per cacheIndex, so two different entity types with the same
 // numeric ID do not collide.

@@ -10,10 +10,6 @@ import (
 	"slices"
 	"strconv"
 	"strings"
-	"sync"
-	"time"
-
-	"github.com/pkg/errors"
 )
 
 type searchableFieldDef struct {
@@ -121,15 +117,10 @@ type entitySchema struct {
 	references              map[string]referenceDefinition
 	referencesMulti         map[string]referencesDefinition
 	options                 map[string]any
-	hasLocalCache           bool
-	localCache              *localCache
-	localCacheLimit         int
 	redisCacheName          string
 	hasRedisCache           bool
 	redisCache              *redisCache
 	cacheKey                string
-	uuidCacheKey            string
-	uuidMutex               sync.Mutex
 	structureHash           string
 	hasCreatedAt            bool
 	createdAtFIndex         int
@@ -248,13 +239,6 @@ func (e *entitySchema) UpdateSchemaAndTruncateTable(ctx Context) error {
 
 func (e *entitySchema) GetDB() DB {
 	return e.engine.DB(e.mysqlPoolCode)
-}
-
-func (e *entitySchema) GetLocalCache() (cache LocalCache, has bool) {
-	if !e.hasLocalCache {
-		return nil, false
-	}
-	return e.localCache, true
 }
 
 func (e *entitySchema) GetRedisCache() (cache RedisCache, has bool) {
@@ -455,20 +439,10 @@ func (e *entitySchema) init(registry *registry, entityType reflect.Type) error {
 	}
 	e.pendingSearchableFields = nil
 	cacheKey = fmt.Sprintf("%x", sha256.Sum256([]byte(cacheKey+strings.Join(e.columnNames, ":"))))
-	e.uuidCacheKey = cacheKey[0:12]
 	cacheKey = cacheKey[0:5]
 	h := fnv.New32a()
 	_, _ = h.Write([]byte(cacheKey))
 	e.structureHash = strconv.FormatUint(uint64(h.Sum32()), 10)
-	localCacheLimit := e.getTag("localCache", "0", "")
-	if localCacheLimit != "" {
-		localCacheLimitAsInt, err := strconv.Atoi(localCacheLimit)
-		if err != nil {
-			return fmt.Errorf("invalid local cache pool limit '%s'", localCacheLimit)
-		}
-		e.hasLocalCache = true
-		e.localCacheLimit = localCacheLimitAsInt
-	}
 	e.redisCacheName = redisCacheName
 	e.hasRedisCache = redisCacheName != ""
 	e.cacheKey = cacheKey
@@ -628,63 +602,6 @@ func (e *entitySchema) Option(key string) any {
 	return e.options[key]
 }
 
-func (e *entitySchema) uuid(ctx Context) (uint64, error) {
-	r := ctx.Engine().Redis(e.getForcedRedisCode())
-	id, err := r.Incr(ctx, e.uuidCacheKey)
-	if err != nil {
-		return 0, err
-	}
-	if id == 1 {
-		if err := e.initUUID(ctx); err != nil {
-			return 0, err
-		}
-		return e.uuid(ctx)
-	}
-	return uint64(id), nil
-}
-
-func (e *entitySchema) initUUID(ctx Context) error {
-	r := ctx.Engine().Redis(e.getForcedRedisCode())
-	e.uuidMutex.Lock()
-	defer e.uuidMutex.Unlock()
-	now, has, err := r.Get(ctx, e.uuidCacheKey)
-	if err != nil {
-		return err
-	}
-	if has && now != "1" {
-		return nil
-	}
-	lockName := e.uuidCacheKey + ":lock"
-	lock, obtained, err := r.GetLocker().Obtain(ctx, lockName, time.Minute, time.Second*5)
-	if err != nil {
-		return err
-	}
-	if !obtained {
-		return errors.New("uuid lock timeout")
-	}
-	defer lock.Release(ctx)
-	now, has, err = r.Get(ctx, e.uuidCacheKey)
-	if err != nil {
-		return err
-	}
-	if has && now != "1" {
-		return nil
-	}
-	maxID := int64(0)
-	_, err = e.GetDB().QueryRow(ctx, NewWhere("SELECT IFNULL(MAX(ID), 0) FROM `"+e.GetTableName()+"`"), &maxID)
-	if err != nil {
-		return err
-	}
-	if maxID == 0 {
-		maxID = 1
-	}
-	_, err = r.IncrBy(ctx, e.uuidCacheKey, maxID)
-	if err != nil {
-		return err
-	}
-	return nil
-}
-
 func (e *entitySchema) getForcedRedisCode() string {
 	if e.hasRedisCache {
 		return e.redisCacheName
@@ -692,20 +609,7 @@ func (e *entitySchema) getForcedRedisCode() string {
 	return DefaultPoolCode
 }
 
-func (e *entitySchema) DisableCache(local, redis bool) {
-	if local {
-		e.hasLocalCache = false
-	}
-	if redis {
-		e.redisCacheName = ""
-		e.hasRedisCache = false
-	}
-}
-
 func (e *entitySchema) ClearCache(ctx Context) (int, error) {
-	if e.hasLocalCache {
-		e.localCache.Clear(ctx)
-	}
 	if !e.hasRedisCache {
 		return 0, nil
 	}

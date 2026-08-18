@@ -28,7 +28,6 @@ type Registry interface {
 	ValidateForCodeGen() (Engine, error)
 	RegisterEntity(entity ...any)
 	RegisterMySQL(dataSourceName string, poolCode string, poolOptions *MySQLOptions)
-	RegisterLocalCache(code string, limit int)
 	RegisterRedis(address string, db int, poolCode string, options *RedisOptions)
 	InitByYaml(yaml any) error
 	InitByConfig(config *Config) error
@@ -44,7 +43,6 @@ type Registry interface {
 
 type registry struct {
 	mysqlPools       map[string]MySQLConfig
-	localCaches      map[string]LocalCache
 	redisPools       map[string]RedisPoolConfig
 	clickhousePools  map[string]ClickhouseConfig
 	clickhouseTables []*ClickhouseTableBuilder
@@ -271,9 +269,6 @@ func (r *registry) Validate() (Engine, error) {
 		}
 		e.natsServers[k] = &natsPoolImplementation{config: v}
 	}
-	if e.localCacheServers == nil {
-		e.localCacheServers = make(map[string]LocalCache)
-	}
 	if e.redisServers == nil {
 		e.redisServers = make(map[string]RedisCache)
 	}
@@ -307,27 +302,12 @@ func (r *registry) Validate() (Engine, error) {
 			return nil, err
 		}
 		e.registry.entitySchemas[entityType] = schema
-		if schema.hasLocalCache {
-			if r.localCaches == nil {
-				r.localCaches = make(map[string]LocalCache)
-			}
-			r.localCaches[schema.cacheKey] = newLocalCache(schema.cacheKey, schema.localCacheLimit, schema)
-		}
 	}
 	err := resolveSharedEnumDefinitions(e.registry.entitySchemas)
 	if err != nil {
 		return nil, err
 	}
-	for k, v := range r.localCaches {
-		e.localCacheServers[k] = v
-		if len(k) > maxPoolLen {
-			maxPoolLen = len(k)
-		}
-	}
 	for _, schema := range e.registry.entitySchemas {
-		if schema.hasLocalCache {
-			schema.localCache = e.localCacheServers[schema.cacheKey].(*localCache)
-		}
 		if schema.hasRedisCache {
 			schema.redisCache = e.redisServers[schema.redisCacheName].(*redisCache)
 		}
@@ -389,7 +369,6 @@ func (r *registry) ValidateForCodeGen() (Engine, error) {
 	e.registry.dbTables = make(map[string]map[string]bool)
 	e.natsServers = make(map[string]Nats)
 	e.redisServers = make(map[string]RedisCache)
-	e.localCacheServers = make(map[string]LocalCache)
 	e.clickhouseServers = make(map[string]Clickhouse)
 
 	for k, v := range r.mysqlPools {
@@ -524,13 +503,6 @@ func (r *registry) RegisterNats(urls []string, poolCode string, options *NatsPoo
 
 func (r *registry) RegisterNatsConsumer(consumer *NatsConsumerBuilder) {
 	r.natsConsumers = append(r.natsConsumers, consumer)
-}
-
-func (r *registry) RegisterLocalCache(code string, limit int) {
-	if r.localCaches == nil {
-		r.localCaches = make(map[string]LocalCache)
-	}
-	r.localCaches[code] = newLocalCache(code, limit, nil)
 }
 
 type RedisOptions struct {

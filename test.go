@@ -74,7 +74,6 @@ func prepareTables(t *testing.T, registry Registry, mysqlOptions *MySQLOptions, 
 	registry.RegisterMySQL("root:root@tcp(localhost:3397)/test", DefaultPoolCode, mysqlOptions)
 	registry.RegisterRedis("localhost:6395", 0, DefaultPoolCode, nil)
 	registry.RegisterRedis("localhost:6395", 1, "second", nil)
-	registry.RegisterLocalCache(DefaultPoolCode, 0)
 
 	registry.RegisterEntity(entities...)
 	engine, err := registry.Validate()
@@ -99,10 +98,6 @@ func prepareTables(t *testing.T, registry Registry, mysqlOptions *MySQLOptions, 
 		assert.NoError(t, err)
 		err = schema.UpdateSchema(orm)
 		assert.NoError(t, err)
-		cacheLocal, has := schema.GetLocalCache()
-		if has {
-			cacheLocal.Clear(orm)
-		}
 	}
 	return orm
 }

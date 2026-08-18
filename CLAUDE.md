@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Documentation Sync
 
-Every change to the ORM code must be accompanied by a corresponding update to the documentation in `documentation/`. This includes API changes, new features, removed features, behavior changes, and bug fixes that affect documented behavior.
+Every change to the ORM code must be accompanied by a corresponding update to this file. This includes API changes, new features, removed features, behavior changes, and bug fixes that affect documented behavior.
 
 ## Commands
 
@@ -32,7 +32,7 @@ FLUXA ORM is a **code-generation-based** Go ORM targeting MySQL + Redis 8.0. The
 
 ### Core Flow
 
-1. **Registry** (`registry.go`) — configure entity types, connection pools (MySQL, Redis, Local Cache), and plugins via `NewRegistry()`
+1. **Registry** (`registry.go`) — configure entity types, connection pools (MySQL, Redis, ClickHouse, NATS), and plugins via `NewRegistry()`
 2. **Engine** (`engine.go`) — immutable runtime object created via `registry.Validate()`; holds connection pools and all entity schemas
 3. **Context** (`orm.go`) — created from Engine per-request (`Context` interface / `ormImplementation`); the main API surface for ORM operations
 
@@ -68,24 +68,26 @@ Entity registration: `registry.RegisterEntity(&MyEntity{})`, then call `registry
 **Generated output structure (per entity):**
 
 - **`XxxSQLRow` struct** — flat struct with fields `F0`, `F1`, `F2`... for reflection-free `Scan()`
-- **`XxxProvider` singleton** — holds static metadata (tableName, dbCode, redisCode, cacheIndex, redisCachePrefix, stamp, TTL) and exposes all query methods. `cacheIndex` is the fully qualified entity type name as a string (e.g. `"app/entities.User"`); it keys `engine.entityLoaders`, `entityDBPools`, `afterInsertHandlers`/`afterUpdateHandlers`/`afterDeleteHandlers`, `ormImplementation.trackedEntities`/`cachedEntities`, and is serialised on `AsyncEntityEvent.CacheIndex`. Using the type name keeps the value stable across registrations (so in-flight NATS async-flush messages still route correctly after deploys that add new entities) and self-documenting in payloads and logs.
+- **`XxxProvider` singleton** — holds static metadata (tableName, dbCode, redisCode, cacheIndex, redisCachePrefix, stamp, TTL) and exposes all query methods. `cacheIndex` is the fully qualified entity type name as a string (e.g. `"app/entities.User"`); it keys `afterInsertHandlers`/`afterUpdateHandlers`/`afterDeleteHandlers` and `ormImplementation.trackedEntities`/`cachedEntities`. Using the type name keeps the value stable across registrations and self-documenting in payloads and logs.
 - **`XxxEntity` struct** — user-facing entity; holds `ctx`, `id`, `new`, `deleted`, `originDatabaseValues` (SQLRow)
 
-### Caching (Three Tiers)
+### Caching (Two Tiers)
 
-1. **Context cache** — per-request in-memory map inside `ormImplementation`; **enabled by default** with a 1-second TTL. Populated only by `GetByID` and `GetByIDs` (not by `Search*`). Disable with `ctx.DisableContextCache()`; change TTL with `ctx.SetContextCacheTTL(d time.Duration)`. When the TTL expires, the entire map is cleared on the next cache read. Low-level hooks `GetFromContextCache` / `SetInContextCache` are exported on the `Context` interface so generated code can use them across packages.
-2. **Local cache** (`local_cache.go`) — per-process LRU; size configured per entity via `registry.RegisterLocalCache(code, limit)`
-3. **Redis cache** (`redis_cache.go`) — entity stored as a Redis List; index 0 = struct hash stamp, indices 1..N = serialised field values
+1. **Context cache** — per-request in-memory map inside `ormImplementation`; **enabled by default** with a 1-second TTL. Populated only by `GetByID` and `GetByIDs` (not by `Search*`). Disable with `ctx.DisableContextCache()`; change TTL with `ctx.SetContextCacheTTL(d time.Duration)`. On expiry, `evictContextCache` clears everything except entities that still hold unsaved changes. Low-level hooks `GetFromContextCache` / `SetInContextCache` are exported on the `Context` interface so generated code can use them across packages.
+2. **Redis cache** (`redis_cache.go`) — entity stored as a Redis List; index 0 = struct hash stamp, indices 1..N = serialised field values. Writes invalidate; they never write back.
+
+There is no local (per-process) cache. One was implemented but no read path ever consulted it, so it was removed.
 
 ### Dirty Tracking in Generated Code
 
 - Getters read from (priority): `databaseBind` → `originRedisValues` → `originDatabaseValues`
 - Setters compare new value against current origin; no-op if unchanged; otherwise update bind maps
-- `PrivateFlush()` enqueues INSERT/UPDATE/DELETE on the DB pipeline and `LSet` on the Redis pipeline
+- `PrivateFlush()` enqueues INSERT/UPDATE/DELETE on the DB pipeline. It does **not** write the row cache back: `Save` invalidates the stale keys instead, before the statement and again after commit.
+- `trackedEntities` is the dirty set. Its only reader is `evictContextCache`, which keeps identity-map entries holding unsaved changes — dropping those would serve a stale row later in the same request.
 
-### UUID Generation
+### ID Generation
 
-Uses Redis `INCR` on a per-entity key. On first use (counter == 1), acquires a distributed lock and initialises the counter from `MAX(ID)` in MySQL (`initUUID`).
+Snowflake (`newSnowflakeGenerator`). Reference columns are rejected at registration if their declared ID type is too narrow to hold a snowflake ID.
 
 ### Redis Search
 

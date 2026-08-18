@@ -18,7 +18,6 @@ func main() {
 	registry.RegisterMySQL("root:root@tcp(localhost:3397)/test", fluxaorm.DefaultPoolCode, &fluxaorm.MySQLOptions{})
 	registry.RegisterRedis("localhost:6395", 0, fluxaorm.DefaultPoolCode, nil)
 	registry.RegisterRedis("localhost:6395", 1, "second", nil)
-	registry.RegisterLocalCache(fluxaorm.DefaultPoolCode, 0)
 	registry.RegisterNats([]string{"nats://localhost:9944"}, "nats", nil)
 	for _, ref := range test_generate.FixtureCDCStreams() {
 		registry.RegisterCDCStream(ref, fluxaorm.CDCStreamOptions{NatsPool: "nats"})

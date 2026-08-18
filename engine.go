@@ -11,7 +11,6 @@ type EngineRegistry interface {
 	DBPools() map[string]DB
 	ClickhousePools() map[string]Clickhouse
 	NatsPools() map[string]Nats
-	LocalCachePools() map[string]LocalCache
 	RedisPools() map[string]RedisCache
 	Option(key string) any
 	getDefaultQueryLogger() LogHandler
@@ -28,7 +27,6 @@ type Engine interface {
 	DB(code string) DB
 	Clickhouse(code string) Clickhouse
 	Nats(code string) Nats
-	LocalCache(code string) LocalCache
 	Redis(code string) RedisCache
 	Registry() EngineRegistry
 	Option(key string) any
@@ -58,7 +56,6 @@ type engineRegistryImplementation struct {
 
 type engineImplementation struct {
 	registry            *engineRegistryImplementation
-	localCacheServers   map[string]LocalCache
 	dbServers           map[string]DB
 	clickhouseServers   map[string]Clickhouse
 	natsServers         map[string]Nats
@@ -67,8 +64,6 @@ type engineImplementation struct {
 	afterInsertHandlers map[string]func(Context, Entity) error
 	afterUpdateHandlers map[string]func(Context, Entity, map[string]any) error
 	afterDeleteHandlers map[string]func(Context, Entity) error
-	entityLoaders       map[string]func(Context, uint64) (Entity, bool, error)
-	entityDBPools       map[string]string
 	idGenerator         *snowflakeGenerator
 }
 
@@ -112,10 +107,6 @@ func (e *engineImplementation) DB(code string) DB {
 	return e.dbServers[code]
 }
 
-func (e *engineImplementation) LocalCache(code string) LocalCache {
-	return e.localCacheServers[code]
-}
-
 func (e *engineImplementation) Redis(code string) RedisCache {
 	return e.redisServers[code]
 }
@@ -132,10 +123,6 @@ func (er *engineRegistryImplementation) RedisPools() map[string]RedisCache {
 	return er.engine.redisServers
 }
 
-func (er *engineRegistryImplementation) LocalCachePools() map[string]LocalCache {
-	return er.engine.localCacheServers
-}
-
 func (er *engineRegistryImplementation) DBPools() map[string]DB {
 	return er.engine.dbServers
 }
@@ -150,16 +137,6 @@ func (er *engineRegistryImplementation) Option(key string) any {
 
 func (er *engineRegistryImplementation) getDefaultQueryLogger() LogHandler {
 	return er.defaultQueryLogger
-}
-
-func RegisterEntityLoader(engine Engine, cacheIndex string, dbPool string, loader func(Context, uint64) (Entity, bool, error)) {
-	e := engine.(*engineImplementation)
-	if e.entityLoaders == nil {
-		e.entityLoaders = make(map[string]func(Context, uint64) (Entity, bool, error))
-		e.entityDBPools = make(map[string]string)
-	}
-	e.entityLoaders[cacheIndex] = loader
-	e.entityDBPools[cacheIndex] = dbPool
 }
 
 func RegisterAfterInsertHandler(engine Engine, cacheIndex string, handler func(Context, Entity) error) {

@@ -41,7 +41,6 @@ type Context interface {
 	SetMetaData(key, value string)
 	GetMetaData() Meta
 	getDBLoggers() (bool, []LogHandler)
-	getLocalCacheLoggers() (bool, []LogHandler)
 	getClickhouseLoggers() (bool, []LogHandler)
 	getNatsLoggers() (bool, []LogHandler)
 	getRedisLoggers() (bool, []LogHandler)
@@ -60,12 +59,10 @@ type ormImplementation struct {
 	contextCacheTTL          int64
 	queryLoggersDB           []LogHandler
 	queryLoggersRedis        []LogHandler
-	queryLoggersLocalCache   []LogHandler
 	queryLoggersClickhouse   []LogHandler
 	queryLoggersNats         []LogHandler
 	hasRedisLogger           bool
 	hasDBLogger              bool
-	hasLocalCacheLogger      bool
 	hasClickhouseLogger      bool
 	hasNatsLogger            bool
 	disabledContextCache     bool
@@ -97,12 +94,10 @@ func (orm *ormImplementation) CloneWithContext(context context.Context) Context 
 		engine:                 orm.engine,
 		queryLoggersDB:         orm.queryLoggersDB,
 		queryLoggersRedis:      orm.queryLoggersRedis,
-		queryLoggersLocalCache: orm.queryLoggersLocalCache,
 		queryLoggersClickhouse: orm.queryLoggersClickhouse,
 		queryLoggersNats:       orm.queryLoggersNats,
 		hasRedisLogger:         orm.hasRedisLogger,
 		hasDBLogger:            orm.hasDBLogger,
-		hasLocalCacheLogger:    orm.hasLocalCacheLogger,
 		hasClickhouseLogger:    orm.hasClickhouseLogger,
 		hasNatsLogger:          orm.hasNatsLogger,
 		meta:                   meta,
@@ -184,13 +179,6 @@ func (orm *ormImplementation) getClickhouseLoggers() (bool, []LogHandler) {
 func (orm *ormImplementation) getNatsLoggers() (bool, []LogHandler) {
 	if orm.hasNatsLogger {
 		return true, orm.queryLoggersNats
-	}
-	return false, nil
-}
-
-func (orm *ormImplementation) getLocalCacheLoggers() (bool, []LogHandler) {
-	if orm.hasLocalCacheLogger {
-		return true, orm.queryLoggersLocalCache
 	}
 	return false, nil
 }

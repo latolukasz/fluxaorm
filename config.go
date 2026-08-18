@@ -32,11 +32,6 @@ type ConfigRedisSentinel struct {
 	Password   string   `yaml:"password"`
 }
 
-type ConfigLocalCache struct {
-	Code  string `yaml:"code" validate:"required"`
-	Limit int    `yaml:"limit" validate:"required"`
-}
-
 type ConfigClickhouse struct {
 	Code               string   `yaml:"code" validate:"required"`
 	URI                string   `yaml:"uri" validate:"required"`
@@ -90,7 +85,6 @@ type Config struct {
 	MySQlPools         []ConfigMysql         `yaml:"mysqlPools"`
 	RedisPools         []ConfigRedis         `yaml:"redisPools"`
 	RedisSentinelPools []ConfigRedisSentinel `yaml:"redisSentinelPools"`
-	LocalCachePools    []ConfigLocalCache    `yaml:"localCachePools"`
 	ClickhousePools    []ConfigClickhouse    `yaml:"clickhousePools"`
 	NatsPools          []ConfigNats          `yaml:"natsPools"`
 }
@@ -125,9 +119,6 @@ func (r *registry) InitByConfig(config *Config) error {
 			options.Password = pool.Password
 		}
 		r.RegisterRedis("", pool.Database, pool.Code, options)
-	}
-	for _, pool := range config.LocalCachePools {
-		r.RegisterLocalCache(pool.Code, pool.Limit)
 	}
 	for _, pool := range config.ClickhousePools {
 		options := &ClickhouseOptions{}

@@ -13,14 +13,12 @@ type QueryLoggerSource int
 
 const sourceMySQL = "mysql"
 const sourceRedis = "redis"
-const sourceLocalCache = "local_cache"
 const sourceClickhouse = "clickhouse"
 const sourceNats = "nats"
 const natsLogo = "\u001B[1m\x1b[38;2;39;174;96;48;2;255;255;255mNATS \u001B[0m\x1b[0m\u001B[0m"
 const ormLogo = "\u001B[1m\x1b[38;2;0;0;0;48;2;255;255;255mFluxa\u001B[38;2;254;147;51mORM \u001B[0m\x1b[0m\u001B[0m"
 const mysqlLogo = "\x1b[38;2;2;117;143;48;2;255;255;255mMy\u001B[38;2;242;145;17mSQL \u001B[0m\x1b[0m\u001B[0m"
 const redisLogo = "\u001B[1m\x1b[38;2;191;56;42;48;2;255;255;255mredis \u001B[0m\x1b[0m\u001B[0m"
-const localCacheLogo = "\u001B[1m\x1b[38;2;254;147;51;48;2;255;255;255mlocal \u001B[0m\x1b[0m\u001B[0m"
 const clickhouseLogo = "\u001B[1m\x1b[38;2;255;215;0;48;2;255;255;255mCH \u001B[0m\x1b[0m\u001B[0m"
 const timeTemplate = "\x1b[38;2;0;0;0;48;2;255;%d;%dm %0.1fms%s \u001B[0m\x1b[0m\u001B[0m\n"
 const operationTemplate = "\u001B[1m\x1b[38;2;0;0;0;48;2;255;255;255m%-14s\u001B[0m\x1b[0m\u001B[0m"
@@ -39,8 +37,6 @@ func (d *defaultLogLogger) Handle(_ Context, fields map[string]any) {
 		row += mysqlLogo
 	case "redis":
 		row += redisLogo
-	case "local_cache":
-		row += localCacheLogo
 	case "clickhouse":
 		row += clickhouseLogo
 	case "nats":
@@ -76,7 +72,6 @@ type LogHandler interface {
 type QueryLoggerOptions struct {
 	MySQL      bool
 	Redis      bool
-	Local      bool
 	Clickhouse bool
 	Nats       bool
 }
@@ -92,10 +87,6 @@ func (orm *ormImplementation) RegisterQueryLogger(handler LogHandler, options Qu
 		orm.hasRedisLogger = true
 		orm.queryLoggersRedis = orm.appendLog(orm.queryLoggersRedis, handler)
 	}
-	if options.Local {
-		orm.hasLocalCacheLogger = true
-		orm.queryLoggersLocalCache = orm.appendLog(orm.queryLoggersLocalCache, handler)
-	}
 	if options.Clickhouse {
 		orm.hasClickhouseLogger = true
 		orm.queryLoggersClickhouse = orm.appendLog(orm.queryLoggersClickhouse, handler)
@@ -107,7 +98,7 @@ func (orm *ormImplementation) RegisterQueryLogger(handler LogHandler, options Qu
 }
 
 func (orm *ormImplementation) EnableQueryDebug() {
-	orm.EnableQueryDebugCustom(QueryLoggerOptions{MySQL: true, Redis: true, Local: true, Clickhouse: true, Nats: true})
+	orm.EnableQueryDebugCustom(QueryLoggerOptions{MySQL: true, Redis: true, Clickhouse: true, Nats: true})
 }
 
 func (orm *ormImplementation) EnableQueryDebugCustom(options QueryLoggerOptions) {

@@ -54,12 +54,6 @@ func (r *registry) InitByYaml(yaml any) error {
 				}
 			case "kafka":
 				return fmt.Errorf("kafka pool '%s' is no longer supported; rename to 'nats' and migrate keys (see documentation/MIGRATION-kafka-to-nats.md)", key)
-			case "local_cache":
-				limit, err := validateOrmInt(value, key)
-				if err != nil {
-					return err
-				}
-				r.RegisterLocalCache(key, limit)
 			}
 		}
 	}
