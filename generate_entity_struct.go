@@ -566,7 +566,7 @@ func (g *codeGenerator) generateEntityStruct(schema *entitySchema, names *entity
 	g.addLine("}")
 	g.addLine("")
 
-	g.addLine(fmt.Sprintf("func (e *%s) Delete() {", names.entityName))
+	g.addLine(fmt.Sprintf("func (e *%s) PrivateDelete() {", names.entityName))
 	if schema.hasFakeDelete {
 		g.addLine("\te.SetFakeDelete(true)")
 	} else {
@@ -577,7 +577,7 @@ func (g *codeGenerator) generateEntityStruct(schema *entitySchema, names *entity
 	g.addLine("")
 
 	if schema.hasFakeDelete {
-		g.addLine(fmt.Sprintf("func (e *%s) ForceDelete() {", names.entityName))
+		g.addLine(fmt.Sprintf("func (e *%s) PrivateForceDelete() {", names.entityName))
 		g.addLine("\te.deleted = true")
 		g.addLine(fmt.Sprintf("\te.ctx.Track(e, %s.cacheIndex)", names.providerName))
 		g.addLine("}")

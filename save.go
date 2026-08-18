@@ -20,11 +20,11 @@ type entityBoundContext interface {
 }
 
 type entityDeletable interface {
-	Delete()
+	PrivateDelete()
 }
 
 type entityForceDeletable interface {
-	ForceDelete()
+	PrivateForceDelete()
 }
 
 // pendingWrite is the entity plus the flush metadata captured before
@@ -36,8 +36,7 @@ type pendingWrite struct {
 
 // Save writes exactly the given entities and nothing else on this context.
 // Passing more than one opens a transaction, so entities that belong together
-// commit together without the caller arranging it. A clean entity is a no-op,
-// and a saved entity is untracked, so a later Flush() will not write it again.
+// commit together without the caller arranging it. A clean entity is a no-op.
 func (orm *ormImplementation) Save(entities ...Entity) error {
 	list, err := orm.prepareWrites(entities)
 	if err != nil || len(list) == 0 {
@@ -72,7 +71,7 @@ func (orm *ormImplementation) deleteEntities(entities []Entity, force bool) erro
 		}
 		if force {
 			if fd, ok := e.(entityForceDeletable); ok {
-				fd.ForceDelete()
+				fd.PrivateForceDelete()
 				continue
 			}
 		}
@@ -80,7 +79,7 @@ func (orm *ormImplementation) deleteEntities(entities []Entity, force bool) erro
 		if !ok {
 			return fmt.Errorf("%T does not support Delete", e)
 		}
-		d.Delete()
+		d.PrivateDelete()
 	}
 	return orm.Save(entities...)
 }
@@ -243,8 +242,8 @@ func (orm *ormImplementation) runAfterHandlers(list []*pendingWrite) error {
 	return nil
 }
 
-// untrack removes a written entity from the unit of work, so a later Flush() on
-// the same context does not write it a second time.
+// untrack drops a written entity from the dirty set, so the context cache may
+// evict it again once it holds no unsaved changes.
 func (orm *ormImplementation) untrack(e Entity, cacheIndex string) {
 	if orm.trackedEntities == nil {
 		return

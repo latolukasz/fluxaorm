@@ -26,7 +26,7 @@ func TestAfterInsertCallback(t *testing.T) {
 
 	e := entities.GenerateEntityWithTimestampsProvider.New(ctx)
 	e.SetName("InsertTest")
-	assert.NoError(t, ctx.Flush())
+	assert.NoError(t, ctx.Save(e))
 
 	assert.NotNil(t, callbackEntity)
 	assert.NotNil(t, callbackCtx)
@@ -52,7 +52,7 @@ func TestAfterUpdateCallback(t *testing.T) {
 
 	e := entities.GenerateEntityWithTimestampsProvider.New(ctx)
 	e.SetName("Original")
-	assert.NoError(t, ctx.Flush())
+	assert.NoError(t, ctx.Save(e))
 
 	// Insert callback should not trigger update handler
 	assert.False(t, updateCalled)
@@ -60,7 +60,7 @@ func TestAfterUpdateCallback(t *testing.T) {
 	// Now update
 	e, _, _ = entities.GenerateEntityWithTimestampsProvider.GetByID(ctx, e.GetID())
 	e.SetName("Updated")
-	assert.NoError(t, ctx.Flush())
+	assert.NoError(t, ctx.Save(e))
 
 	assert.True(t, updateCalled)
 	assert.Equal(t, e.GetID(), callbackEntityID)
@@ -81,11 +81,10 @@ func TestAfterDeleteCallback(t *testing.T) {
 
 	e := entities.GenerateEntityWithTimestampsProvider.New(ctx)
 	e.SetName("DeleteTest")
-	assert.NoError(t, ctx.Flush())
+	assert.NoError(t, ctx.Save(e))
 
 	e, _, _ = entities.GenerateEntityWithTimestampsProvider.GetByID(ctx, e.GetID())
-	e.Delete()
-	assert.NoError(t, ctx.Flush())
+	assert.NoError(t, ctx.Delete(e))
 
 	assert.NotNil(t, callbackEntity)
 	assert.Equal(t, e.GetID(), callbackEntity.GetID())
@@ -107,24 +106,23 @@ func TestAfterDeleteCallbackFakeDelete(t *testing.T) {
 
 	e := entities.GenerateReferenceEntityProvider.New(ctx)
 	e.SetName("FakeDeleteTest")
-	assert.NoError(t, ctx.Flush())
+	assert.NoError(t, ctx.Save(e))
 
 	e, _, _ = entities.GenerateReferenceEntityProvider.GetByID(ctx, e.GetID())
-	e.Delete() // This is FakeDelete since entity has FakeDelete field
-	assert.NoError(t, ctx.Flush())
+	assert.NoError(t, ctx.Delete(e))
 
 	// AfterDelete should fire, not AfterUpdate
 	assert.NotNil(t, deleteCallbackEntity)
 	assert.Equal(t, e.GetID(), deleteCallbackEntity.GetID())
 	assert.False(t, updateCalled)
 }
-func TestAfterFlushCallbacksNoHandler(t *testing.T) {
+func TestAfterWriteCallbacksNoHandler(t *testing.T) {
 	ctx := fluxaorm.PrepareTables(t, fluxaorm.NewRegistry(), generateEntityWithTimestamps{})
 
 	// No handlers registered - flush should work fine
 	e := entities.GenerateEntityWithTimestampsProvider.New(ctx)
 	e.SetName("NoHandler")
-	assert.NoError(t, ctx.Flush())
+	assert.NoError(t, ctx.Save(e))
 
 	e, found, err := entities.GenerateEntityWithTimestampsProvider.GetByID(ctx, e.GetID())
 	assert.NoError(t, err)
@@ -143,12 +141,12 @@ func TestAfterUpdateExcludesUpdatedAt(t *testing.T) {
 
 	e := entities.GenerateEntityWithTimestampsProvider.New(ctx)
 	e.SetName("Original")
-	assert.NoError(t, ctx.Flush())
+	assert.NoError(t, ctx.Save(e))
 
 	time.Sleep(time.Second)
 	e, _, _ = entities.GenerateEntityWithTimestampsProvider.GetByID(ctx, e.GetID())
 	e.SetName("Updated")
-	assert.NoError(t, ctx.Flush())
+	assert.NoError(t, ctx.Save(e))
 
 	assert.NotNil(t, callbackChanges)
 	// UpdatedAt should NOT be in the changes map (it's auto-set)
@@ -161,7 +159,7 @@ func TestAfterUpdateExcludesUpdatedAt(t *testing.T) {
 	assert.Equal(t, "Original", callbackChanges["Name"])
 }
 
-func TestMultipleEntitiesInSingleFlush(t *testing.T) {
+func TestMultipleEntitiesInSingleSave(t *testing.T) {
 	ctx := fluxaorm.PrepareTables(t, fluxaorm.NewRegistry(), generateEntityWithTimestamps{}, generateReferenceEntity{})
 
 	var insertedTimestamps []*entities.GenerateEntityWithTimestamps
@@ -182,7 +180,7 @@ func TestMultipleEntitiesInSingleFlush(t *testing.T) {
 	ref := entities.GenerateReferenceEntityProvider.New(ctx)
 	ref.SetName("Ref")
 
-	assert.NoError(t, ctx.Flush())
+	assert.NoError(t, ctx.Save(ts1, ts2, ref))
 
 	assert.Len(t, insertedTimestamps, 2)
 	assert.Len(t, insertedRefs, 1)
@@ -203,7 +201,7 @@ func TestAfterCallbackErrorPropagation(t *testing.T) {
 
 	e := entities.GenerateEntityWithTimestampsProvider.New(ctx)
 	e.SetName("ErrorTest")
-	err := ctx.Flush()
+	err := ctx.Save(e)
 
 	// The row is already committed when the handler runs, so the failure is
 	// reported as a PostCommitError rather than something the caller may retry.

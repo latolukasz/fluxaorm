@@ -49,7 +49,7 @@ func TestCDCSyncPath(t *testing.T) {
 	e := entities.GenerateEntityDirtyProvider.New(ctx)
 	e.SetName("cdc-insert")
 	e.SetAge(25)
-	assert.NoError(t, ctx.Flush())
+	assert.NoError(t, ctx.Save(e))
 	entityID := e.GetID()
 
 	insertEvent := pollCDCEvent(t, ctx, entities.StreamTestStream, entityID, fluxaorm.DirtyInsert, 30*time.Second)
@@ -69,7 +69,7 @@ func TestCDCSyncPath(t *testing.T) {
 	// UPDATE
 	e.SetName("cdc-updated")
 	e.SetAge(30)
-	assert.NoError(t, ctx.Flush())
+	assert.NoError(t, ctx.Save(e))
 
 	updateEvent := pollCDCEvent(t, ctx, entities.StreamTestStream, entityID, fluxaorm.DirtyUpdate, 30*time.Second)
 	if !assert.NotNil(t, updateEvent, "no UPDATE event received") {
@@ -80,8 +80,7 @@ func TestCDCSyncPath(t *testing.T) {
 	assert.Equal(t, "cdc-updated", (*updateEvent.After)["Name"])
 
 	// DELETE
-	e.Delete()
-	assert.NoError(t, ctx.Flush())
+	assert.NoError(t, ctx.Delete(e))
 
 	deleteEvent := pollCDCEvent(t, ctx, entities.StreamTestStream, entityID, fluxaorm.DirtyDelete, 30*time.Second)
 	if !assert.NotNil(t, deleteEvent, "no DELETE event received") {
@@ -188,12 +187,12 @@ func TestCDCWatchFields(t *testing.T) {
 	e := entities.GenerateEntityDirtyProvider.New(ctx)
 	e.SetName("watchfields-init")
 	e.SetAge(20)
-	assert.NoError(t, ctx.Flush())
+	assert.NoError(t, ctx.Save(e))
 	assert.Equal(t, int32(1), drain(1, 10*time.Second), "Insert must fire even without watched field changes")
 
 	// UPDATE Name only — Age unchanged, handler must be skipped.
 	e.SetName("watchfields-name-only")
-	assert.NoError(t, ctx.Flush())
+	assert.NoError(t, ctx.Save(e))
 	// Give the dispatch path time to receive + filter the message; the counter
 	// must not advance.
 	_ = drain(2, 3*time.Second)
@@ -201,12 +200,11 @@ func TestCDCWatchFields(t *testing.T) {
 
 	// UPDATE Age — watched field changed, handler must fire.
 	e.SetAge(30)
-	assert.NoError(t, ctx.Flush())
+	assert.NoError(t, ctx.Save(e))
 	assert.Equal(t, int32(2), drain(2, 10*time.Second), "Update touching a watched field must fire")
 
 	// DELETE — always fires regardless of WatchFields.
-	e.Delete()
-	assert.NoError(t, ctx.Flush())
+	assert.NoError(t, ctx.Delete(e))
 	assert.Equal(t, int32(3), drain(3, 10*time.Second), "Delete must fire even with WatchFields set")
 }
 
@@ -236,14 +234,16 @@ func TestCDCBatchDispatch(t *testing.T) {
 	// One flush, many entities of two types -> one publish batch, and on the
 	// consumer side one handler call per entity type.
 	const perType = 5
+	rows := make([]fluxaorm.Entity, 0, perType*2)
 	for i := range perType {
 		a := entities.GenerateEntityDirtyProvider.New(ctx)
 		a.SetName(fmt.Sprintf("batch-a-%d", i))
 		a.SetAge(uint64(i))
 		b := entities.GenerateEntityDirtyBProvider.New(ctx)
 		b.SetLabel(fmt.Sprintf("batch-b-%d", i))
+		rows = append(rows, a, b)
 	}
-	assert.NoError(t, ctx.Flush())
+	assert.NoError(t, ctx.Save(rows...))
 
 	drainUntil(t, consumer, func() bool {
 		return aEvents.Load() >= perType && bEvents.Load() >= perType
@@ -276,12 +276,14 @@ func TestCDCBatchDispatchErrorRedelivers(t *testing.T) {
 		Build()
 
 	const count = 3
+	rows := make([]fluxaorm.Entity, 0, count)
 	for i := range count {
 		e := entities.GenerateEntityDirtyProvider.New(ctx)
 		e.SetName(fmt.Sprintf("batch-retry-%d", i))
 		e.SetAge(uint64(i))
+		rows = append(rows, e)
 	}
-	assert.NoError(t, ctx.Flush())
+	assert.NoError(t, ctx.Save(rows...))
 
 	// AckWait is 30s by default, so redelivery needs a generous window.
 	drainUntil(t, consumer, func() bool { return delivered.Load() >= count }, 90*time.Second)

@@ -101,10 +101,9 @@ Entities opt in to Redis Search (FT.SEARCH) indexing via struct tags on the ID f
 ### Key Supporting Files
 
 - `entity_schema.go` — `entitySchema` struct; all per-entity metadata (columns, indexes, caching, enums, references, struct hash)
-- `flush.go` — batches entity inserts/updates via dirty tracking; `ctx.Flush()`
+- `save.go` — the write API: `ctx.Save` / `ctx.Delete` / `ctx.ForceDelete`, dirty-set preparation, post-commit work
 - `db.go` — MySQL abstraction (`DB` interface, `DBTransaction`, metrics)
 - `schema.go` — DDL operations (CREATE/ALTER TABLE, index management)
-- `flush_async.go` — NATS JetStream-based async SQL flush and consumer
 - `nats.go` / `nats_schema.go` — NATS+JetStream pool, `NatsStreamBuilder`, `NatsConsumerBuilder`, `GetNatsAlters` reconciler
 - `stream_consumer.go` — `NatsStreamName`, generic `StreamConsumer.Consume(ctx, batch, timeout)`, auto-acking pull loop
 - `cdc_stream.go` — CDC types: `DirtyEvent[T]`, `DirtyOp`, `CDCStreamRef[B]`, `CDCBuilder`, `NewCDCConsumer[B]`, `RegisterDirtyPublisher[E]`, `WatchFields`. Entities tagged `orm:"dirty=streamA,streamB"` get their inserts/updates/deletes published as typed `*DirtyEvent[T]` to one or more CDC streams.

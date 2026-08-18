@@ -43,19 +43,6 @@ func TestSaveDedupesAndIsIdempotent(t *testing.T) {
 	assert.Len(t, all, 1)
 }
 
-func TestSaveUntracksSoLaterFlushDoesNotWriteAgain(t *testing.T) {
-	ctx := fluxaorm.PrepareTables(t, fluxaorm.NewRegistry(), generateEntityWithTimestamps{})
-
-	e := entities.GenerateEntityWithTimestampsProvider.New(ctx)
-	e.SetName("Tracked")
-	assert.NoError(t, ctx.Save(e))
-	assert.NoError(t, ctx.Flush())
-
-	all, err := entities.GenerateEntityWithTimestampsProvider.SearchMany(ctx, fluxaorm.NewQuery())
-	assert.NoError(t, err)
-	assert.Len(t, all, 1)
-}
-
 func TestSaveOfSeveralEntitiesIsAtomic(t *testing.T) {
 	ctx := fluxaorm.PrepareTables(t, fluxaorm.NewRegistry(), generateEntityCachedUnique{})
 
@@ -256,7 +243,7 @@ func TestDirtyEntitySurvivesContextCacheEviction(t *testing.T) {
 
 	e := entities.GenerateEntityWithTimestampsProvider.New(ctx)
 	e.SetName("Before")
-	assert.NoError(t, ctx.Flush())
+	assert.NoError(t, ctx.Save(e))
 
 	loaded, found, err := entities.GenerateEntityWithTimestampsProvider.GetByID(ctx, e.GetID())
 	assert.NoError(t, err)
@@ -271,7 +258,7 @@ func TestDirtyEntitySurvivesContextCacheEviction(t *testing.T) {
 	assert.Equal(t, "After", again.GetName())
 	assert.Same(t, loaded, again)
 
-	assert.NoError(t, ctx.Flush())
+	assert.NoError(t, ctx.Save(loaded))
 	persisted, _, err := entities.GenerateEntityWithTimestampsProvider.GetByID(ctx.Clone(), e.GetID())
 	assert.NoError(t, err)
 	assert.Equal(t, "After", persisted.GetName())
@@ -283,7 +270,7 @@ func TestCleanEntriesAreStillEvictedFromTheContextCache(t *testing.T) {
 
 	e := entities.GenerateEntityWithTimestampsProvider.New(ctx)
 	e.SetName("Clean")
-	assert.NoError(t, ctx.Flush())
+	assert.NoError(t, ctx.Save(e))
 
 	loaded, _, err := entities.GenerateEntityWithTimestampsProvider.GetByID(ctx, e.GetID())
 	assert.NoError(t, err)

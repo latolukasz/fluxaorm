@@ -26,8 +26,6 @@ type Context interface {
 	Engine() Engine
 	DisableContextCache()
 	SetContextCacheTTL(ttl time.Duration)
-	Flush() error
-	ClearFlush()
 	Save(entities ...Entity) error
 	Delete(entities ...Entity) error
 	ForceDelete(entities ...Entity) error
@@ -76,7 +74,7 @@ type ormImplementation struct {
 	dbPipeLines              map[string]*DatabasePipeline
 	tx                       *txState
 	pendingInvalidations     map[string]map[string]bool
-	mutexFlush               sync.Mutex
+	mutexTracked             sync.Mutex
 	mutexData                sync.Mutex
 }
 
@@ -198,8 +196,8 @@ func (orm *ormImplementation) getLocalCacheLoggers() (bool, []LogHandler) {
 }
 
 func (orm *ormImplementation) Track(f Entity, cacheIndex string) {
-	orm.mutexFlush.Lock()
-	defer orm.mutexFlush.Unlock()
+	orm.mutexTracked.Lock()
+	defer orm.mutexTracked.Unlock()
 	if orm.trackedEntities == nil {
 		orm.trackedEntities = xsync.NewMapOf[*xsync.MapOf[uint64, Entity]]()
 	}
