@@ -76,7 +76,7 @@ func (e *engineImplementation) SetNodeID(node int64) {
 }
 
 func (e *engineImplementation) NewContext(context context.Context) Context {
-	return &ormImplementation{context: context, engine: e, contextCacheTTL: defaultContextCacheTTL}
+	return &ormImplementation{context: context, engine: e}
 }
 
 func (e *engineImplementation) Registry() EngineRegistry {

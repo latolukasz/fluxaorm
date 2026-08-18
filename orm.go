@@ -4,12 +4,9 @@ import (
 	"context"
 	"hash/maphash"
 	"sync"
-	"time"
 
 	"github.com/puzpuzpuz/xsync/v2"
 )
-
-const defaultContextCacheTTL int64 = 1000 // milliseconds
 
 type xsyncEntityMap = xsync.MapOf[uint64, Entity]
 
@@ -25,8 +22,8 @@ type Context interface {
 	CloneWithContext(context context.Context) Context
 	Engine() Engine
 	DisableContextCache()
-	SetContextCacheTTL(ttl time.Duration)
 	Save(entities ...Entity) error
+	Reload(entities ...Entity) error
 	Delete(entities ...Entity) error
 	ForceDelete(entities ...Entity) error
 	Transaction(fn func(tx Context) error) error
@@ -44,35 +41,30 @@ type Context interface {
 	getClickhouseLoggers() (bool, []LogHandler)
 	getNatsLoggers() (bool, []LogHandler)
 	getRedisLoggers() (bool, []LogHandler)
-	Track(e Entity, cacheIndex string)
 	getMetricsSourceTag() string
 	GetFromContextCache(cacheIndex string, id uint64) Entity
 	SetInContextCache(cacheIndex string, id uint64, entity Entity)
 }
 
 type ormImplementation struct {
-	context                  context.Context
-	engine                   *engineImplementation
-	trackedEntities          *xsync.MapOf[string, *xsync.MapOf[uint64, Entity]]
-	cachedEntities           *xsync.MapOf[string, *xsync.MapOf[uint64, Entity]]
-	cachedEntitiesFirstAdded int64
-	contextCacheTTL          int64
-	queryLoggersDB           []LogHandler
-	queryLoggersRedis        []LogHandler
-	queryLoggersClickhouse   []LogHandler
-	queryLoggersNats         []LogHandler
-	hasRedisLogger           bool
-	hasDBLogger              bool
-	hasClickhouseLogger      bool
-	hasNatsLogger            bool
-	disabledContextCache     bool
-	meta                     Meta
-	redisPipeLines           []*RedisPipeLine
-	dbPipeLines              map[string]*DatabasePipeline
-	tx                       *txState
-	pendingInvalidations     map[string]map[string]bool
-	mutexTracked             sync.Mutex
-	mutexData                sync.Mutex
+	context                context.Context
+	engine                 *engineImplementation
+	cachedEntities         *xsync.MapOf[string, *xsync.MapOf[uint64, Entity]]
+	queryLoggersDB         []LogHandler
+	queryLoggersRedis      []LogHandler
+	queryLoggersClickhouse []LogHandler
+	queryLoggersNats       []LogHandler
+	hasRedisLogger         bool
+	hasDBLogger            bool
+	hasClickhouseLogger    bool
+	hasNatsLogger          bool
+	disabledContextCache   bool
+	meta                   Meta
+	redisPipeLines         []*RedisPipeLine
+	dbPipeLines            map[string]*DatabasePipeline
+	tx                     *txState
+	pendingInvalidations   map[string]map[string]bool
+	mutexData              sync.Mutex
 }
 
 func (orm *ormImplementation) Context() context.Context {
@@ -102,7 +94,6 @@ func (orm *ormImplementation) CloneWithContext(context context.Context) Context 
 		hasNatsLogger:          orm.hasNatsLogger,
 		meta:                   meta,
 		disabledContextCache:   orm.disabledContextCache,
-		contextCacheTTL:        orm.contextCacheTTL,
 	}
 }
 
@@ -183,29 +174,6 @@ func (orm *ormImplementation) getNatsLoggers() (bool, []LogHandler) {
 	return false, nil
 }
 
-func (orm *ormImplementation) Track(f Entity, cacheIndex string) {
-	orm.mutexTracked.Lock()
-	defer orm.mutexTracked.Unlock()
-	if orm.trackedEntities == nil {
-		orm.trackedEntities = xsync.NewMapOf[*xsync.MapOf[uint64, Entity]]()
-	}
-	entities, loaded := orm.trackedEntities.LoadOrCompute(cacheIndex, func() *xsync.MapOf[uint64, Entity] {
-		entities := xsync.NewTypedMapOf[uint64, Entity](func(seed maphash.Seed, u uint64) uint64 {
-			return u
-		})
-		entities.Store(f.GetID(), f)
-		return entities
-	})
-	if loaded {
-		entities.Store(f.GetID(), f)
-	}
-	if orm.cachedEntities != nil {
-		if cached, ok := orm.cachedEntities.Load(cacheIndex); ok {
-			cached.Store(f.GetID(), f)
-		}
-	}
-}
-
 func (orm *ormImplementation) getMetricsSourceTag() string {
 	userTag, has := orm.meta[MetricsMetaKey]
 	if has {
@@ -218,16 +186,12 @@ func (orm *ormImplementation) DisableContextCache() {
 	orm.disabledContextCache = true
 }
 
-func (orm *ormImplementation) SetContextCacheTTL(ttl time.Duration) {
-	orm.contextCacheTTL = ttl.Milliseconds()
-}
-
+// GetFromContextCache never expires an entry. The identity map lives exactly as
+// long as the Context, so one row is one *Entity for the whole unit of work. Use
+// Reload to make a handle current; see reload.go.
 func (orm *ormImplementation) GetFromContextCache(cacheIndex string, id uint64) Entity {
 	if orm.disabledContextCache || orm.cachedEntities == nil {
 		return nil
-	}
-	if orm.cachedEntitiesFirstAdded > 0 && time.Now().UnixMilli()-orm.cachedEntitiesFirstAdded > orm.contextCacheTTL {
-		orm.evictContextCache()
 	}
 	entities, ok := orm.cachedEntities.Load(cacheIndex)
 	if !ok {
@@ -249,37 +213,6 @@ func (orm *ormImplementation) removeFromContextCache(cacheIndex string, id uint6
 	}
 }
 
-// evictContextCache drops expired identity-map entries but keeps entities that
-// still hold unsaved changes - dropping those would serve a stale row to code
-// running later in the same request.
-func (orm *ormImplementation) evictContextCache() {
-	if orm.trackedEntities == nil || orm.trackedEntities.Size() == 0 {
-		orm.cachedEntities.Clear()
-		orm.cachedEntitiesFirstAdded = 0
-		return
-	}
-	kept := false
-	orm.cachedEntities.Range(func(cacheIndex string, entities *xsync.MapOf[uint64, Entity]) bool {
-		tracked, hasTracked := orm.trackedEntities.Load(cacheIndex)
-		entities.Range(func(id uint64, _ Entity) bool {
-			if hasTracked {
-				if _, dirty := tracked.Load(id); dirty {
-					kept = true
-					return true
-				}
-			}
-			entities.Delete(id)
-			return true
-		})
-		return true
-	})
-	if kept {
-		orm.cachedEntitiesFirstAdded = time.Now().UnixMilli()
-	} else {
-		orm.cachedEntitiesFirstAdded = 0
-	}
-}
-
 func (orm *ormImplementation) SetInContextCache(cacheIndex string, id uint64, entity Entity) {
 	if orm.disabledContextCache {
 		return
@@ -293,7 +226,4 @@ func (orm *ormImplementation) SetInContextCache(cacheIndex string, id uint64, en
 		})
 	})
 	entities.Store(id, entity)
-	if orm.cachedEntitiesFirstAdded == 0 {
-		orm.cachedEntitiesFirstAdded = time.Now().UnixMilli()
-	}
 }

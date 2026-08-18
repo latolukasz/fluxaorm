@@ -233,13 +233,13 @@ func TestSaveAfterDeleteDoesNotReissueTheDelete(t *testing.T) {
 	assert.NoError(t, ctx.Save(e))
 }
 
-// TestDirtyEntitySurvivesContextCacheEviction covers the failure that reached
-// production: unsaved changes were visible only through the identity map, which
-// was wiped wholesale on TTL expiry, so later code in the same request silently
-// re-read the pre-change row.
-func TestDirtyEntitySurvivesContextCacheEviction(t *testing.T) {
+// One row is one *Entity for the whole life of a Context, however long that is.
+// The identity map used to expire on a 1s clock, which made this hold or not
+// hold depending on how slow the request was - and when it did not hold, unsaved
+// changes visible only through the map were silently dropped (that failure
+// reached production). No clock, no window.
+func TestOneRowIsOneEntityForTheWholeContext(t *testing.T) {
 	ctx := fluxaorm.PrepareTables(t, fluxaorm.NewRegistry(), generateEntityWithTimestamps{})
-	ctx.SetContextCacheTTL(50 * time.Millisecond)
 
 	e := entities.GenerateEntityWithTimestampsProvider.New(ctx)
 	e.SetName("Before")
@@ -250,13 +250,14 @@ func TestDirtyEntitySurvivesContextCacheEviction(t *testing.T) {
 	assert.True(t, found)
 	loaded.SetName("After")
 
-	time.Sleep(80 * time.Millisecond)
+	// Long enough that the old 1s TTL would have expired the entry twice over.
+	time.Sleep(1100 * time.Millisecond)
 
 	again, found, err := entities.GenerateEntityWithTimestampsProvider.GetByID(ctx, e.GetID())
 	assert.NoError(t, err)
 	assert.True(t, found)
-	assert.Equal(t, "After", again.GetName())
-	assert.Same(t, loaded, again)
+	assert.Same(t, loaded, again, "a second read must hand back the same handle, not a second one")
+	assert.Equal(t, "After", again.GetName(), "the unsaved change must still be visible")
 
 	assert.NoError(t, ctx.Save(loaded))
 	persisted, _, err := entities.GenerateEntityWithTimestampsProvider.GetByID(ctx.Clone(), e.GetID())
@@ -264,9 +265,12 @@ func TestDirtyEntitySurvivesContextCacheEviction(t *testing.T) {
 	assert.Equal(t, "After", persisted.GetName())
 }
 
-func TestCleanEntriesAreStillEvictedFromTheContextCache(t *testing.T) {
+// A saved entity is not special: it stays in the identity map too. Previously it
+// became evictable the moment it was written, so a later read in the same request
+// produced a second handle on one row - two origin snapshots, two binds, and a
+// lost update whenever both were saved.
+func TestASavedEntityStaysInTheIdentityMap(t *testing.T) {
 	ctx := fluxaorm.PrepareTables(t, fluxaorm.NewRegistry(), generateEntityWithTimestamps{})
-	ctx.SetContextCacheTTL(50 * time.Millisecond)
 
 	e := entities.GenerateEntityWithTimestampsProvider.New(ctx)
 	e.SetName("Clean")
@@ -275,11 +279,11 @@ func TestCleanEntriesAreStillEvictedFromTheContextCache(t *testing.T) {
 	loaded, _, err := entities.GenerateEntityWithTimestampsProvider.GetByID(ctx, e.GetID())
 	assert.NoError(t, err)
 
-	time.Sleep(80 * time.Millisecond)
+	time.Sleep(1100 * time.Millisecond)
 
 	again, _, err := entities.GenerateEntityWithTimestampsProvider.GetByID(ctx, e.GetID())
 	assert.NoError(t, err)
-	assert.NotSame(t, loaded, again)
+	assert.Same(t, loaded, again)
 }
 
 func TestUpdateInvalidatesTheRowCacheInsteadOfWritingItBack(t *testing.T) {

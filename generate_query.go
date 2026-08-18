@@ -258,7 +258,6 @@ func (g *codeGenerator) generateNewMethods(schema *entitySchema, names *entityNa
 	}
 	g.addLine(fmt.Sprintf("func (p %s) NewWithID(ctx fluxaorm.Context, id uint64) *%s  {", names.providerNamePrivate, names.entityName))
 	g.addLine(fmt.Sprintf("\te := &%s{ctx: ctx, new: true, id: id, originDatabaseValues: &%s{%s}}", names.entityName, names.sqlRowName, sqlRowInit))
-	g.addLine(fmt.Sprintf("\te.ctx.Track(e, %s.cacheIndex)", names.providerName))
 	g.addLine(fmt.Sprintf("\te.ctx.SetInContextCache(%s.cacheIndex, id, e)", names.providerName))
 	if schema.hasRedisCache {
 		g.addImport("strconv")

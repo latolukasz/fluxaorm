@@ -5,7 +5,6 @@ import (
 	"reflect"
 	"testing"
 
-	"github.com/puzpuzpuz/xsync/v2"
 	"github.com/stretchr/testify/assert"
 )
 
@@ -128,37 +127,24 @@ func TestContextCacheKeysByStringIndex(t *testing.T) {
 	assert.Nil(t, ctx.GetFromContextCache(idxA, 999))
 }
 
-// TestTrackKeysByStringIndex: Track groups entities under their cacheIndex
-// and Range yields the string key.
-func TestTrackKeysByStringIndex(t *testing.T) {
-	engine := validateForCacheIndex(t, cacheIndexEntityA{}, cacheIndexEntityB{})
-	ctx := engine.NewContext(context.Background())
-
-	idxA := entityCacheIndexFor(t, engine, cacheIndexEntityA{})
-	idxB := entityCacheIndexFor(t, engine, cacheIndexEntityB{})
-
-	ctx.Track(&stubEntity{id: 1, tag: "A"}, idxA)
-	ctx.Track(&stubEntity{id: 2, tag: "A"}, idxA)
-	ctx.Track(&stubEntity{id: 1, tag: "B"}, idxB)
-
-	orm := ctx.(*ormImplementation)
-	gotByIndex := map[string]int{}
-	orm.trackedEntities.Range(func(idx string, m *xsync.MapOf[uint64, Entity]) bool {
-		gotByIndex[idx] = m.Size()
-		return true
-	})
-	assert.Equal(t, map[string]int{idxA: 2, idxB: 1}, gotByIndex)
-}
-
-// stubEntity is a minimal Entity used only by the context-cache and Track tests
-// above — it never touches MySQL/Redis so we can drive Set/Get/Track directly.
+// stubEntity is a minimal Entity used only by the context-cache tests above - it
+// never touches MySQL/Redis so we can drive Set/Get directly.
 type stubEntity struct {
-	id  uint64
-	tag string
+	id       uint64
+	tag      string
+	isNew    bool
+	bind     map[string]any
+	reloads  int
+	notFound bool
 }
 
 func (s *stubEntity) GetID() uint64                              { return s.id }
 func (s *stubEntity) PrivateFlush() error                        { return nil }
 func (s *stubEntity) PrivateFlushed()                            {}
 func (s *stubEntity) PrivateFlushEvent() (uint8, map[string]any) { return 0, nil }
-func (s *stubEntity) PrivateGetDatabaseBind() map[string]any     { return nil }
+func (s *stubEntity) PrivateGetDatabaseBind() map[string]any     { return s.bind }
+func (s *stubEntity) PrivateIsNew() bool                         { return s.isNew }
+func (s *stubEntity) PrivateReload() (bool, error) {
+	s.reloads++
+	return !s.notFound, nil
+}

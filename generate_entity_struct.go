@@ -571,14 +571,12 @@ func (g *codeGenerator) generateEntityStruct(schema *entitySchema, names *entity
 	} else {
 		g.addLine("\te.deleted = true")
 	}
-	g.addLine(fmt.Sprintf("\te.ctx.Track(e, %s.cacheIndex)", names.providerName))
 	g.addLine("}")
 	g.addLine("")
 
 	if schema.hasFakeDelete {
 		g.addLine(fmt.Sprintf("func (e *%s) PrivateForceDelete() {", names.entityName))
 		g.addLine("\te.deleted = true")
-		g.addLine(fmt.Sprintf("\te.ctx.Track(e, %s.cacheIndex)", names.providerName))
 		g.addLine("}")
 		g.addLine("")
 	}
@@ -586,7 +584,6 @@ func (g *codeGenerator) generateEntityStruct(schema *entitySchema, names *entity
 	g.addLine(fmt.Sprintf("func (e *%s) addToDatabaseBind(column string, value any) {", names.entityName))
 	g.addLine("\tif e.databaseBind == nil {")
 	g.addLine("\t\te.databaseBind = map[string]any{}")
-	g.addLine(fmt.Sprintf("\t\te.ctx.Track(e, %s.cacheIndex)", names.providerName))
 	g.addLine("\t}")
 	g.addLine(fmt.Sprintf("\te.databaseBind[column] = value"))
 	g.addLine("}")
@@ -1045,6 +1042,9 @@ func (g *codeGenerator) generateEntityStruct(schema *entitySchema, names *entity
 	g.generatePrivateFlushed(schema, names)
 	g.addLine("")
 
+	g.generatePrivateReload(schema, names)
+	g.addLine("")
+
 	// PrivateFlushEvent
 	g.addLine(fmt.Sprintf("func (e *%s) PrivateFlushEvent() (uint8, map[string]any) {", names.entityName))
 	g.addLine("\treturn e.flushType, e.flushChanges")
@@ -1239,6 +1239,38 @@ func (g *codeGenerator) generatePrivateFlushed(schema *entitySchema, names *enti
 	g.addLine("\te.deleted = false")
 	g.addLine("\te.flushType = 0")
 	g.addLine("\te.flushChanges = nil")
+	g.addLine("}")
+}
+
+// generatePrivateReload emits the in-place refresh Context.Reload drives. It
+// reads MySQL directly - never the Redis row cache, which is what a caller
+// reloading under a lock is trying not to trust.
+func (g *codeGenerator) generatePrivateReload(schema *entitySchema, names *entityNames) {
+	g.addLine(fmt.Sprintf("func (e *%s) PrivateReload() (bool, error) {", names.entityName))
+	g.appendToLine("\tquery := \"SELECT `ID`")
+	for _, columnName := range schema.GetColumns()[1:] {
+		g.appendToLine(",`" + columnName + "`")
+	}
+	g.addLine(fmt.Sprintf(" FROM `%s` WHERE `ID` = ? LIMIT 1\"", schema.tableName))
+	g.addLine(fmt.Sprintf("\tsqlRow := &%s{}", names.sqlRowName))
+	g.appendToLine(fmt.Sprintf("\tfound, err := e.ctx.DB(%s.dbCode).QueryRow(e.ctx, fluxaorm.NewWhere(query, e.id), &sqlRow.F0", names.providerName))
+	for i := 1; i < len(schema.columnNames); i++ {
+		g.appendToLine(fmt.Sprintf(", &sqlRow.F%d", i))
+	}
+	g.addLine(")")
+	g.addLine("\tif err != nil {")
+	g.addLine("\t\treturn false, err")
+	g.addLine("\t}")
+	g.addLine("\tif !found {")
+	g.addLine("\t\treturn false, nil")
+	g.addLine("\t}")
+	g.addLine("\te.originDatabaseValues = sqlRow")
+	if schema.hasRedisCache {
+		// A getter prefers originRedisValues, so a stale one would mask the fresh row.
+		g.addLine("\te.originRedisValues = nil")
+	}
+	g.addLine("\te.deleted = false")
+	g.addLine("\treturn true, nil")
 	g.addLine("}")
 }
 

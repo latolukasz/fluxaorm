@@ -68,22 +68,34 @@ Entity registration: `registry.RegisterEntity(&MyEntity{})`, then call `registry
 **Generated output structure (per entity):**
 
 - **`XxxSQLRow` struct** — flat struct with fields `F0`, `F1`, `F2`... for reflection-free `Scan()`
-- **`XxxProvider` singleton** — holds static metadata (tableName, dbCode, redisCode, cacheIndex, redisCachePrefix, stamp, TTL) and exposes all query methods. `cacheIndex` is the fully qualified entity type name as a string (e.g. `"app/entities.User"`); it keys `afterInsertHandlers`/`afterUpdateHandlers`/`afterDeleteHandlers` and `ormImplementation.trackedEntities`/`cachedEntities`. Using the type name keeps the value stable across registrations and self-documenting in payloads and logs.
+- **`XxxProvider` singleton** — holds static metadata (tableName, dbCode, redisCode, cacheIndex, redisCachePrefix, stamp, TTL) and exposes all query methods. `cacheIndex` is the fully qualified entity type name as a string (e.g. `"app/entities.User"`); it keys `afterInsertHandlers`/`afterUpdateHandlers`/`afterDeleteHandlers` and `ormImplementation.cachedEntities`. Using the type name keeps the value stable across registrations and self-documenting in payloads and logs.
 - **`XxxEntity` struct** — user-facing entity; holds `ctx`, `id`, `new`, `deleted`, `originDatabaseValues` (SQLRow)
 
 ### Caching (Two Tiers)
 
-1. **Context cache** — per-request in-memory map inside `ormImplementation`; **enabled by default** with a 1-second TTL. Populated only by `GetByID` and `GetByIDs` (not by `Search*`). Disable with `ctx.DisableContextCache()`; change TTL with `ctx.SetContextCacheTTL(d time.Duration)`. On expiry, `evictContextCache` clears everything except entities that still hold unsaved changes. Low-level hooks `GetFromContextCache` / `SetInContextCache` are exported on the `Context` interface so generated code can use them across packages.
+1. **Context cache (identity map)** — per-Context in-memory map inside `ormImplementation`; **enabled by default**, and it **never expires**: one row is one `*Entity` for the whole life of the Context. Populated only by `GetByID`, `GetByIDs` and `New` (not by `Search*`). Disable with `ctx.DisableContextCache()`. Low-level hooks `GetFromContextCache` / `SetInContextCache` are exported on the `Context` interface so generated code can use them across packages. Use `ctx.Reload(entities...)` to make a handle current — see below.
 2. **Redis cache** (`redis_cache.go`) — entity stored as a Redis List; index 0 = struct hash stamp, indices 1..N = serialised field values. Writes invalidate; they never write back.
 
 There is no local (per-process) cache. One was implemented but no read path ever consulted it, so it was removed.
+
+The identity map used to expire on a 1-second clock. That made "is this handle current?" depend on how slow the request was, which is untestable and inverted under load — a lock that re-read the row got fresh data only when contention was high enough to push the wait past the TTL. The clock is gone. Because nothing expires, no dirty set is needed either: `Track`, `untrack` and `trackedEntities` were removed with it.
+
+### Reload (`reload.go`)
+
+`ctx.Reload(entities ...Entity) error` re-reads each entity **in place**. The pointer is unchanged, so every holder of the row — including the identity map — sees the fresh values. That is the point: evicting and re-reading would instead produce a *second* handle on one row, with its own origin snapshot and bind, which is the lost-update the identity map exists to prevent.
+
+- Bypasses the Redis row cache, always MySQL. A cached row is exactly what a caller reloading under a lock refuses to trust.
+- Inside a transaction it reads through that transaction, so it sees the transaction's own writes.
+- Refuses an entity with unsaved changes (`ErrEntityUnsavedChanges`) — reload discards them, and doing that silently to a handle an outer caller is still mutating is the same bug in another shape.
+- Refuses a `new` entity (`ErrEntityNotPersisted`); reports a deleted row as `ErrEntityVanished`.
+- Backed by generated `PrivateReload()`, which is on the `Entity` interface — adding it forces every consumer to regenerate before upgrading.
 
 ### Dirty Tracking in Generated Code
 
 - Getters read from (priority): `databaseBind` → `originRedisValues` → `originDatabaseValues`
 - Setters compare new value against current origin; no-op if unchanged; otherwise update bind maps
 - `PrivateFlush()` enqueues INSERT/UPDATE/DELETE on the DB pipeline. It does **not** write the row cache back: `Save` invalidates the stale keys instead, before the statement and again after commit.
-- `trackedEntities` is the dirty set. Its only reader is `evictContextCache`, which keeps identity-map entries holding unsaved changes — dropping those would serve a stale row later in the same request.
+- `PrivateReload()` replaces `originDatabaseValues` from MySQL and clears `originRedisValues`, so a getter cannot keep answering from a stale redis-loaded row.
 
 ### ID Generation
 

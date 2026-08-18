@@ -5,14 +5,11 @@ import (
 	"reflect"
 )
 
-// Optional capabilities the generator emits. Entity itself is exported, so
-// nothing may be added to it without breaking every consumer's generated code.
+// Optional capabilities the generator emits. Adding a method to Entity itself
+// breaks every consumer until it regenerates, so only put one there when the ORM
+// cannot work without it (PrivateReload, PrivateIsNew).
 type entityCacheIndexed interface {
 	PrivateCacheIndex() string
-}
-
-type entityNewState interface {
-	PrivateIsNew() bool
 }
 
 type entityBoundContext interface {
@@ -66,7 +63,7 @@ func (orm *ormImplementation) deleteEntities(entities []Entity, force bool) erro
 		if e == nil {
 			continue
 		}
-		if isNew, ok := e.(entityNewState); ok && isNew.PrivateIsNew() {
+		if e.PrivateIsNew() {
 			return fmt.Errorf("%w: %T %d", ErrEntityNotPersisted, e, e.GetID())
 		}
 		if force {
@@ -116,7 +113,7 @@ func (orm *ormImplementation) prepareWrites(entities []Entity) ([]*pendingWrite,
 // produce a meaningful statement. An insert or a delete would only be repeated;
 // an update carries the cumulative bind, so re-issuing it is correct.
 func (orm *ormImplementation) hasUnstagedChanges(e Entity) bool {
-	if isNew, ok := e.(entityNewState); ok && isNew.PrivateIsNew() {
+	if e.PrivateIsNew() {
 		return false
 	}
 	return len(e.PrivateGetDatabaseBind()) > 0
@@ -178,7 +175,6 @@ func (orm *ormImplementation) runPostCommit(list []*pendingWrite, keys map[strin
 			orm.removeFromContextCache(w.cacheIndex, w.entity.GetID())
 		}
 		w.entity.PrivateFlushed()
-		orm.untrack(w.entity, w.cacheIndex)
 	}
 	return nil
 }
@@ -240,27 +236,6 @@ func (orm *ormImplementation) runAfterHandlers(list []*pendingWrite) error {
 		}
 	}
 	return nil
-}
-
-// untrack drops a written entity from the dirty set, so the context cache may
-// evict it again once it holds no unsaved changes.
-func (orm *ormImplementation) untrack(e Entity, cacheIndex string) {
-	if orm.trackedEntities == nil {
-		return
-	}
-	if cacheIndex != "" {
-		if entities, ok := orm.trackedEntities.Load(cacheIndex); ok {
-			entities.Delete(e.GetID())
-			return
-		}
-	}
-	orm.trackedEntities.Range(func(_ string, entities *xsyncEntityMap) bool {
-		if tracked, ok := entities.Load(e.GetID()); ok && tracked == e {
-			entities.Delete(e.GetID())
-			return false
-		}
-		return true
-	})
 }
 
 // takeRedisPipelines drains the per-context pipeline registry. Every
