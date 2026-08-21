@@ -29,6 +29,13 @@ type entityForceDeletable interface {
 type pendingWrite struct {
 	entity     Entity
 	cacheIndex string
+	// dirtyPayload is the CDC event serialised once during outbox staging and
+	// reused when publishing. The payload is not deterministic - buildEvent
+	// stamps TsMs - so re-serialising it would give the stored row different
+	// bytes, and therefore a different Nats-Msg-Id, from the event consumers
+	// actually saw. A relay replay would then dodge JetStream's dedup and
+	// deliver twice. Nil for entities that do not route to the outbox.
+	dirtyPayload []byte
 }
 
 // Save writes exactly the given entities and nothing else on this context.
@@ -131,6 +138,10 @@ func (orm *ormImplementation) writeEntities(list []*pendingWrite) error {
 			orm.tx.staged[w.entity] = true
 		}
 	}
+	outboxIDs, err := orm.stageDirtyOutbox(list)
+	if err != nil {
+		return err
+	}
 	keys := orm.takePendingInvalidations()
 	if err := orm.deleteCacheKeys(keys); err != nil {
 		return err
@@ -140,7 +151,7 @@ func (orm *ormImplementation) writeEntities(list []*pendingWrite) error {
 			return err
 		}
 	}
-	post := func() error { return orm.runPostCommit(list, keys) }
+	post := func() error { return orm.runPostCommit(list, keys, outboxIDs) }
 	if orm.tx != nil {
 		orm.queueAfterCommit(post)
 		return nil
@@ -154,7 +165,7 @@ func (orm *ormImplementation) writeEntities(list []*pendingWrite) error {
 // runPostCommit performs everything that must only become visible once the rows
 // are durable. The second cache delete closes the window where a concurrent read
 // refilled a key from a pre-commit snapshot.
-func (orm *ormImplementation) runPostCommit(list []*pendingWrite, keys map[string][]string) error {
+func (orm *ormImplementation) runPostCommit(list []*pendingWrite, keys map[string][]string, outboxIDs []uint64) error {
 	if err := orm.deleteCacheKeys(keys); err != nil {
 		return err
 	}
@@ -165,6 +176,9 @@ func (orm *ormImplementation) runPostCommit(list []*pendingWrite, keys map[strin
 		}
 	}
 	if err := orm.publishDirtyFor(list); err != nil {
+		return err
+	}
+	if err := orm.markOutboxDispatched(outboxIDs); err != nil {
 		return err
 	}
 	if err := orm.runAfterHandlers(list); err != nil {
@@ -200,7 +214,7 @@ func (orm *ormImplementation) publishDirtyFor(list []*pendingWrite) error {
 		if !hasPub {
 			continue
 		}
-		if err := buildDirtyEvent(orm, pending, publisher, w.entity, dirtyOpFromFlushType(eventType), changes); err != nil {
+		if err := buildDirtyEvent(orm, pending, publisher, w, dirtyOpFromFlushType(eventType), changes); err != nil {
 			return err
 		}
 	}

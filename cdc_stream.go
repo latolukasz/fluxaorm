@@ -479,6 +479,7 @@ func fieldValue(v reflect.Value, name string) reflect.Value {
 // at Validate() time keyed by reflect.Type.
 type dirtyPublisherEntry struct {
 	streams      []NatsStreamName
+	outbox       bool
 	entityName   string
 	buildEvent   func(entity Entity, op DirtyOp, beforeOrigin map[string]any) ([]byte, error)
 	reflectType  reflect.Type
@@ -549,6 +550,19 @@ func getDirtyPublisherByEntityName(name string) (*dirtyPublisherEntry, bool) {
 		}
 	}
 	return nil, false
+}
+
+// withSchemaConfig copies a publisher and folds in the schema-derived settings.
+// Only outbox routing today.
+// The copy matters: getDirtyPublisher returns a pointer into the package-global
+// registry that every engine in the process shares, so writing to it would both
+// leak one engine's configuration into another and race two concurrent
+// Validate() calls.
+func withSchemaConfig(entry *dirtyPublisherEntry, schema *entitySchema) *dirtyPublisherEntry {
+	scoped := *entry
+	scoped.outbox = schema.cdcOutbox
+
+	return &scoped
 }
 
 // generatedEntityName produces the Go identifier for the entity struct that
@@ -628,8 +642,10 @@ func applyCDCStreamDefaults(opts CDCStreamOptions) CDCStreamOptions {
 	return opts
 }
 
-// newDirtyMessage allocates a fresh NatsMessage carrying the JSON payload and
-// the Dirty-* headers, ready to be Publish'd.
+// newDirtyMessage builds the message both publish paths use - the post-commit
+// flush and the outbox relay - including the deterministic Nats-Msg-Id that
+// JetStream dedups on. One builder, so a replay can never drift from the
+// original and lose its dedup.
 func newDirtyMessage(stream NatsStreamName, entityName string, op DirtyOp, payload []byte) *NatsMessage {
 	msg := NewNatsMessage(dirtySubjectPrefix + string(stream))
 	msg.Data = payload
@@ -637,6 +653,7 @@ func newDirtyMessage(stream NatsStreamName, entityName string, op DirtyOp, paylo
 	msg.Headers.Set(HeaderDirtyEntity, entityName)
 	msg.Headers.Set(HeaderDirtyOp, fmt.Sprintf("%d", op))
 	msg.Headers.Set(HeaderDirtyStream, string(stream))
+	msg.Headers.Set("Nats-Msg-Id", fmt.Sprintf("%s:%s:%d", stream, entityName, msgIDHash(payload)))
 	return msg
 }
 
@@ -662,11 +679,19 @@ type pendingDirtyMessages map[string][]*NatsMessage
 // CDC stream to `pending`, grouped by the stream's NATS pool.
 func buildDirtyEvent(
 	orm Context, pending pendingDirtyMessages, publisher *dirtyPublisherEntry,
-	e Entity, op DirtyOp, beforeOrigin map[string]any,
+	w *pendingWrite, op DirtyOp, beforeOrigin map[string]any,
 ) error {
-	payload, err := publisher.buildEvent(e, op, beforeOrigin)
-	if err != nil {
-		return fmt.Errorf("build dirty event for %s: %w", publisher.entityName, err)
+	// Outbox staging already serialised this event. Reuse those exact bytes:
+	// buildEvent stamps TsMs, so a second call would publish a payload the
+	// stored row does not match, and the relay could no longer replay it under
+	// the same dedup id.
+	payload := w.dirtyPayload
+	if payload == nil {
+		var err error
+		payload, err = publisher.buildEvent(w.entity, op, beforeOrigin)
+		if err != nil {
+			return fmt.Errorf("build dirty event for %s: %w", publisher.entityName, err)
+		}
 	}
 	if payload == nil {
 		return nil
@@ -681,7 +706,6 @@ func buildDirtyEvent(
 			return fmt.Errorf("nats pool '%s' for CDC stream '%s' not configured", ds.options.NatsPool, streamName)
 		}
 		msg := newDirtyMessage(streamName, publisher.entityName, op, payload)
-		msg.Headers.Set("Nats-Msg-Id", fmt.Sprintf("%s:%s:%d", streamName, publisher.entityName, msgIDHash(payload)))
 		pending[ds.options.NatsPool] = append(pending[ds.options.NatsPool], msg)
 	}
 	return nil
@@ -821,7 +845,9 @@ func resolveDirtyStreams(r *registry, e *engineImplementation) error {
 	// Track which streams are referenced by an entity (for orphan detection).
 	referenced := make(map[NatsStreamName]bool)
 	for _, schema := range reg.entitySchemas {
-		if len(schema.dirtyStreams) == 0 {
+		// A `cdcOutbox`-only entity has no streams but still needs its publisher
+		// indexed: the outbox row carries the same snapshot payload.
+		if len(schema.dirtyStreams) == 0 && !schema.cdcOutbox {
 			continue
 		}
 		// (1) Every named stream must be a registered CDC stream.
@@ -849,9 +875,9 @@ func resolveDirtyStreams(r *registry, e *engineImplementation) error {
 		// here so TestGenerate can run Validate before the freshly generated init()
 		// blocks compile in.
 		if entry, ok := getDirtyPublisherByEntityName(generatedEntityName(schema.tableName)); ok {
-			reg.dirtyPublishers[entry.reflectType] = entry
+			reg.dirtyPublishers[entry.reflectType] = withSchemaConfig(entry, schema)
 		} else if entry, ok := getDirtyPublisher(schema.t); ok {
-			reg.dirtyPublishers[entry.reflectType] = entry
+			reg.dirtyPublishers[entry.reflectType] = withSchemaConfig(entry, schema)
 		}
 	}
 

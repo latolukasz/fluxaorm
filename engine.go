@@ -50,6 +50,7 @@ type engineRegistryImplementation struct {
 	dirtyStreams            map[NatsStreamName]*resolvedDirtyStream
 	streamRegistry          map[NatsStreamName]*streamRegistryEntry
 	dirtyPublishers         map[reflect.Type]*dirtyPublisherEntry
+	cdcOutbox               *resolvedCDCOutbox
 	hasMetrics              bool
 	metricsRegistry         *metricsRegistry
 }

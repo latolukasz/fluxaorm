@@ -152,6 +152,21 @@ type generateEntityDirtyB struct {
 	Label string `orm:"required;length=100"`
 }
 
+// generateEntityOutbox is dirty + cdcOutbox: durable CDC. Two streams so the
+// one-row-fans-out-to-N-streams behaviour is exercised.
+type generateEntityOutbox struct {
+	ID   uint64 `orm:"dirty=test_stream,test_stream_b;cdcOutbox"`
+	Name string `orm:"required;length=100"`
+	Age  uint16
+}
+
+// generateEntityStoreOnly is cdcOutbox without dirty: a transactional change
+// log with no stream to publish to.
+type generateEntityStoreOnly struct {
+	ID   uint64 `orm:"cdcOutbox"`
+	Name string `orm:"required;length=100"`
+}
+
 func (e generateEntity) UniqueIndexes() [][]string {
 	return [][]string{{"Age", "Balance"}}
 }
@@ -201,5 +216,6 @@ func FixtureEntities() []any {
 		generateEntityWithSearch{}, generateEntityWithTimestamps{}, generateEntityWithTimestampsRedis{},
 		generateEntityCachedUnique{}, generateEntityCachedUniqueNoRedis{}, generateEntityCachedUniqueFakeDelete{},
 		generateEntityWithIndex{}, generateEntityEnumRef{}, generateEntityDirty{}, generateEntityDirtyB{},
+		generateEntityOutbox{}, generateEntityStoreOnly{}, fluxaorm.CDCOutboxEntity{},
 	}
 }

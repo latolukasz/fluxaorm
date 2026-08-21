@@ -332,6 +332,9 @@ func (r *registry) Validate() (Engine, error) {
 	if err := resolveDirtyStreams(r, e); err != nil {
 		return nil, err
 	}
+	if err := resolveCDCOutbox(e); err != nil {
+		return nil, err
+	}
 	if e.registry.hasMetrics {
 		e.registry.metricsRegistry = initMetricsRegistry(*r.metricsFactory)
 	}
