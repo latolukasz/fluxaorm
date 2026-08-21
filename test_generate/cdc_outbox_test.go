@@ -18,7 +18,7 @@ import (
 // share the source write's transaction. It is not in FixtureEntities, so it has
 // no generated code and never reaches a query.
 type outboxOnSecondPool struct {
-	ID   uint64 `orm:"mysql=second;cdcOutbox"`
+	ID   uint64 `orm:"mysql=second;outbox"`
 	Name string `orm:"required;length=100"`
 }
 
@@ -185,7 +185,7 @@ func TestDirtyWithoutOutboxWritesNoRow(t *testing.T) {
 	assert.NoError(t, ctx.Save(e))
 
 	assert.Empty(t, outboxRows(t, ctx.Clone()),
-		"an entity tagged dirty= without cdcOutbox keeps today's fire-and-forget behaviour")
+		"an entity tagged dirty= without outbox keeps today's fire-and-forget behaviour")
 }
 
 func TestOneRowFansOutToEveryTaggedStream(t *testing.T) {
@@ -496,7 +496,7 @@ func TestOutboxStoresTheEventThatWasPublished(t *testing.T) {
 // outboxAcrossNatsPools tags an entity whose two streams are registered on
 // different NATS pools - unrepresentable in a row that records one pool.
 type outboxAcrossNatsPools struct {
-	ID   uint64 `orm:"dirty=test_stream,test_stream_b;cdcOutbox"`
+	ID   uint64 `orm:"dirty=test_stream,test_stream_b;outbox"`
 	Name string `orm:"required;length=100"`
 }
 

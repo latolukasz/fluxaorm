@@ -152,18 +152,18 @@ type generateEntityDirtyB struct {
 	Label string `orm:"required;length=100"`
 }
 
-// generateEntityOutbox is dirty + cdcOutbox: durable CDC. Two streams so the
+// generateEntityOutbox is dirty + outbox: durable CDC. Two streams so the
 // one-row-fans-out-to-N-streams behaviour is exercised.
 type generateEntityOutbox struct {
-	ID   uint64 `orm:"dirty=test_stream,test_stream_b;cdcOutbox"`
+	ID   uint64 `orm:"dirty=test_stream,test_stream_b;outbox"`
 	Name string `orm:"required;length=100"`
 	Age  uint16
 }
 
-// generateEntityStoreOnly is cdcOutbox without dirty: a transactional change
+// generateEntityStoreOnly is outbox without dirty: a transactional change
 // log with no stream to publish to.
 type generateEntityStoreOnly struct {
-	ID   uint64 `orm:"cdcOutbox"`
+	ID   uint64 `orm:"outbox"`
 	Name string `orm:"required;length=100"`
 }
 

@@ -21,7 +21,7 @@ var ErrOutboxDispatchMark = errors.New("cdc outbox dispatch mark failed")
 // generated provider. Register it with `registry.RegisterEntity` and it
 // generates, alters and queries like any other entity.
 //
-// An entity tagged `orm:"cdcOutbox"` gets one row per write, inside that
+// An entity tagged `orm:"outbox"` gets one row per write, inside that
 // write's own transaction. With `dirty=` the row is a delivery guarantee; alone
 // it is a change log. See the package docs for the full truth table.
 type CDCOutboxEntity struct {
@@ -48,7 +48,7 @@ const (
 	CDCOutboxPending = "pending"
 	// CDCOutboxDispatched is a row whose event was published successfully.
 	CDCOutboxDispatched = "dispatched"
-	// CDCOutboxStored is a row from an entity tagged `cdcOutbox` without
+	// CDCOutboxStored is a row from an entity tagged `outbox` without
 	// `dirty=`. There is no stream to publish to, so it is born terminal.
 	CDCOutboxStored = "stored"
 )
@@ -76,7 +76,7 @@ func resolveCDCOutbox(e *engineImplementation) error {
 
 	var tagged []string
 	for _, schema := range reg.entitySchemas {
-		if schema.cdcOutbox {
+		if schema.outbox {
 			tagged = append(tagged, schema.t.Name())
 		}
 	}
@@ -90,18 +90,18 @@ func resolveCDCOutbox(e *engineImplementation) error {
 	schema, has := reg.entitySchemas[outboxType]
 	if !has {
 		return fmt.Errorf(
-			"entity '%s' is tagged `orm:\"cdcOutbox\"` but fluxaorm.CDCOutboxEntity is not registered; add registry.RegisterEntity(fluxaorm.CDCOutboxEntity{})",
+			"entity '%s' is tagged `orm:\"outbox\"` but fluxaorm.CDCOutboxEntity is not registered; add registry.RegisterEntity(fluxaorm.CDCOutboxEntity{})",
 			tagged[0])
 	}
 	reg.cdcOutbox = &resolvedCDCOutbox{tableName: schema.tableName, poolCode: schema.mysqlPoolCode}
 
 	for _, s := range reg.entitySchemas {
-		if !s.cdcOutbox {
+		if !s.outbox {
 			continue
 		}
 		if s.mysqlPoolCode != schema.mysqlPoolCode {
 			return fmt.Errorf(
-				"entity '%s' is tagged `orm:\"cdcOutbox\"` on mysql pool '%s' but the outbox table is on pool '%s'; the outbox row would not be in the same transaction",
+				"entity '%s' is tagged `orm:\"outbox\"` on mysql pool '%s' but the outbox table is on pool '%s'; the outbox row would not be in the same transaction",
 				s.t.Name(), s.mysqlPoolCode, schema.mysqlPoolCode)
 		}
 		if err := checkOutboxStreamsSharePool(reg, s); err != nil {
@@ -123,7 +123,7 @@ func checkOutboxStreamsSharePool(reg *engineRegistryImplementation, schema *enti
 	for _, name := range schema.dirtyStreams[1:] {
 		if pool := reg.dirtyStreams[name].options.NatsPool; pool != first {
 			return fmt.Errorf(
-				"entity '%s' is tagged `orm:\"cdcOutbox\"` but its CDC streams span nats pools ('%s' on '%s', '%s' on '%s'); an outbox row records only one pool",
+				"entity '%s' is tagged `orm:\"outbox\"` but its CDC streams span nats pools ('%s' on '%s', '%s' on '%s'); an outbox row records only one pool",
 				schema.t.Name(), schema.dirtyStreams[0], first, name, pool)
 		}
 	}

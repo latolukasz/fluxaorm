@@ -133,7 +133,7 @@ type entitySchema struct {
 	searchableFields        []searchableFieldDef
 	pendingSearchableFields map[string]pendingSearchableField
 	dirtyStreams            []NatsStreamName
-	cdcOutbox               bool
+	outbox                  bool
 	cachedUniqueIndexes     map[string]bool
 	hasCachedUniqueIndexes  bool
 	uniqueIndexFIndexes     map[string][]int
@@ -351,7 +351,7 @@ func (e *entitySchema) init(registry *registry, entityType reflect.Type) error {
 		}
 		e.dirtyStreams = streams
 	}
-	e.cdcOutbox = e.getTag("cdcOutbox", "true", "") == "true"
+	e.outbox = e.getTag("outbox", "true", "") == "true"
 	e.tableName = e.getTag("table", entityType.Name(), entityType.Name())
 	redisCacheName := e.getTag("redisCache", DefaultPoolCode, "")
 	if redisCacheName != "" {

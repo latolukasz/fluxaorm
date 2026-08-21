@@ -16,9 +16,9 @@ import (
 // The snapshot type is `map[string]any` keyed by entity column names. Typed
 // snapshot structs are a future enhancement.
 func (g *codeGenerator) generateCDCStreamForEntity(schema *entitySchema, names *entityNames) {
-	// A `cdcOutbox`-only entity has no stream to publish to but still needs the
+	// An `outbox`-only entity has no stream to publish to but still needs the
 	// snapshot builder, because its outbox row carries the same payload.
-	if len(schema.dirtyStreams) == 0 && !schema.cdcOutbox {
+	if len(schema.dirtyStreams) == 0 && !schema.outbox {
 		return
 	}
 

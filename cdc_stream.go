@@ -560,7 +560,7 @@ func getDirtyPublisherByEntityName(name string) (*dirtyPublisherEntry, bool) {
 // Validate() calls.
 func withSchemaConfig(entry *dirtyPublisherEntry, schema *entitySchema) *dirtyPublisherEntry {
 	scoped := *entry
-	scoped.outbox = schema.cdcOutbox
+	scoped.outbox = schema.outbox
 
 	return &scoped
 }
@@ -845,9 +845,9 @@ func resolveDirtyStreams(r *registry, e *engineImplementation) error {
 	// Track which streams are referenced by an entity (for orphan detection).
 	referenced := make(map[NatsStreamName]bool)
 	for _, schema := range reg.entitySchemas {
-		// A `cdcOutbox`-only entity has no streams but still needs its publisher
+		// An `outbox`-only entity has no streams but still needs its publisher
 		// indexed: the outbox row carries the same snapshot payload.
-		if len(schema.dirtyStreams) == 0 && !schema.cdcOutbox {
+		if len(schema.dirtyStreams) == 0 && !schema.outbox {
 			continue
 		}
 		// (1) Every named stream must be a registered CDC stream.
