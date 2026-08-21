@@ -222,12 +222,17 @@ func (orm *ormImplementation) markOutboxDispatched(ids []uint64) error {
 	return nil
 }
 
-// CDCOutboxRelayResult reports one page of relay work. Fetched tells the caller
-// whether another page is waiting; Published is the message count per NATS pool,
-// ready for a labelled metric.
+// CDCOutboxRelayResult reports one page of relay work.
+//
+// Dispatched is the count of rows actually marked delivered, and it is what a
+// paging caller must loop on. Fetched only says how many rows were read: a page
+// that fails to publish stays pending, so paging on Fetched would re-read the
+// same rows forever. Published is the message count per NATS pool - one row can
+// contribute several - and exists for a labelled metric, not for control flow.
 type CDCOutboxRelayResult struct {
-	Fetched   int
-	Published map[string]int
+	Fetched    int
+	Dispatched int
+	Published  map[string]int
 }
 
 type outboxPendingRow struct {
@@ -305,6 +310,7 @@ func RelayCDCOutbox(ctx Context, minAge time.Duration, limit int) (CDCOutboxRela
 			errs = append(errs, markErr)
 			continue
 		}
+		result.Dispatched += len(idsByPool[poolCode])
 		result.Published[poolCode] = len(msgs)
 	}
 

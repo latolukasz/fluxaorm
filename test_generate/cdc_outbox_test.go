@@ -231,6 +231,7 @@ func TestRelayPublishesRowsLeftPendingByAFailedPublish(t *testing.T) {
 	res, err := fluxaorm.RelayCDCOutbox(ctx, 0, 100)
 	assert.NoError(t, err)
 	assert.Equal(t, 1, res.Fetched)
+	assert.Equal(t, 1, res.Dispatched)
 	assert.Equal(t, 2, res.Published["nats"], "one row fans back out to both of its streams")
 
 	assert.Equal(t, enums.CDCOutboxStatusList.Dispatched, onlyOutboxRow(t, ctx.Clone()).GetStatus())
@@ -261,6 +262,8 @@ func TestRelayLeavesRowsPendingWhenPublishStillFails(t *testing.T) {
 	res, err := fluxaorm.RelayCDCOutbox(ctx, 0, 100)
 	assert.Error(t, err, "the caller has to learn the backlog is not draining")
 	assert.Equal(t, 1, res.Fetched)
+	assert.Zero(t, res.Dispatched,
+		"a paging caller loops on Dispatched - counting the undeliverable row as progress would re-read it forever")
 	assert.Empty(t, res.Published)
 
 	row := onlyOutboxRow(t, ctx.Clone())
