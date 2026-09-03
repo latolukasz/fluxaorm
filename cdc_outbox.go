@@ -22,7 +22,7 @@ var ErrOutboxDispatchMark = errors.New("cdc outbox dispatch mark failed")
 // generates, alters and queries like any other entity.
 //
 // An entity tagged `orm:"outbox"` gets one row per write, inside that
-// write's own transaction. With `dirty=` the row is a delivery guarantee; alone
+// write's own transaction. With `cdc` the row is a delivery guarantee; alone
 // it is a change log. See the package docs for the full truth table.
 type CDCOutboxEntity struct {
 	ID           uint64     `orm:"table=cdc_outbox"`
@@ -30,8 +30,6 @@ type CDCOutboxEntity struct {
 	EntityName   string     `orm:"required;length=100"`
 	EntityID     uint64     `orm:"required"`
 	Op           uint8      `orm:"required"`
-	Streams      string     `orm:"length=1000"`
-	NatsPool     string     `orm:"length=50"`
 	Payload      string     `orm:"length=max;required"`
 	DispatchedAt *time.Time `orm:"time"`
 	CreatedAt    time.Time  `orm:"time"`
@@ -53,11 +51,7 @@ const (
 	CDCOutboxStored = "stored"
 )
 
-// cdcOutboxStreamSeparator joins the stream names in the Streams column.
-// fluxaorm owns this encoding on write; readers split on it.
-const cdcOutboxStreamSeparator = ","
-
-const cdcOutboxInsertSQL = "INSERT INTO `%s` (`ID`,`Status`,`EntityName`,`EntityID`,`Op`,`Streams`,`NatsPool`,`Payload`,`CreatedAt`) VALUES (?,?,?,?,?,?,?,?,?)"
+const cdcOutboxInsertSQL = "INSERT INTO `%s` (`ID`,`Status`,`EntityName`,`EntityID`,`Op`,`Payload`,`CreatedAt`) VALUES (?,?,?,?,?,?,?)"
 
 // resolvedCDCOutbox is the registry's handle on the outbox table, resolved once
 // at Validate() time from the registered CDCOutboxEntity's schema.
@@ -103,28 +97,6 @@ func resolveCDCOutbox(e *engineImplementation) error {
 			return fmt.Errorf(
 				"entity '%s' is tagged `orm:\"outbox\"` on mysql pool '%s' but the outbox table is on pool '%s'; the outbox row would not be in the same transaction",
 				s.t.Name(), s.mysqlPoolCode, schema.mysqlPoolCode)
-		}
-		if err := checkOutboxStreamsSharePool(reg, s); err != nil {
-			return err
-		}
-	}
-	return nil
-}
-
-// checkOutboxStreamsSharePool rejects an outbox entity whose CDC streams live on
-// different NATS pools. A row carries a single NatsPool, so the relay would
-// republish every one of that entity's streams to whichever pool came first -
-// right subjects, wrong server, no error anywhere.
-func checkOutboxStreamsSharePool(reg *engineRegistryImplementation, schema *entitySchema) error {
-	if len(schema.dirtyStreams) < 2 {
-		return nil
-	}
-	first := reg.dirtyStreams[schema.dirtyStreams[0]].options.NatsPool
-	for _, name := range schema.dirtyStreams[1:] {
-		if pool := reg.dirtyStreams[name].options.NatsPool; pool != first {
-			return fmt.Errorf(
-				"entity '%s' is tagged `orm:\"outbox\"` but its CDC streams span nats pools ('%s' on '%s', '%s' on '%s'); an outbox row records only one pool",
-				schema.t.Name(), schema.dirtyStreams[0], first, name, pool)
 		}
 	}
 	return nil
@@ -172,24 +144,19 @@ func (orm *ormImplementation) stageDirtyOutbox(list []*pendingWrite) ([]uint64, 
 		// published message stay byte-identical, and a replay keeps its dedup id.
 		w.dirtyPayload = payload
 
+		// A `cdc`-tagged entity has a subject to deliver to, so its row is a
+		// delivery guarantee. Without the tag there is nothing to publish and the
+		// row is born terminal: a change log, not a queue.
 		status := CDCOutboxStored
-		streams := ""
-		natsPool := ""
-		if len(publisher.streams) > 0 {
+		if publisher.cdc {
 			status = CDCOutboxPending
-			names := make([]string, len(publisher.streams))
-			for i, s := range publisher.streams {
-				names[i] = string(s)
-			}
-			streams = strings.Join(names, cdcOutboxStreamSeparator)
-			natsPool = orm.engine.registry.dirtyStreams[publisher.streams[0]].options.NatsPool
 		}
 
 		id := orm.engine.NextID()
 		orm.DatabasePipeLine(outbox.poolCode).AddQueryForTable(
 			outbox.tableName,
 			fmt.Sprintf(cdcOutboxInsertSQL, outbox.tableName),
-			id, status, publisher.entityName, w.entity.GetID(), uint8(op), streams, natsPool, string(payload), now,
+			id, status, publisher.entityName, w.entity.GetID(), uint8(op), string(payload), now,
 		)
 		if status == CDCOutboxPending {
 			pending = append(pending, id)
@@ -227,8 +194,9 @@ func (orm *ormImplementation) markOutboxDispatched(ids []uint64) error {
 // Dispatched is the count of rows actually marked delivered, and it is what a
 // paging caller must loop on. Fetched only says how many rows were read: a page
 // that fails to publish stays pending, so paging on Fetched would re-read the
-// same rows forever. Published is the message count per NATS pool - one row can
-// contribute several - and exists for a labelled metric, not for control flow.
+// same rows forever. Published is the message count per NATS pool, which is now
+// one per row however many consumers read that entity, and exists for a
+// labelled metric rather than for control flow.
 type CDCOutboxRelayResult struct {
 	Fetched    int
 	Dispatched int
@@ -239,12 +207,10 @@ type outboxPendingRow struct {
 	id         uint64
 	entityName string
 	op         uint8
-	streams    string
-	natsPool   string
 	payload    string
 }
 
-const cdcOutboxSelectPendingSQL = "SELECT `ID`,`EntityName`,`Op`,`Streams`,`NatsPool`,`Payload` FROM `%s` " +
+const cdcOutboxSelectPendingSQL = "SELECT `ID`,`EntityName`,`Op`,`Payload` FROM `%s` " +
 	"WHERE `Status` = '" + CDCOutboxPending + "' AND `CreatedAt` <= ? ORDER BY `ID` LIMIT %d"
 
 // RelayCDCOutbox republishes one page of outbox rows whose inline publish never
@@ -285,14 +251,19 @@ func RelayCDCOutbox(ctx Context, minAge time.Duration, limit int) (CDCOutboxRela
 		return result, nil
 	}
 
+	// The subject comes from the entity name, so a row needs no record of where
+	// it was going: one entity is one subject, and whoever filters it reads it.
+	poolCode := orm.engine.registry.entityStream.NatsPool
 	idsByPool := make(map[string][]uint64)
 	msgsByPool := make(map[string][]*NatsMessage)
 	for _, row := range rows {
-		idsByPool[row.natsPool] = append(idsByPool[row.natsPool], row.id)
-		for _, stream := range strings.Split(row.streams, cdcOutboxStreamSeparator) {
-			msgsByPool[row.natsPool] = append(msgsByPool[row.natsPool],
-				newDirtyMessage(NatsStreamName(stream), row.entityName, DirtyOp(row.op), []byte(row.payload)))
+		subject, err := outboxRowSubject(orm.engine.registry, row.entityName)
+		if err != nil {
+			return result, err
 		}
+		idsByPool[poolCode] = append(idsByPool[poolCode], row.id)
+		msgsByPool[poolCode] = append(msgsByPool[poolCode],
+			newEntityMessage(subject, DirtyOp(row.op), []byte(row.payload)))
 	}
 
 	var errs []error
@@ -317,6 +288,20 @@ func RelayCDCOutbox(ctx Context, minAge time.Duration, limit int) (CDCOutboxRela
 	return result, errors.Join(errs...)
 }
 
+// outboxRowSubject resolves a stored row's entity name back to its subject. The
+// name is the generated entity struct's, which is what the publisher registers
+// under, so an entity renamed or untagged since the row was written is reported
+// rather than published to a subject nothing filters.
+func outboxRowSubject(reg *engineRegistryImplementation, entityName string) (Subject, error) {
+	for _, publisher := range reg.dirtyPublishers {
+		if publisher.entityName == entityName {
+			return publisher.subject, nil
+		}
+	}
+
+	return "", fmt.Errorf("outbox relay: entity '%s' has no registered publisher", entityName)
+}
+
 func readPendingOutboxRows(
 	orm *ormImplementation, outbox *resolvedCDCOutbox, minAge time.Duration, limit int,
 ) ([]outboxPendingRow, error) {
@@ -330,7 +315,7 @@ func readPendingOutboxRows(
 	var rows []outboxPendingRow
 	for sqlRows.Next() {
 		var r outboxPendingRow
-		if scanErr := sqlRows.Scan(&r.id, &r.entityName, &r.op, &r.streams, &r.natsPool, &r.payload); scanErr != nil {
+		if scanErr := sqlRows.Scan(&r.id, &r.entityName, &r.op, &r.payload); scanErr != nil {
 			return nil, fmt.Errorf("scan pending outbox row: %w", scanErr)
 		}
 		rows = append(rows, r)

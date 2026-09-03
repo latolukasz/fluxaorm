@@ -37,7 +37,10 @@ type Registry interface {
 	RegisterNats(urls []string, poolCode string, options *NatsPoolOptions)
 	RegisterNatsStream(stream *NatsStreamBuilder)
 	RegisterNatsConsumer(consumer *NatsConsumerBuilder)
-	RegisterCDCStream(stream CDCStream, opts CDCStreamOptions)
+	RegisterConsumer(def ConsumerDef)
+	RegisterEntityStream(opts EntityStreamOptions)
+	RegisterTask(task any, opts TaskOptions)
+	RegisterTaskStream(opts TaskStreamOptions)
 	EnableMetrics(factory promauto.Factory)
 }
 
@@ -49,7 +52,10 @@ type registry struct {
 	natsPools        map[string]*natsPoolConfig
 	natsStreams      []*NatsStreamBuilder
 	natsConsumers    []*NatsConsumerBuilder
-	dirtyStreams     map[NatsStreamName]*resolvedDirtyStream
+	consumers        []ConsumerDef
+	entityStream     *EntityStreamOptions
+	tasks            []*registeredTask
+	taskStream       *TaskStreamOptions
 	entities         map[string]reflect.Type
 	options          map[string]any
 	metricsFactory   *promauto.Factory
@@ -329,7 +335,14 @@ func (r *registry) Validate() (Engine, error) {
 	for key, value := range r.options {
 		e.registry.options[key] = value
 	}
-	if err := resolveDirtyStreams(r, e); err != nil {
+	resolveEntityPublishers(e)
+	resolveJobRuns(e)
+	// Tasks first: a consumer declares queues, and resolveConsumers checks them
+	// against the tasks that actually exist.
+	if err := resolveTasks(r, e); err != nil {
+		return nil, err
+	}
+	if err := resolveConsumers(r, e); err != nil {
 		return nil, err
 	}
 	if err := resolveCDCOutbox(e); err != nil {
@@ -339,22 +352,6 @@ func (r *registry) Validate() (Engine, error) {
 		e.registry.metricsRegistry = initMetricsRegistry(*r.metricsFactory)
 	}
 	return e, nil
-}
-
-// RegisterCDCStream records a CDC stream's JetStream tuning. The stream's subject
-// and JetStream name are fluxaorm-controlled (fluxa.dirty.<name> / FLUXA_DIRTY_<name>).
-// Multiple calls for the same stream override the previous registration.
-//
-// User code typically passes the generated typed ref (e.g. gen.StreamOrderIndexer)
-// for the first argument so there are no raw string literals.
-func (r *registry) RegisterCDCStream(stream CDCStream, opts CDCStreamOptions) {
-	if r.dirtyStreams == nil {
-		r.dirtyStreams = make(map[NatsStreamName]*resolvedDirtyStream)
-	}
-	r.dirtyStreams[stream.Name()] = &resolvedDirtyStream{
-		stream:  stream,
-		options: applyCDCStreamDefaults(opts),
-	}
 }
 
 func (r *registry) EnableMetrics(factory promauto.Factory) {
@@ -418,6 +415,17 @@ func (r *registry) ValidateForCodeGen() (Engine, error) {
 			return nil, errors.Wrapf(err, "invalid entity struct '%s'", schema.t.String())
 		}
 		schema.engine = e
+	}
+	// Consumers and tasks come from the registry, not from entity tags, so this
+	// reduced validate path has to resolve them explicitly or the generator sees
+	// none and emits nothing.
+	resolveEntityPublishers(e)
+	resolveJobRuns(e)
+	if err := resolveTasks(r, e); err != nil {
+		return nil, err
+	}
+	if err := resolveConsumers(r, e); err != nil {
+		return nil, err
 	}
 	return e, nil
 }

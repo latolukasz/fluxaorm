@@ -98,9 +98,13 @@ func (b *NatsStreamBuilder) toConfig() jetstream.StreamConfig {
 	if b.maxAge > 0 {
 		cfg.MaxAge = b.maxAge
 	}
+	// JetStream reports "unlimited" as -1, so a desired 0 would compare unequal
+	// to the server's own view and make every reconcile issue an UpdateStream.
+	cfg.MaxBytes = -1
 	if b.maxBytes > 0 {
 		cfg.MaxBytes = b.maxBytes
 	}
+	cfg.MaxMsgSize = -1
 	if b.maxMsgSize > 0 {
 		cfg.MaxMsgSize = b.maxMsgSize
 	}
@@ -113,6 +117,7 @@ func (b *NatsStreamBuilder) toConfig() jetstream.StreamConfig {
 type NatsConsumerBuilder struct {
 	poolCode       string
 	name           string
+	streamName     string
 	filterSubjects []string
 	ackWait        time.Duration
 	maxAckPending  int
@@ -129,6 +134,15 @@ func NewNatsConsumer(name, poolCode string) *NatsConsumerBuilder {
 		maxDeliver:    -1,
 		deliverPolicy: jetstream.DeliverAllPolicy,
 	}
+}
+
+// Stream pins the consumer to a stream by name. Without it the reconciler has
+// to guess from the first filter subject, which stops working the moment a
+// consumer filters more than one.
+func (b *NatsConsumerBuilder) Stream(name string) *NatsConsumerBuilder {
+	b.streamName = name
+
+	return b
 }
 
 func (b *NatsConsumerBuilder) FilterSubjects(subjects ...string) *NatsConsumerBuilder {
@@ -273,28 +287,44 @@ func collectDesiredStreams(ctx Context, reg *engineRegistryImplementation) map[s
 		out[b.poolCode][b.streamName] = b.toConfig()
 	}
 
-	// CDC streams: one JetStream stream per registered CDC stream.
-	// Subject auto-set to fluxa.dirty.<name>; retention LimitsPolicy.
-	for name, ds := range reg.dirtyStreams {
-		streamName := dirtyStreamPrefix + string(name)
-		subject := dirtySubjectPrefix + string(name)
-		builder := NewNatsStream(streamName, ds.options.NatsPool).
-			Subjects(subject).
-			Duplicates(ds.options.DuplicateWindow)
-		if ds.options.Replicas > 0 {
-			builder.Replicas(ds.options.Replicas)
+	// One stream for every entity change and every replay. The subject
+	// identifies the entity, so a stream per consumer would only re-add the
+	// duplication this replaced.
+	if len(reg.consumers) > 0 {
+		opts := reg.entityStream
+		builder := NewNatsStream(EntityStreamName, opts.NatsPool).
+			Subjects(entitySubjectWildcard, replaySubjectWildcard).
+			Duplicates(opts.DuplicateWindow).
+			Replicas(opts.Replicas).
+			MaxAge(opts.MaxAge).
+			MaxBytes(opts.MaxBytes)
+		if opts.Storage != 0 {
+			builder.Storage(opts.Storage)
 		}
-		if ds.options.MaxAge > 0 {
-			builder.MaxAge(ds.options.MaxAge)
+		if out[opts.NatsPool] == nil {
+			out[opts.NatsPool] = make(map[string]jetstream.StreamConfig)
 		}
-		if ds.options.Storage != 0 {
-			builder.Storage(ds.options.Storage)
-		}
-		if out[ds.options.NatsPool] == nil {
-			out[ds.options.NatsPool] = make(map[string]jetstream.StreamConfig)
-		}
-		out[ds.options.NatsPool][streamName] = builder.toConfig()
+		out[opts.NatsPool][EntityStreamName] = builder.toConfig()
 	}
+	// One stream for every dispatched task. Separate from entity changes so a
+	// task backlog cannot evict a change nobody has consumed yet.
+	if len(reg.tasks) > 0 {
+		opts := reg.taskStream
+		builder := NewNatsStream(TaskStreamName, opts.NatsPool).
+			Subjects(taskSubjectWildcard).
+			Duplicates(opts.DuplicateWindow).
+			Replicas(opts.Replicas).
+			MaxAge(opts.MaxAge).
+			MaxBytes(opts.MaxBytes)
+		if opts.Storage != 0 {
+			builder.Storage(opts.Storage)
+		}
+		if out[opts.NatsPool] == nil {
+			out[opts.NatsPool] = make(map[string]jetstream.StreamConfig)
+		}
+		out[opts.NatsPool][TaskStreamName] = builder.toConfig()
+	}
+
 	_ = ctx
 	return out
 }
@@ -306,17 +336,31 @@ func collectDesiredConsumers(reg *engineRegistryImplementation) map[string][]*Na
 		out[b.poolCode] = append(out[b.poolCode], b)
 	}
 
-	// CDC durable consumers: one per registered CDC stream, named "<stream>-workers".
-	for name, ds := range reg.dirtyStreams {
-		durable := DurableForStream(name)
-		subject := dirtySubjectPrefix + string(name)
-		b := NewNatsConsumer(durable, ds.options.NatsPool).
-			FilterSubjects(subject).
-			MaxAckPending(ds.options.MaxAckPending).
-			AckWait(ds.options.AckWait).
-			MaxDeliver(ds.options.MaxDeliver)
-		out[ds.options.NatsPool] = append(out[ds.options.NatsPool], b)
+	// One durable per declared consumer, filtering its entities plus its own
+	// replay wildcard. This is the plural-FilterSubjects path, and it is what
+	// lets a consumer read several entities from one stream.
+	for _, consumer := range sortedConsumers(reg) {
+		b := NewNatsConsumer(consumer.durable(), consumer.options.NatsPool).
+			Stream(consumer.stream).
+			FilterSubjects(subjectStrings(consumer.subjects)...).
+			MaxAckPending(consumer.options.MaxAckPending).
+			AckWait(consumer.options.AckWait).
+			MaxDeliver(consumer.options.MaxDeliver)
+		out[consumer.options.NatsPool] = append(out[consumer.options.NatsPool], b)
 	}
+
+	return out
+}
+
+// sortedConsumers returns the declared consumers by name, so the alter list and
+// its log lines are stable across runs.
+func sortedConsumers(reg *engineRegistryImplementation) []*resolvedConsumer {
+	out := make([]*resolvedConsumer, 0, len(reg.consumers))
+	for _, consumer := range reg.consumers {
+		out = append(out, consumer)
+	}
+	sort.Slice(out, func(i, j int) bool { return out[i].name < out[j].name })
+
 	return out
 }
 
@@ -425,41 +469,54 @@ func buildEnsureConsumerAlter(js jetstream.JetStream, b *NatsConsumerBuilder, po
 		Description: fmt.Sprintf("ENSURE nats consumer '%s'", b.name),
 		PoolCode:    poolCode,
 		execFunc: func(ctx Context) error {
-			subj := ""
-			if len(b.filterSubjects) > 0 {
-				subj = b.filterSubjects[0]
-			}
-			// Drain the lister fully before calling Err() to avoid a race with the
-			// jetstream lister's background goroutine that writes the error field.
-			type streamRef struct {
-				name     string
-				subjects []string
-			}
-			var collected []streamRef
-			infos := js.ListStreams(ctx.Context())
-			for info := range infos.Info() {
-				if info == nil {
-					continue
-				}
-				collected = append(collected, streamRef{name: info.Config.Name, subjects: info.Config.Subjects})
-			}
-			if err := infos.Err(); err != nil {
-				return err
-			}
-			streamName := ""
-			for _, ref := range collected {
-				if subj == "" || subjectMatches(ref.subjects, subj) {
-					streamName = ref.name
-					break
-				}
-			}
+			streamName := b.streamName
 			if streamName == "" {
-				return fmt.Errorf("no stream found that covers consumer '%s' filter subject '%s'", b.name, subj)
+				resolved, err := streamCoveringSubject(ctx, js, b)
+				if err != nil {
+					return err
+				}
+				streamName = resolved
 			}
 			_, err := js.CreateOrUpdateConsumer(ctx.Context(), streamName, b.toJetStreamConfig())
+
 			return err
 		},
 	}
+}
+
+// streamCoveringSubject finds the stream carrying a consumer's first filter
+// subject. Only reached by consumers registered without Stream(), where a
+// single filter makes the lookup unambiguous.
+func streamCoveringSubject(ctx Context, js jetstream.JetStream, b *NatsConsumerBuilder) (string, error) {
+	subj := ""
+	if len(b.filterSubjects) > 0 {
+		subj = b.filterSubjects[0]
+	}
+
+	// Drain the lister fully before calling Err() to avoid a race with the
+	// jetstream lister's background goroutine that writes the error field.
+	type streamRef struct {
+		name     string
+		subjects []string
+	}
+	var collected []streamRef
+	infos := js.ListStreams(ctx.Context())
+	for info := range infos.Info() {
+		if info == nil {
+			continue
+		}
+		collected = append(collected, streamRef{name: info.Config.Name, subjects: info.Config.Subjects})
+	}
+	if err := infos.Err(); err != nil {
+		return "", err
+	}
+	for _, ref := range collected {
+		if subj == "" || subjectMatches(ref.subjects, subj) {
+			return ref.name, nil
+		}
+	}
+
+	return "", fmt.Errorf("no stream found that covers consumer '%s' filter subject '%s'", b.name, subj)
 }
 
 func subjectMatches(streamSubjects []string, subject string) bool {

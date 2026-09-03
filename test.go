@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 type MockLogHandler struct {
@@ -31,33 +32,42 @@ func PrepareTablesWithNats(t *testing.T, registry Registry, entities ...any) (or
 	return ctx
 }
 
-// PrepareTablesWithCDC sets up MySQL/Redis/NATS plus auto-registers each CDC
-// stream referenced by the tagged entities with default options. Production
-// callers should call registry.RegisterCDCStream explicitly; this helper
-// exists so tests don't have to mirror that boilerplate.
+// PrepareTablesWithConsumers sets up MySQL/Redis/NATS, registers the given
+// consumers, and purges both streams so test runs are independent.
 //
-// The `cdcStreams` slice is the list of typed CDC stream refs the test will
-// publish to / consume from. Each is registered with defaults before Validate().
-func PrepareTablesWithCDC(t *testing.T, registry Registry, cdcStreams []CDCStream, entities ...any) (orm Context) {
+// Production callers register consumers from their own declaration table; this
+// helper exists so tests don't have to mirror that boilerplate.
+func PrepareTablesWithConsumers(
+	t *testing.T, registry Registry, consumers []ConsumerDef, entities ...any,
+) (orm Context) {
 	registry.RegisterNats([]string{"nats://localhost:9944"}, "nats", nil)
-	for _, ref := range cdcStreams {
-		registry.RegisterCDCStream(ref, CDCStreamOptions{NatsPool: "nats"})
+	registry.RegisterEntityStream(EntityStreamOptions{NatsPool: "nats"})
+	registry.RegisterTaskStream(TaskStreamOptions{NatsPool: "nats"})
+	for _, def := range consumers {
+		def.NatsPool = "nats"
+		registry.RegisterConsumer(def)
 	}
 	ctx := prepareTables(t, registry, &MySQLOptions{}, entities...)
 	applyNatsAlters(t, ctx)
-	// Purge every CDC stream so test runs are independent.
+	purgeStreams(ctx)
+
+	return ctx
+}
+
+func purgeStreams(ctx Context) {
 	pool := ctx.Engine().Nats("nats")
-	if pool != nil {
-		if js, err := pool.GetJetStream(); err == nil {
-			for _, ref := range cdcStreams {
-				stream, sErr := js.Stream(ctx.Context(), dirtyStreamPrefix+string(ref.Name()))
-				if sErr == nil && stream != nil {
-					_ = stream.Purge(ctx.Context())
-				}
-			}
+	if pool == nil {
+		return
+	}
+	js, err := pool.GetJetStream()
+	if err != nil {
+		return
+	}
+	for _, name := range []string{EntityStreamName, TaskStreamName} {
+		if stream, sErr := js.Stream(ctx.Context(), name); sErr == nil && stream != nil {
+			_ = stream.Purge(ctx.Context())
 		}
 	}
-	return ctx
 }
 
 // applyNatsAlters reconciles JetStream state for tests so user-registered streams
@@ -77,7 +87,7 @@ func prepareTables(t *testing.T, registry Registry, mysqlOptions *MySQLOptions, 
 
 	registry.RegisterEntity(entities...)
 	engine, err := registry.Validate()
-	assert.NoError(t, err)
+	require.NoError(t, err)
 
 	orm = engine.NewContext(context.Background())
 	cacheRedis := engine.Redis(DefaultPoolCode)

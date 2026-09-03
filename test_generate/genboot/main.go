@@ -19,10 +19,16 @@ func main() {
 	registry.RegisterRedis("localhost:6395", 0, fluxaorm.DefaultPoolCode, nil)
 	registry.RegisterRedis("localhost:6395", 1, "second", nil)
 	registry.RegisterNats([]string{"nats://localhost:9944"}, "nats", nil)
-	for _, ref := range test_generate.FixtureCDCStreams() {
-		registry.RegisterCDCStream(ref, fluxaorm.CDCStreamOptions{NatsPool: "nats"})
-	}
+	registry.RegisterEntityStream(fluxaorm.EntityStreamOptions{NatsPool: "nats"})
+	registry.RegisterTaskStream(fluxaorm.TaskStreamOptions{NatsPool: "nats"})
 	registry.RegisterEntity(test_generate.FixtureEntities()...)
+	for _, task := range test_generate.FixtureTasks() {
+		registry.RegisterTask(task.Task, task.Options)
+	}
+	for _, def := range test_generate.FixtureConsumers() {
+		def.NatsPool = "nats"
+		registry.RegisterConsumer(def)
+	}
 
 	engine, err := registry.Validate()
 	if err != nil {

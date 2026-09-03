@@ -2,8 +2,6 @@ package test_generate
 
 import (
 	"encoding/json"
-	"errors"
-	"fmt"
 	"strings"
 	"testing"
 	"time"
@@ -25,10 +23,11 @@ type outboxOnSecondPool struct {
 func outboxCtx(t *testing.T) fluxaorm.Context {
 	t.Helper()
 
-	return fluxaorm.PrepareTablesWithCDC(t,
-		fluxaorm.NewRegistry(),
-		[]fluxaorm.CDCStream{entities.StreamTestStream, entities.StreamTestStreamB},
-		generateEntityOutbox{}, generateEntityStoreOnly{}, generateEntityDirty{}, fluxaorm.CDCOutboxEntity{},
+	return fluxaorm.PrepareTablesWithConsumers(t,
+		FixtureRegistry(),
+		FixtureConsumers(),
+		generateEntityOutbox{}, generateEntityStoreOnly{}, generateEntityDirty{},
+		generateEntityDirtyB{}, fluxaorm.CDCOutboxEntity{}, fluxaorm.JobRunEntity{},
 	)
 }
 
@@ -158,8 +157,6 @@ func TestStoreOnlyEntityWritesATerminalRow(t *testing.T) {
 
 	row := onlyOutboxRow(t, ctx.Clone())
 	assert.Equal(t, enums.CDCOutboxStatusList.Stored, row.GetStatus())
-	assert.Empty(t, row.GetStreams(), "a store-only row has no stream to publish to")
-	assert.Empty(t, row.GetNatsPool())
 	assert.Nil(t, row.GetDispatchedAt())
 }
 
@@ -185,19 +182,18 @@ func TestDirtyWithoutOutboxWritesNoRow(t *testing.T) {
 	assert.NoError(t, ctx.Save(e))
 
 	assert.Empty(t, outboxRows(t, ctx.Clone()),
-		"an entity tagged dirty= without outbox keeps today's fire-and-forget behaviour")
+		"an entity tagged cdc without outbox keeps the fire-and-forget behaviour")
 }
 
-func TestOneRowFansOutToEveryTaggedStream(t *testing.T) {
+func TestOneWriteIsOneRow(t *testing.T) {
 	ctx := outboxCtx(t)
 	defer ctx.Engine().Nats("nats").Close()
 
-	assert.NoError(t, ctx.Save(newOutboxEntity(ctx, "fan-out")))
+	assert.NoError(t, ctx.Save(newOutboxEntity(ctx, "one-row")))
 
 	row := onlyOutboxRow(t, ctx.Clone())
-	assert.Equal(t, "test_stream,test_stream_b", row.GetStreams(),
-		"one write is one row however many streams it feeds")
-	assert.Equal(t, "nats", row.GetNatsPool())
+	assert.Equal(t, enums.CDCOutboxStatusList.Dispatched, row.GetStatus(),
+		"one write is one row, and the subject it relays to comes from EntityName")
 }
 
 func TestRolledBackSaveMarksNothingOnALaterSave(t *testing.T) {
@@ -232,7 +228,8 @@ func TestRelayPublishesRowsLeftPendingByAFailedPublish(t *testing.T) {
 	assert.NoError(t, err)
 	assert.Equal(t, 1, res.Fetched)
 	assert.Equal(t, 1, res.Dispatched)
-	assert.Equal(t, 2, res.Published["nats"], "one row fans back out to both of its streams")
+	assert.Equal(t, 1, res.Published["nats"],
+		"one row is one message however many consumers read that entity")
 
 	assert.Equal(t, enums.CDCOutboxStatusList.Dispatched, onlyOutboxRow(t, ctx.Clone()).GetStatus())
 }
@@ -282,7 +279,7 @@ func TestRelayIgnoresStoredRows(t *testing.T) {
 
 	res, err := fluxaorm.RelayCDCOutbox(ctx, 0, 100)
 	assert.NoError(t, err)
-	assert.Zero(t, res.Fetched, "store-only rows are terminal and have no stream to publish to")
+	assert.Zero(t, res.Fetched, "store-only rows are terminal and have no subject to publish to")
 
 	assert.Equal(t, enums.CDCOutboxStatusList.Stored, onlyOutboxRow(t, ctx.Clone()).GetStatus())
 }
@@ -389,16 +386,14 @@ func captureQueries(ctx fluxaorm.Context) *queryLog {
 	return log
 }
 
-// killStreams removes the JetStream streams so PublishBatch fails. The next
-// PrepareTablesWithCDC recreates them, so this stays local to one test.
+// killStreams removes the entity stream so PublishBatch fails. restoreStreams
+// puts it back, so this stays local to one test.
 func killStreams(t *testing.T, ctx fluxaorm.Context) {
 	t.Helper()
 
 	js, err := ctx.Engine().Nats("nats").GetJetStream()
 	assert.NoError(t, err)
-	for _, name := range []string{"FLUXA_DIRTY_test_stream", "FLUXA_DIRTY_test_stream_b"} {
-		assert.NoError(t, js.DeleteStream(ctx.Context(), name))
-	}
+	assert.NoError(t, js.DeleteStream(ctx.Context(), fluxaorm.EntityStreamName))
 }
 
 func TestOutboxRowStaysPendingOnPublishFailure(t *testing.T) {
@@ -468,7 +463,7 @@ func TestOutboxStoresTheEventThatWasPublished(t *testing.T) {
 	defer ctx.Engine().Nats("nats").Close()
 
 	var delivered []byte
-	consumer := fluxaorm.NewCDCConsumer(ctx.Engine(), entities.StreamTestStream).
+	consumer := fluxaorm.NewConsumer(ctx.Engine(), entities.ConsumerTestIndexer).
 		OnGenerateEntityOutbox(func(_ fluxaorm.Context, ev *entities.GenerateEntityOutboxDirtyEvent) error {
 			raw, marshalErr := json.Marshal(ev)
 			if marshalErr != nil {
@@ -488,7 +483,7 @@ func TestOutboxStoresTheEventThatWasPublished(t *testing.T) {
 	for delivered == nil && time.Now().Before(deadline) {
 		assert.NoError(t, consumer.Consume(ctx.Context(), 10, time.Second))
 	}
-	if !assert.NotNil(t, delivered, "no event arrived on test_stream") {
+	if !assert.NotNil(t, delivered, "no event arrived on the entity subject") {
 		t.FailNow()
 	}
 
@@ -496,34 +491,35 @@ func TestOutboxStoresTheEventThatWasPublished(t *testing.T) {
 		"the outbox must hold the event consumers actually saw, not a second serialisation of it")
 }
 
-// outboxAcrossNatsPools tags an entity whose two streams are registered on
-// different NATS pools - unrepresentable in a row that records one pool.
-type outboxAcrossNatsPools struct {
-	ID   uint64 `orm:"dirty=test_stream,test_stream_b;outbox"`
-	Name string `orm:"required;length=100"`
-}
+// TestOutboxSubjectDerivesFromEntityName is what lets the row drop its Streams
+// and NatsPool columns: the relay reconstructs the subject from EntityName, so
+// a row records what changed and nothing about where it was going.
+func TestOutboxSubjectDerivesFromEntityName(t *testing.T) {
+	ctx := outboxCtx(t)
+	defer ctx.Engine().Nats("nats").Close()
 
-func TestValidateRejectsOutboxStreamsSpanningNatsPools(t *testing.T) {
-	registry := fluxaorm.NewRegistry()
-	registry.RegisterMySQL("root:root@tcp(localhost:3397)/test", "default", &fluxaorm.MySQLOptions{})
-	registry.RegisterRedis("localhost:6395", 0, "default", nil)
-	registry.RegisterNats([]string{"nats://localhost:9944"}, "nats", nil)
-	registry.RegisterNats([]string{"nats://localhost:9944"}, "other", nil)
-	registry.RegisterCDCStream(entities.StreamTestStream, fluxaorm.CDCStreamOptions{NatsPool: "nats"})
-	registry.RegisterCDCStream(entities.StreamTestStreamB, fluxaorm.CDCStreamOptions{NatsPool: "other"})
-	registry.RegisterEntity(outboxAcrossNatsPools{}, fluxaorm.CDCOutboxEntity{})
+	killStreams(t, ctx)
+	assert.Error(t, ctx.Save(newOutboxEntity(ctx, "subject-from-name")))
+	restoreStreams(t, ctx)
 
-	_, err := registry.Validate()
-	assert.ErrorContains(t, err, "span nats pools",
-		"one row records one pool, so the relay would republish both streams to whichever came first")
-}
+	res, err := fluxaorm.RelayCDCOutbox(ctx, 0, 100)
+	assert.NoError(t, err)
+	assert.Equal(t, 1, res.Dispatched)
 
-func TestDispatchMarkFailureKeepsTheUnderlyingCause(t *testing.T) {
-	// The wrap has to stay unwrappable: an operator seeing ErrOutboxDispatchMark
-	// still needs the driver error to tell a deadlock from a dead connection.
-	cause := errors.New("Error 1213: Deadlock found")
-	wrapped := fmt.Errorf("%w: %w", fluxaorm.ErrOutboxDispatchMark, cause)
+	cons, err := ctx.Engine().Nats("nats").Consumer(string(entities.ConsumerTestIndexer.Name()))
+	assert.NoError(t, err)
 
-	assert.ErrorIs(t, wrapped, fluxaorm.ErrOutboxDispatchMark)
-	assert.ErrorIs(t, wrapped, cause)
+	defer cons.Close()
+
+	var subjects []string
+	deadline := time.Now().Add(30 * time.Second)
+	for len(subjects) == 0 && time.Now().Before(deadline) {
+		for _, msg := range cons.Fetch(ctx, 10, time.Second).Records() {
+			subjects = append(subjects, msg.Subject)
+			_ = msg.Ack()
+		}
+	}
+
+	assert.Equal(t, []string{"fluxa.entity.generateEntityOutbox"}, subjects,
+		"the relayed row must land on the entity's own subject, exactly once")
 }

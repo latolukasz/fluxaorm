@@ -23,11 +23,9 @@ import (
 //}
 
 func TestGenerate(t *testing.T) {
-	cdcStreams := []fluxaorm.CDCStream{
-		fluxaorm.NewCDCStreamByName("test_stream"),
-		fluxaorm.NewCDCStreamByName("test_stream_b"),
-	}
-	ctx := fluxaorm.PrepareTablesWithCDC(t, fluxaorm.NewRegistry(), cdcStreams, FixtureEntities()...)
+	registry := FixtureRegistry()
+
+	ctx := fluxaorm.PrepareTablesWithConsumers(t, registry, FixtureConsumers(), FixtureEntities()...)
 	defer ctx.Engine().Nats("nats").Close()
 	_ = os.MkdirAll("entities", 0755)
 
@@ -1018,8 +1016,8 @@ func TestGenerate(t *testing.T) {
 	_, isRedisSearch = entityProvider.(fluxaorm.RedisSearchEntityProvider)
 	assert.False(t, isRedisSearch)
 
-	// AllProviders: correct length (16 entities)
-	assert.Len(t, entities.AllProviders, 16)
+	// AllProviders: correct length (17 entities)
+	assert.Len(t, entities.AllProviders, 17)
 
 	// AllProviders: all entries implement EntityProvider and have non-empty TableName
 	for _, p := range entities.AllProviders {
@@ -1027,13 +1025,24 @@ func TestGenerate(t *testing.T) {
 		assert.NotEmpty(t, p.DBCode())
 	}
 
-	// AllCDCStreams: emitted by the generator for one-loop registration in apps.
-	assert.Len(t, entities.AllCDCStreams, 2)
-	for _, s := range entities.AllCDCStreams {
-		assert.NotEmpty(t, s.Name())
-		assert.NotEmpty(t, s.Subject())
-		assert.NotEmpty(t, s.Durable())
+	// AllConsumers / ConsumerEntities: emitted so an app can assert exactly one
+	// job drains each consumer, and drive its own metadata off the declaration.
+	// Entity consumers and task consumers are one list, because they are one
+	// concept - what differs is which stream they filter.
+	assert.Len(t, entities.AllConsumers, 5)
+	for _, c := range entities.AllConsumers {
+		assert.NotEmpty(t, c.Name())
+		assert.NotEmpty(t, c.Subjects())
 	}
+	assert.Len(t, entities.ConsumerEntities[entities.ConsumerTestIndexer.Name()], 3)
+	assert.Len(t, entities.ConsumerEntities[entities.ConsumerTestNotifier.Name()], 1)
+
+	// A consumer's filter list is its entities plus its own replay wildcard, so a
+	// replay can never reach a consumer that did not ask for it.
+	assert.Equal(t, []fluxaorm.Subject{
+		"fluxa.entity.generateEntityDirty",
+		"fluxa.replay.test-notifier.>",
+	}, entities.ConsumerTestNotifier.Subjects())
 
 	// ClearRedisCache: insert entity to populate redis cache, then clear it
 	clearEntity := entities.GenerateEntityProvider.New(ctx)

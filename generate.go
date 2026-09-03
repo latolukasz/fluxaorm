@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"go/format"
 	"os"
+	"path"
 	"path/filepath"
 	"sort"
 	"strings"
@@ -109,13 +110,22 @@ func Generate(engine Engine, outputDirectory string) error {
 		return err
 	}
 
-	// Generate dirty_streams.go + per-stream builder files if any entity is tagged.
-	err = generator.generateDirtyStreamsFile(engine.Registry().(*engineRegistryImplementation).entitySchemas)
+	// Generate consumers.go + per-consumer builder files if any consumer is declared.
+	err = generator.generateConsumersFile(engine.Registry().(*engineRegistryImplementation))
 	if err != nil {
 		return err
 	}
 
 	return nil
+}
+
+// quoteImport renders one import line, keeping an alias outside the quotes.
+func quoteImport(imp string) string {
+	if alias, target, aliased := strings.Cut(imp, " "); aliased {
+		return fmt.Sprintf("%s \"%s\"", alias, target)
+	}
+
+	return fmt.Sprintf("\"%s\"", imp)
 }
 
 func findGoMod(dir string) (string, error) {
@@ -155,6 +165,11 @@ func (g *codeGenerator) writeImports(f *os.File) {
 	}
 	var stdlib, thirdParty []string
 	for imp := range g.imports {
+		if alias, target, aliased := strings.Cut(imp, " "); aliased {
+			thirdParty = append(thirdParty, alias+" "+target)
+
+			continue
+		}
 		if strings.Contains(strings.Split(imp, "/")[0], ".") {
 			thirdParty = append(thirdParty, imp)
 		} else {
@@ -176,13 +191,25 @@ func (g *codeGenerator) writeImports(f *os.File) {
 		g.writeToFile(f, "\n")
 	}
 	for _, imp := range thirdParty {
-		g.writeToFile(f, fmt.Sprintf("\t\"%s\"\n", imp))
+		g.writeToFile(f, "\t"+quoteImport(imp)+"\n")
 	}
 	g.writeToFile(f, ")\n\n")
 }
 
 func (g *codeGenerator) addImport(value string) {
 	g.imports[value] = true
+}
+
+// addImportAs records an aliased import. Only the task pass needs this: it is
+// the one generator that imports application packages, so it is the one that
+// can meet two packages with the same base name.
+func (g *codeGenerator) addImportAs(value, alias string) {
+	if alias == "" || alias == path.Base(value) {
+		g.imports[value] = true
+
+		return
+	}
+	g.imports[alias+" "+value] = true
 }
 
 func (g *codeGenerator) addLine(line string) {

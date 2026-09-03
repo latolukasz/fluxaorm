@@ -48,6 +48,11 @@ type NatsMessage struct {
 	Sequence  uint64
 	Timestamp time.Time
 
+	// Deliveries is how many times JetStream has delivered this message,
+	// starting at 1. A consumer counts retry attempts with it; it is zero on a
+	// message you built for publishing.
+	Deliveries uint64
+
 	jsMsg jetstream.Msg
 }
 
@@ -67,6 +72,16 @@ func (m *NatsMessage) Nak() error {
 		return nil
 	}
 	return m.jsMsg.Nak()
+}
+
+// NakWithDelay asks for redelivery after d. Plain Nak redelivers immediately,
+// which turns a permanently failing handler into a hot loop, so a backoff
+// ladder has to use this instead.
+func (m *NatsMessage) NakWithDelay(d time.Duration) error {
+	if m.jsMsg == nil {
+		return nil
+	}
+	return m.jsMsg.NakWithDelay(d)
 }
 
 func (m *NatsMessage) Term() error {
@@ -105,12 +120,23 @@ func (b NatsBatch) IsEmpty() bool {
 	return len(b.messages) == 0
 }
 
+// NatsPubAck is the server's answer to a publish. Duplicate reports that the
+// message carried a Nats-Msg-Id the stream had already seen inside its
+// DuplicateWindow, so it was collapsed and will never be delivered - a caller
+// that recorded the publish before making it needs to know.
+type NatsPubAck struct {
+	Stream    string
+	Sequence  uint64
+	Duplicate bool
+}
+
 type Nats interface {
 	GetCode() string
 	GetURLs() []string
 	GetPoolOptions() *NatsPoolOptions
 	Ping() error
 	Publish(ctx Context, msg *NatsMessage) error
+	PublishWithAck(ctx Context, msg *NatsMessage) (NatsPubAck, error)
 	PublishBatch(ctx Context, msgs []*NatsMessage) error
 	PublishAsync(ctx Context, msg *NatsMessage, callback func(*NatsMessage, error))
 	Consumer(name string) (NatsConsumer, error)
@@ -272,6 +298,29 @@ func (p *natsPoolImplementation) Publish(ctx Context, msg *NatsMessage) error {
 	}
 	p.fillMetrics(ctx, duration, "publish", err)
 	return err
+}
+
+// PublishWithAck is Publish plus the server's ack, for callers that must
+// distinguish a stored message from one the stream deduplicated away.
+func (p *natsPoolImplementation) PublishWithAck(ctx Context, msg *NatsMessage) (NatsPubAck, error) {
+	if err := p.initProducer(); err != nil {
+		return NatsPubAck{}, err
+	}
+	hasLogger, _ := ctx.getNatsLoggers()
+	start := time.Now()
+
+	natsMsg := &nats.Msg{Subject: msg.Subject, Data: msg.Data, Header: msg.Headers}
+	ack, err := p.js.PublishMsg(ctx.Context(), natsMsg)
+
+	duration := time.Since(start)
+	if hasLogger {
+		p.fillLogFields(ctx, "PUBLISH", "subject: "+msg.Subject, duration, err)
+	}
+	p.fillMetrics(ctx, duration, "publish", err)
+	if err != nil {
+		return NatsPubAck{}, err
+	}
+	return NatsPubAck{Stream: ack.Stream, Sequence: ack.Sequence, Duplicate: ack.Duplicate}, nil
 }
 
 // PublishBatch writes every message to the connection without waiting on each
@@ -506,6 +555,7 @@ func (c *natsConsumerImplementation) Fetch(ctx Context, batch int, maxWait time.
 		if meta, mErr := m.Metadata(); mErr == nil && meta != nil {
 			nm.Sequence = meta.Sequence.Stream
 			nm.Timestamp = meta.Timestamp
+			nm.Deliveries = meta.NumDelivered
 		}
 		collected = append(collected, nm)
 	}

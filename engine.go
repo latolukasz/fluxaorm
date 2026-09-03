@@ -47,10 +47,15 @@ type engineRegistryImplementation struct {
 	natsIgnoredSubjects     map[string]map[string]bool
 	natsConsumers           []*NatsConsumerBuilder
 	natsIgnoredConsumers    map[string]map[string]bool
-	dirtyStreams            map[NatsStreamName]*resolvedDirtyStream
-	streamRegistry          map[NatsStreamName]*streamRegistryEntry
+	entityStream            EntityStreamOptions
+	consumers               map[ConsumerName]*resolvedConsumer
 	dirtyPublishers         map[reflect.Type]*dirtyPublisherEntry
 	cdcOutbox               *resolvedCDCOutbox
+	jobRuns                 *resolvedJobRuns
+	taskStream              TaskStreamOptions
+	tasks                   map[TaskName]*taskSchema
+	tasksByType             map[reflect.Type]*taskSchema
+	tasksByQueue            map[Queue][]*taskSchema
 	hasMetrics              bool
 	metricsRegistry         *metricsRegistry
 }

@@ -8,10 +8,10 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// TestBuildCDCDispatchPreservesLargeIDs guards the UseNumber decode in
-// BuildCDCDispatch: snapshot values are uint64 snowflake IDs that exceed
+// TestBuildDispatchPreservesLargeIDs guards the UseNumber decode in
+// BuildDispatch: snapshot values are uint64 snowflake IDs that exceed
 // float64's 2^53 exact range, so a plain json.Unmarshal would round them.
-func TestBuildCDCDispatchPreservesLargeIDs(t *testing.T) {
+func TestBuildDispatchPreservesLargeIDs(t *testing.T) {
 	const productID = uint64(323046535625160701)
 
 	after := map[string]any{"ID": uint64(999), "Product": productID}
@@ -23,7 +23,7 @@ func TestBuildCDCDispatchPreservesLargeIDs(t *testing.T) {
 	require.NoError(t, err)
 
 	var got *DirtyEvent[map[string]any]
-	dispatch := BuildCDCDispatch(func(_ Context, ev *DirtyEvent[map[string]any]) error {
+	dispatch := BuildDispatch(func(_ Context, ev *DirtyEvent[map[string]any]) error {
 		got = ev
 
 		return nil

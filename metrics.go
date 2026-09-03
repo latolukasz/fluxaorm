@@ -69,15 +69,17 @@ func initMetricsRegistry(factory promauto.Factory) *metricsRegistry {
 	}, []string{"pool", "source"})
 	reg.cdcMessages = factory.NewCounterVec(prometheus.CounterOpts{
 		Name: "fluxaorm_cdc_messages_total",
-		Help: "Total number of CDC events fetched from JetStream",
-	}, []string{"stream", "entity", "op"})
+		Help: "Total number of entity change events fetched from JetStream",
+	}, []string{"consumer", "entity", "op"})
 	// Lag is dispatch-to-consume; broker-side publish-accept timestamp serves as
 	// the dispatch reference. Buckets span 1ms → ~256s to cover both hot streams
 	// and worst-case backlog scenarios.
+	// Labelled by consumer rather than by stream: every entity consumer now
+	// shares one stream, so a stream label would collapse them into one series.
 	reg.streamLag = factory.NewHistogramVec(prometheus.HistogramOpts{
 		Name:    "fluxaorm_stream_consume_lag_seconds",
-		Help:    "Time from publish (JetStream broker timestamp) to consume per stream",
+		Help:    "Time from publish (JetStream broker timestamp) to consume, per consumer",
 		Buckets: prometheus.ExponentialBuckets(0.001, 4, 10),
-	}, []string{"stream"})
+	}, []string{"consumer"})
 	return reg
 }

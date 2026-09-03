@@ -4,6 +4,8 @@ import (
 	"time"
 
 	"github.com/latolukasz/fluxaorm/v2"
+	"github.com/latolukasz/fluxaorm/v2/test_fixtures/jobtasks"
+	mediatasks "github.com/latolukasz/fluxaorm/v2/test_fixtures/media/jobtasks"
 	"github.com/latolukasz/fluxaorm/v2/test_generate/models"
 )
 
@@ -137,31 +139,31 @@ type generateEntityEnumRef struct {
 	Status string `orm:"enumName=TestEnum"`
 }
 
-// generateEntityDirty is the CDC test entity. Tagged into two streams so we
-// can exercise both single-stream-many-entities and many-streams-per-entity flows.
+// generateEntityDirty is the CDC test entity. Two consumers declare it, which
+// is the case that used to publish two copies of every write.
 type generateEntityDirty struct {
-	ID   uint64 `orm:"dirty=test_stream,test_stream_b"`
+	ID   uint64 `orm:"cdc"`
 	Name string `orm:"required;length=100"`
 	Age  uint16
 }
 
-// generateEntityDirtyB shares test_stream with generateEntityDirty so the
-// consumer's group-by-entity batching has more than one group to split.
+// generateEntityDirtyB shares a consumer with generateEntityDirty so the
+// group-by-subject batching has more than one group to split.
 type generateEntityDirtyB struct {
-	ID    uint64 `orm:"dirty=test_stream"`
+	ID    uint64 `orm:"cdc"`
 	Label string `orm:"required;length=100"`
 }
 
-// generateEntityOutbox is dirty + outbox: durable CDC. Two streams so the
-// one-row-fans-out-to-N-streams behaviour is exercised.
+// generateEntityOutbox is cdc + outbox: durable delivery. Its relayed row has
+// to reach the same subject the inline publish would have used.
 type generateEntityOutbox struct {
-	ID   uint64 `orm:"dirty=test_stream,test_stream_b;outbox"`
+	ID   uint64 `orm:"cdc;outbox"`
 	Name string `orm:"required;length=100"`
 	Age  uint16
 }
 
-// generateEntityStoreOnly is outbox without dirty: a transactional change
-// log with no stream to publish to.
+// generateEntityStoreOnly is outbox without cdc: a transactional change log
+// with no subject to publish to.
 type generateEntityStoreOnly struct {
 	ID   uint64 `orm:"outbox"`
 	Name string `orm:"required;length=100"`
@@ -201,12 +203,24 @@ func (e generateEntityCachedUniqueFakeDelete) CachedUniqueIndexes() [][]string {
 	return [][]string{{"Name"}}
 }
 
-// FixtureCDCStreams lists the CDC streams the fixtures publish to.
-func FixtureCDCStreams() []fluxaorm.CDCStream {
-	return []fluxaorm.CDCStream{
-		fluxaorm.NewCDCStreamByName("test_stream"),
-		fluxaorm.NewCDCStreamByName("test_stream_b"),
-	}
+// FixtureConsumers are the consumers the fixtures declare.
+//
+// test-indexer takes three entities so the multi-subject filter path is
+// exercised, and generateEntityDirty is on both consumers so "one write, one
+// message however many consumers" has something to prove.
+func FixtureConsumers() []fluxaorm.ConsumerDef {
+	return append([]fluxaorm.ConsumerDef{
+		{
+			Name: "test-indexer",
+			Entities: []any{
+				generateEntityDirty{}, generateEntityDirtyB{}, generateEntityOutbox{},
+			},
+		},
+		{
+			Name:     "test-notifier",
+			Entities: []any{generateEntityDirty{}},
+		},
+	}, FixtureTaskConsumers()...)
 }
 
 // FixtureEntities is the registration list shared by TestGenerate and genboot.
@@ -217,5 +231,50 @@ func FixtureEntities() []any {
 		generateEntityCachedUnique{}, generateEntityCachedUniqueNoRedis{}, generateEntityCachedUniqueFakeDelete{},
 		generateEntityWithIndex{}, generateEntityEnumRef{}, generateEntityDirty{}, generateEntityDirtyB{},
 		generateEntityOutbox{}, generateEntityStoreOnly{}, fluxaorm.CDCOutboxEntity{},
+		fluxaorm.JobRunEntity{},
+	}
+}
+
+// FixtureRegistry is a registry with the fixture tasks already registered.
+// FixtureConsumers declares consumers for their queues, and a queue with no
+// tasks is a startup error, so the two always travel together.
+func FixtureRegistry() fluxaorm.Registry {
+	registry := fluxaorm.NewRegistry()
+	for _, task := range FixtureTasks() {
+		registry.RegisterTask(task.Task, task.Options)
+	}
+
+	return registry
+}
+
+// FixtureTasks are the tasks the generator emits dispatch functions and
+// consumer builders for. They live in their own leaf packages because the
+// generated package imports them, and a task package that imported anything
+// generated would close a cycle.
+//
+// The two packages deliberately share the base name `jobtasks`, so the
+// generator's import aliasing has something to disambiguate.
+func FixtureTasks() []FixtureTask {
+	return []FixtureTask{
+		{Task: jobtasks.SendWelcomeEmail{}},
+		{Task: jobtasks.SendReceipt{}},
+		{Task: jobtasks.SendPasswordReset{}},
+		{Task: mediatasks.TranscodeClip{}, Options: fluxaorm.TaskOptions{MaxAttempts: 3}},
+	}
+}
+
+type FixtureTask struct {
+	Task    any
+	Options fluxaorm.TaskOptions
+}
+
+// FixtureTaskConsumers drain the fixture queues. `default` is declared because
+// SendPasswordReset names no queue and falls through to it - a queue nothing
+// drains is a startup error.
+func FixtureTaskConsumers() []fluxaorm.ConsumerDef {
+	return []fluxaorm.ConsumerDef{
+		{Name: "emails-worker", Queues: []fluxaorm.Queue{"emails"}},
+		{Name: "media-worker", Queues: []fluxaorm.Queue{"media"}},
+		{Name: "default-worker", Queues: []fluxaorm.Queue{fluxaorm.DefaultQueue}},
 	}
 }
