@@ -45,11 +45,8 @@ func (g *codeGenerator) generateGetByID(schema *entitySchema, names *entityNames
 	g.addLine("\tif !found {")
 	if schema.hasRedisCache {
 		g.addLine("\t\tif _useCache {")
-		g.addLine("\t\t\tredisPipeline := ctx.RedisPipeLine(p.redisCode)")
-		g.addLine("\t\t\tredisPipeline.Del(redisKey)")
-		g.addLine("\t\t\tredisPipeline.RPush(redisKey, \"\")")
-		g.addLine("\t\t\tredisPipeline.Expire(redisKey, fluxaorm.EntityCacheTTL)")
-		g.addLine("\t\t\t_, err = redisPipeline.Exec(ctx)")
+		g.addLine("\t\t\t_, err = ctx.Engine().Redis(p.redisCode).Eval(ctx, fluxaorm.RowCacheRewriteScript,")
+		g.addLine("\t\t\t\t[]string{redisKey}, int(fluxaorm.EntityCacheTTL.Seconds()), \"\")")
 		g.addLine("\t\t\tif err != nil {")
 		g.addLine("\t\t\t\treturn nil, false, err")
 		g.addLine("\t\t\t}")
@@ -59,11 +56,8 @@ func (g *codeGenerator) generateGetByID(schema *entitySchema, names *entityNames
 	g.addLine("\t}")
 	if schema.hasRedisCache {
 		g.addLine("\tif _useCache {")
-		g.addLine("\t\tfillPipeline := ctx.RedisPipeLine(p.redisCode)")
-		g.addLine("\t\tfillPipeline.Del(redisKey)")
-		g.addLine("\t\tfillPipeline.RPush(redisKey, sqlRow.redisValues()...)")
-		g.addLine("\t\tfillPipeline.Expire(redisKey, fluxaorm.EntityCacheTTL)")
-		g.addLine("\t\t_, err = fillPipeline.Exec(ctx)")
+		g.addLine("\t\t_evalArgs := append([]any{int(fluxaorm.EntityCacheTTL.Seconds())}, sqlRow.redisValues()...)")
+		g.addLine("\t\t_, err = ctx.Engine().Redis(p.redisCode).Eval(ctx, fluxaorm.RowCacheRewriteScript, []string{redisKey}, _evalArgs...)")
 		g.addLine("\t\tif err != nil {")
 		g.addLine("\t\t\treturn nil, false, err")
 		g.addLine("\t\t}")
@@ -376,7 +370,6 @@ func (g *codeGenerator) generateSearchOne(schema *entitySchema, names *entityNam
 	}
 
 	if len(byColCount) > 0 {
-		g.addImport("hash/fnv")
 		g.addImport("fmt")
 		g.addLine("\t_conditions := query.GetConditions()")
 	}
@@ -395,9 +388,7 @@ func (g *codeGenerator) generateSearchOne(schema *entitySchema, names *entityNam
 			for _, idx := range indexes {
 				col := idx.columns[0]
 				g.addLine(fmt.Sprintf("\t\tif _c0, _ok := _conditions[0].(fluxaorm.EqCondition); _ok && _c0.ColumnName() == %q {", col))
-				g.addLine("\t\t\t_h := fnv.New32a()")
-				g.addLine("\t\t\t_h.Write([]byte(fmt.Sprintf(\"%v\", _c0.EqValue())))")
-				g.addLine(fmt.Sprintf("\t\t\t_redisKey := p.redisCachePrefix + \"u:%s:\" + strconv.FormatUint(uint64(_h.Sum32()), 10)", idx.name))
+				g.addLine(fmt.Sprintf("\t\t\t_redisKey := p.redisCachePrefix + %q + fluxaorm.UniqueIndexKeyHash(_c0.EqValue())", UniqueIndexKeySegment(idx.name, idx.columns)))
 				// Redis GET
 				g.addLine("\t\t\t_useCache := !ctx.InTransaction()")
 				g.addLine("\t\t\tif _useCache {")
@@ -410,7 +401,17 @@ func (g *codeGenerator) generateSearchOne(schema *entitySchema, names *entityNam
 				g.addLine("\t\t\t\t\tif _parseErr != nil {")
 				g.addLine("\t\t\t\t\t\treturn nil, false, _parseErr")
 				g.addLine("\t\t\t\t\t}")
-				g.addLine("\t\t\t\t\treturn p.GetByID(ctx, _cachedID)")
+				g.addLine("\t\t\t\t\t_vEntity, _vFound, _vErr := p.GetByID(ctx, _cachedID)")
+				g.addLine("\t\t\t\t\tif _vErr != nil {")
+				g.addLine("\t\t\t\t\t\treturn nil, false, _vErr")
+				g.addLine("\t\t\t\t\t}")
+				g.addLine("\t\t\t\t\tif _vFound {")
+				g.verifyCachedUniqueHit(schema, idx.name, idx.columns,
+					func(string) string { return "_c0.EqValue()" }, "\t\t\t\t\t\t")
+				g.addLine("\t\t\t\t\t\tif _vOK {")
+				g.addLine("\t\t\t\t\t\t\treturn _vEntity, true, nil")
+				g.addLine("\t\t\t\t\t\t}")
+				g.addLine("\t\t\t\t\t}")
 				g.addLine("\t\t\t\t}")
 				g.addLine("\t\t\t}")
 				// MySQL fallback
@@ -471,19 +472,14 @@ func (g *codeGenerator) generateSearchOne(schema *entitySchema, names *entityNam
 				g.body += varDecls + "\n"
 				g.addLine(fmt.Sprintf("\t\t\tif %s {", hasChecks))
 				// Build hash
-				g.addLine("\t\t\t\t_h := fnv.New32a()")
-				fmtStr := ""
 				args := ""
 				for i, col := range idx.columns {
 					if i > 0 {
-						fmtStr += "\\x00"
 						args += ", "
 					}
-					fmtStr += "%v"
 					args += fmt.Sprintf("_c%s.EqValue()", g.capitalizeFirst(col))
 				}
-				g.addLine(fmt.Sprintf("\t\t\t\t_h.Write([]byte(fmt.Sprintf(\"%s\", %s)))", fmtStr, args))
-				g.addLine(fmt.Sprintf("\t\t\t\t_redisKey := p.redisCachePrefix + \"u:%s:\" + strconv.FormatUint(uint64(_h.Sum32()), 10)", idx.name))
+				g.addLine(fmt.Sprintf("\t\t\t\t_redisKey := p.redisCachePrefix + %q + fluxaorm.UniqueIndexKeyHash(%s)", UniqueIndexKeySegment(idx.name, idx.columns), args))
 				// Redis GET
 				g.addLine("\t\t\t\t_useCache := !ctx.InTransaction()")
 				g.addLine("\t\t\t\tif _useCache {")
@@ -496,7 +492,18 @@ func (g *codeGenerator) generateSearchOne(schema *entitySchema, names *entityNam
 				g.addLine("\t\t\t\t\t\tif _parseErr != nil {")
 				g.addLine("\t\t\t\t\t\t\treturn nil, false, _parseErr")
 				g.addLine("\t\t\t\t\t\t}")
-				g.addLine("\t\t\t\t\t\treturn p.GetByID(ctx, _cachedID)")
+				g.addLine("\t\t\t\t\t\t_vEntity, _vFound, _vErr := p.GetByID(ctx, _cachedID)")
+				g.addLine("\t\t\t\t\t\tif _vErr != nil {")
+				g.addLine("\t\t\t\t\t\t\treturn nil, false, _vErr")
+				g.addLine("\t\t\t\t\t\t}")
+				g.addLine("\t\t\t\t\t\tif _vFound {")
+				g.verifyCachedUniqueHit(schema, idx.name, idx.columns,
+					func(col string) string { return fmt.Sprintf("_c%s.EqValue()", g.capitalizeFirst(col)) },
+					"\t\t\t\t\t\t\t")
+				g.addLine("\t\t\t\t\t\t\tif _vOK {")
+				g.addLine("\t\t\t\t\t\t\t\treturn _vEntity, true, nil")
+				g.addLine("\t\t\t\t\t\t\t}")
+				g.addLine("\t\t\t\t\t\t}")
 				g.addLine("\t\t\t\t\t}")
 				g.addLine("\t\t\t\t}")
 				// MySQL fallback
@@ -894,4 +901,71 @@ func (g *codeGenerator) generateReindexRedisSearch(schema *entitySchema, names *
 	g.addLine("\treturn nil")
 	g.addLine("}")
 	g.addLine("")
+}
+
+// verifyCachedUniqueHit emits the guard that a cached unique-index hit really is the row asked for.
+// The key is a hash of the queried values, so a collision — or a key outliving the row it pointed
+// at — otherwise returns somebody else's entity. Costs no query: the row is already in memory.
+func (g *codeGenerator) verifyCachedUniqueHit(schema *entitySchema, idxName string, columns []string,
+	condExpr func(col string) string, indent string) {
+	g.addImport("fmt")
+	fIndexes := schema.uniqueIndexFIndexes[idxName]
+	cols := make([]uniqueIndexColInfo, len(columns))
+	for i, colName := range columns {
+		cols[i] = g.getUniqueIndexColInfo(schema, colName, fIndexes[i])
+	}
+	fmtStr, wantArgs, redisArgs, dbArgs := "", "", "", ""
+	for i, c := range cols {
+		if i > 0 {
+			fmtStr += "\\x00"
+			wantArgs += ", "
+			redisArgs += ", "
+			dbArgs += ", "
+		}
+		fmtStr += "%v"
+		wantArgs += condExpr(c.colName)
+		redisArgs += fmt.Sprintf("_vEntity.originRedisValues[%d]", c.fIndex)
+		if c.nullable {
+			dbArgs += fmt.Sprintf("_vEntity.originDatabaseValues.F%d%s", c.fIndex, c.bindInnerField)
+		} else {
+			dbArgs += fmt.Sprintf("_vEntity.originDatabaseValues.F%d", c.fIndex)
+		}
+	}
+	if schema.hasRedisCache {
+		g.addLine(indent + "_vGot := \"\"")
+		g.addLine(indent + "if _vEntity.originRedisValues != nil {")
+		g.addLine(fmt.Sprintf("%s\t_vGot = fmt.Sprintf(\"%s\", %s)", indent, fmtStr, redisArgs))
+		g.addLine(indent + "} else {")
+		g.addLine(fmt.Sprintf("%s\t_vGot = fmt.Sprintf(\"%s\", %s)", indent, fmtStr, dbArgs))
+		g.addLine(indent + "}")
+	} else {
+		g.addLine(fmt.Sprintf("%s_vGot := fmt.Sprintf(\"%s\", %s)", indent, fmtStr, dbArgs))
+	}
+	g.addLine(fmt.Sprintf("%s_vOK := _vGot == fmt.Sprintf(\"%s\", %s)", indent, fmtStr, wantArgs))
+	if !schema.hasFakeDelete {
+		return
+	}
+	fdIndex := -1
+	for i, cn := range schema.columnNames {
+		if cn == "FakeDelete" {
+			fdIndex = i
+			break
+		}
+	}
+	if fdIndex < 0 {
+		return
+	}
+	g.addLine(indent + "if _vOK {")
+	if schema.hasRedisCache {
+		g.addLine(indent + "\t_vFakeDelete := \"\"")
+		g.addLine(indent + "\tif _vEntity.originRedisValues != nil {")
+		g.addLine(fmt.Sprintf("%s\t\t_vFakeDelete = fmt.Sprintf(\"%%v\", _vEntity.originRedisValues[%d])", indent, fdIndex))
+		g.addLine(indent + "\t} else {")
+		g.addLine(fmt.Sprintf("%s\t\t_vFakeDelete = fmt.Sprintf(\"%%v\", _vEntity.originDatabaseValues.F%d)", indent, fdIndex))
+		g.addLine(indent + "\t}")
+	} else {
+		g.addLine(fmt.Sprintf("%s\t_vFakeDelete := fmt.Sprintf(\"%%v\", _vEntity.originDatabaseValues.F%d)", indent, fdIndex))
+	}
+	g.addLine(indent + "\t_vOK = _vFakeDelete == \"0\"")
+	g.addLine(indent + "}")
 }

@@ -153,21 +153,34 @@ func (w *RedisSearchWhere) GetSearchOptions(offset, count int) *redis.FTSearchOp
 	return opts
 }
 
-// RedisSearchAlter holds a pending FT.CREATE operation.
+// RedisSearchAlter holds a pending FT.CREATE or FT.DROPINDEX operation.
 type RedisSearchAlter struct {
 	IndexName string
 	RedisPool string
+	Kind      AlterKind
+	Safety    AlterSafety
+	drop      bool
 	options   *redis.FTCreateOptions
 	schema    []*redis.FieldSchema
 }
 
-// Exec executes the FT.CREATE command.
+func (a RedisSearchAlter) IsSafe() bool { return a.Safety == AlterSafe }
+
+// Exec executes the FT.CREATE or FT.DROPINDEX command. FT.CREATE backfills asynchronously, so an
+// index exists before it is complete and an immediate search returns partial results.
 func (a RedisSearchAlter) Exec(ctx Context) error {
+	if a.drop {
+		return ctx.Engine().Redis(a.RedisPool).FTDrop(ctx, a.IndexName, false)
+	}
+
 	return ctx.Engine().Redis(a.RedisPool).FTCreate(ctx, a.IndexName, a.options, a.schema...)
 }
 
-// GetRedisSearchAlters returns pending FT.CREATE operations for all entities with Redis Search enabled.
-// Only indexes that do not yet exist are returned. Old indexes with a different hash are not dropped.
+// GetRedisSearchAlters returns the pending FT.CREATE and FT.DROPINDEX operations.
+//
+// An index name embeds its field-set hash, so a shape change is a pure create and the previous
+// version keeps its index. The orphan then shares the document prefix and never expires, so
+// dropping it is real work — but work that has to wait for the rollout to finish.
 func GetRedisSearchAlters(ctx Context) ([]RedisSearchAlter, error) {
 	poolSchemas := make(map[string][]*entitySchema)
 	for _, schema := range ctx.Engine().Registry().(*engineRegistryImplementation).entitySchemas {
@@ -209,12 +222,48 @@ func GetRedisSearchAlters(ctx Context) ([]RedisSearchAlter, error) {
 			alters = append(alters, RedisSearchAlter{
 				IndexName: schema.redisSearchIndex,
 				RedisPool: poolCode,
+				Kind:      AlterKindAddIndex,
+				Safety:    AlterSafe,
 				options:   opts,
 				schema:    fieldSchemas,
 			})
 		}
+
+		for _, existing := range existingIndexes {
+			if isStaleSearchIndex(existing, schemas) {
+				alters = append(alters, RedisSearchAlter{
+					IndexName: existing,
+					RedisPool: poolCode,
+					Kind:      AlterKindDropIndex,
+					Safety:    AlterDestructive,
+					drop:      true,
+				})
+			}
+		}
 	}
 	return alters, nil
+}
+
+// isStaleSearchIndex reports whether an index belongs to one of these entities but no longer
+// matches its field set. Name is "<table>_<8 hex>"; the suffix length is exact so "order" cannot
+// claim "order_shipments".
+func isStaleSearchIndex(name string, schemas []*entitySchema) bool {
+	for _, schema := range schemas {
+		if name == schema.redisSearchIndex {
+			return false
+		}
+	}
+	for _, schema := range schemas {
+		suffix, matches := strings.CutPrefix(name, schema.tableName+"_")
+		if !matches || len(suffix) != 8 {
+			continue
+		}
+		if _, err := strconv.ParseUint(suffix, 16, 64); err == nil {
+			return true
+		}
+	}
+
+	return false
 }
 
 func redisSearchFieldType(t string) redis.SearchFieldType {

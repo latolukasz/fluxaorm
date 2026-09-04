@@ -73,8 +73,6 @@ func (g *codeGenerator) getUniqueIndexColInfo(schema *entitySchema, colName stri
 }
 
 func (g *codeGenerator) generateUniqueIndexKeyFromOrigin(schema *entitySchema, names *entityNames, indexName string, cols []uniqueIndexColInfo, indent string, keyVar string, isInsert bool) {
-	g.addImport("hash/fnv")
-	g.addImport("fmt")
 	g.addImport("strconv")
 
 	hasNullable := false
@@ -136,18 +134,13 @@ func (g *codeGenerator) generateUniqueIndexKeyFromOrigin(schema *entitySchema, n
 }
 
 func (g *codeGenerator) generateUniqueIndexHashDualSource(cols []uniqueIndexColInfo, indent string, keyVar string, names *entityNames, indexName string) {
-	g.addLine(fmt.Sprintf("%s%s_h := fnv.New32a()", indent, keyVar))
-	// Build fmt args from both sources
-	fmtStr := ""
 	redisArgs := ""
 	dbArgs := ""
 	for i, c := range cols {
 		if i > 0 {
-			fmtStr += "\\x00"
 			redisArgs += ", "
 			dbArgs += ", "
 		}
-		fmtStr += "%v"
 		redisArgs += fmt.Sprintf("e.originRedisValues[%d]", c.fIndex)
 		if c.nullable {
 			dbArgs += fmt.Sprintf("e.originDatabaseValues.F%d%s", c.fIndex, c.bindInnerField)
@@ -155,48 +148,39 @@ func (g *codeGenerator) generateUniqueIndexHashDualSource(cols []uniqueIndexColI
 			dbArgs += fmt.Sprintf("e.originDatabaseValues.F%d", c.fIndex)
 		}
 	}
+	g.addLine(fmt.Sprintf("%s%s_v := \"\"", indent, keyVar))
 	g.addLine(fmt.Sprintf("%sif e.originRedisValues != nil {", indent))
-	g.addLine(fmt.Sprintf("%s\t%s_h.Write([]byte(fmt.Sprintf(\"%s\", %s)))", indent, keyVar, fmtStr, redisArgs))
+	g.addLine(fmt.Sprintf("%s\t%s_v = fluxaorm.UniqueIndexKeyHash(%s)", indent, keyVar, redisArgs))
 	g.addLine(fmt.Sprintf("%s} else {", indent))
-	g.addLine(fmt.Sprintf("%s\t%s_h.Write([]byte(fmt.Sprintf(\"%s\", %s)))", indent, keyVar, fmtStr, dbArgs))
+	g.addLine(fmt.Sprintf("%s\t%s_v = fluxaorm.UniqueIndexKeyHash(%s)", indent, keyVar, dbArgs))
 	g.addLine(fmt.Sprintf("%s}", indent))
-	g.addLine(fmt.Sprintf("%s%s := %s.redisCachePrefix + \"u:%s:\" + strconv.FormatUint(uint64(%s_h.Sum32()), 10)", indent, keyVar, names.providerName, indexName, keyVar))
+	g.addLine(fmt.Sprintf("%s%s := %s.redisCachePrefix + %q + %s_v", indent, keyVar, names.providerName, indexSegment(indexName, cols), keyVar))
 }
 
 func (g *codeGenerator) generateUniqueIndexHashFromDB(cols []uniqueIndexColInfo, indent string, keyVar string, names *entityNames, indexName string) {
-	g.addLine(fmt.Sprintf("%s%s_h := fnv.New32a()", indent, keyVar))
-	fmtStr := ""
 	args := ""
 	for i, c := range cols {
 		if i > 0 {
-			fmtStr += "\\x00"
 			args += ", "
 		}
-		fmtStr += "%v"
 		if c.nullable {
 			args += fmt.Sprintf("e.originDatabaseValues.F%d%s", c.fIndex, c.bindInnerField)
 		} else {
 			args += fmt.Sprintf("e.originDatabaseValues.F%d", c.fIndex)
 		}
 	}
-	g.addLine(fmt.Sprintf("%s%s_h.Write([]byte(fmt.Sprintf(\"%s\", %s)))", indent, keyVar, fmtStr, args))
-	g.addLine(fmt.Sprintf("%s%s := %s.redisCachePrefix + \"u:%s:\" + strconv.FormatUint(uint64(%s_h.Sum32()), 10)", indent, keyVar, names.providerName, indexName, keyVar))
+	g.addLine(fmt.Sprintf("%s%s := %s.redisCachePrefix + %q + fluxaorm.UniqueIndexKeyHash(%s)", indent, keyVar, names.providerName, indexSegment(indexName, cols), args))
 }
 
 func (g *codeGenerator) generateUniqueIndexHashFromVars(cols []uniqueIndexColInfo, idxNum int, indent string, keyVar string, names *entityNames, indexName string) {
-	g.addLine(fmt.Sprintf("%s%s_h := fnv.New32a()", indent, keyVar))
-	fmtStr := ""
 	args := ""
 	for i := range cols {
 		if i > 0 {
-			fmtStr += "\\x00"
 			args += ", "
 		}
-		fmtStr += "%v"
 		args += fmt.Sprintf("_uNewV%d_%d", idxNum, i)
 	}
-	g.addLine(fmt.Sprintf("%s%s_h.Write([]byte(fmt.Sprintf(\"%s\", %s)))", indent, keyVar, fmtStr, args))
-	g.addLine(fmt.Sprintf("%s%s := %s.redisCachePrefix + \"u:%s:\" + strconv.FormatUint(uint64(%s_h.Sum32()), 10)", indent, keyVar, names.providerName, indexName, keyVar))
+	g.addLine(fmt.Sprintf("%s%s := %s.redisCachePrefix + %q + fluxaorm.UniqueIndexKeyHash(%s)", indent, keyVar, names.providerName, indexSegment(indexName, cols), args))
 }
 
 // searchHSetAppendFromOrigin returns generated code lines (with trailing \n) that append a
@@ -897,8 +881,6 @@ func (g *codeGenerator) generateEntityStruct(schema *entitySchema, names *entity
 	// Cached unique index UPDATE
 	if schema.hasCachedUniqueIndexes {
 		g.addImport("strconv")
-		g.addImport("hash/fnv")
-		g.addImport("fmt")
 
 		// FakeDelete handling: if entity has FakeDelete and it's set to true, delete all cached index keys
 		if schema.hasFakeDelete {
@@ -1590,4 +1572,15 @@ func (g *codeGenerator) generatePrivateGetOriginalColumnValue(schema *entitySche
 	g.addLine("\treturn nil")
 	g.addLine("}")
 	g.addLine("")
+}
+
+// indexSegment derives an index's key segment from the same columns the generated code reads and
+// writes, so the read and invalidation paths agree by construction.
+func indexSegment(indexName string, cols []uniqueIndexColInfo) string {
+	names := make([]string, len(cols))
+	for i, c := range cols {
+		names[i] = c.colName
+	}
+
+	return UniqueIndexKeySegment(indexName, names)
 }

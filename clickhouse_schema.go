@@ -247,9 +247,13 @@ func (b *ClickhouseTableBuilder) validate() error {
 
 // ClickhouseAlter holds a pending ClickHouse DDL operation.
 type ClickhouseAlter struct {
-	SQL  string
-	Pool string
+	SQL    string
+	Pool   string
+	Kind   AlterKind
+	Safety AlterSafety
 }
+
+func (a ClickhouseAlter) IsSafe() bool { return a.Safety == AlterSafe }
 
 // Exec executes the ClickHouse DDL statement.
 func (a ClickhouseAlter) Exec(ctx Context) error {
@@ -298,8 +302,10 @@ func GetClickhouseAlters(ctx Context) ([]ClickhouseAlter, error) {
 			if !existingTables[table.tableName] {
 				// CREATE TABLE
 				alters = append(alters, ClickhouseAlter{
-					SQL:  table.createTableSQL(),
-					Pool: poolCode,
+					SQL:    table.createTableSQL(),
+					Pool:   poolCode,
+					Kind:   AlterKindCreateTable,
+					Safety: AlterSafe,
 				})
 				continue
 			}
@@ -329,8 +335,10 @@ func GetClickhouseAlters(ctx Context) ([]ClickhouseAlter, error) {
 				continue
 			}
 			alters = append(alters, ClickhouseAlter{
-				SQL:  fmt.Sprintf("DROP TABLE IF EXISTS %s;", tableName),
-				Pool: poolCode,
+				SQL:    fmt.Sprintf("DROP TABLE IF EXISTS %s;", tableName),
+				Pool:   poolCode,
+				Kind:   AlterKindDropTable,
+				Safety: AlterDestructive,
 			})
 		}
 	}
@@ -361,8 +369,10 @@ func GetClickhouseAlters(ctx Context) ([]ClickhouseAlter, error) {
 				continue
 			}
 			alters = append(alters, ClickhouseAlter{
-				SQL:  fmt.Sprintf("DROP TABLE IF EXISTS %s;", tableName),
-				Pool: poolCode,
+				SQL:    fmt.Sprintf("DROP TABLE IF EXISTS %s;", tableName),
+				Pool:   poolCode,
+				Kind:   AlterKindDropTable,
+				Safety: AlterDestructive,
 			})
 		}
 	}
@@ -414,17 +424,23 @@ func compareClickhouseColumns(ctx Context, ch Clickhouse, table *ClickhouseTable
 		if !exists {
 			// ADD COLUMN
 			alters = append(alters, ClickhouseAlter{
-				SQL:  fmt.Sprintf("ALTER TABLE %s ADD COLUMN %s;", table.tableName, col.buildColumnSQL()),
-				Pool: table.poolCode,
+				SQL:    fmt.Sprintf("ALTER TABLE %s ADD COLUMN %s;", table.tableName, col.buildColumnSQL()),
+				Pool:   table.poolCode,
+				Kind:   AlterKindAddColumn,
+				Safety: AlterSafe,
 			})
 			continue
 		}
 
 		// Compare column properties
 		if columnNeedsModify(col, existing) {
+			// A narrowing MODIFY loses data and no rollout ordering fixes that, and the diff
+			// cannot tell it from a widening one.
 			alters = append(alters, ClickhouseAlter{
-				SQL:  fmt.Sprintf("ALTER TABLE %s MODIFY COLUMN %s;", table.tableName, col.buildColumnSQL()),
-				Pool: table.poolCode,
+				SQL:    fmt.Sprintf("ALTER TABLE %s MODIFY COLUMN %s;", table.tableName, col.buildColumnSQL()),
+				Pool:   table.poolCode,
+				Kind:   AlterKindChangeColumn,
+				Safety: AlterDestructive,
 			})
 		}
 	}
@@ -433,8 +449,10 @@ func compareClickhouseColumns(ctx Context, ch Clickhouse, table *ClickhouseTable
 	for _, existing := range existingCols {
 		if !definedNames[existing.name] {
 			alters = append(alters, ClickhouseAlter{
-				SQL:  fmt.Sprintf("ALTER TABLE %s DROP COLUMN %s;", table.tableName, existing.name),
-				Pool: table.poolCode,
+				SQL:    fmt.Sprintf("ALTER TABLE %s DROP COLUMN %s;", table.tableName, existing.name),
+				Pool:   table.poolCode,
+				Kind:   AlterKindDropColumn,
+				Safety: AlterDestructive,
 			})
 		}
 	}
@@ -519,8 +537,10 @@ func compareClickhouseTableProperties(ctx Context, ch Clickhouse, table *Clickho
 	expectedOrderBy := strings.Join(table.orderBy, ", ")
 	if sortingKey != expectedOrderBy {
 		alters = append(alters, ClickhouseAlter{
-			SQL:  fmt.Sprintf("-- TABLE %s: ORDER BY mismatch. Current: (%s), Expected: (%s). Manual recreation required.", table.tableName, sortingKey, expectedOrderBy),
-			Pool: table.poolCode,
+			Kind:   AlterKindConvertTable,
+			Safety: AlterDestructive,
+			SQL:    fmt.Sprintf("-- TABLE %s: ORDER BY mismatch. Current: (%s), Expected: (%s). Manual recreation required.", table.tableName, sortingKey, expectedOrderBy),
+			Pool:   table.poolCode,
 		})
 	}
 
@@ -533,15 +553,19 @@ func compareClickhouseTableProperties(ctx Context, ch Clickhouse, table *Clickho
 	expectedEngineName := strings.Split(expectedEngine, "(")[0]
 	if currentEngineName != expectedEngineName {
 		alters = append(alters, ClickhouseAlter{
-			SQL:  fmt.Sprintf("-- TABLE %s: ENGINE mismatch. Current: %s, Expected: %s. Manual recreation required.", table.tableName, engine, expectedEngineName),
-			Pool: table.poolCode,
+			Kind:   AlterKindConvertTable,
+			Safety: AlterDestructive,
+			SQL:    fmt.Sprintf("-- TABLE %s: ENGINE mismatch. Current: %s, Expected: %s. Manual recreation required.", table.tableName, engine, expectedEngineName),
+			Pool:   table.poolCode,
 		})
 	}
 
 	if table.partitionBy != "" && partitionKey != table.partitionBy {
 		alters = append(alters, ClickhouseAlter{
-			SQL:  fmt.Sprintf("-- TABLE %s: PARTITION BY mismatch. Current: %s, Expected: %s. Manual recreation required.", table.tableName, partitionKey, table.partitionBy),
-			Pool: table.poolCode,
+			Kind:   AlterKindConvertTable,
+			Safety: AlterDestructive,
+			SQL:    fmt.Sprintf("-- TABLE %s: PARTITION BY mismatch. Current: %s, Expected: %s. Manual recreation required.", table.tableName, partitionKey, table.partitionBy),
+			Pool:   table.poolCode,
 		})
 	}
 
@@ -550,9 +574,12 @@ func compareClickhouseTableProperties(ctx Context, ch Clickhouse, table *Clickho
 		currentTTL := extractClickhouseTTL(createTableQuery)
 		if normalizeClickhouseExpr(currentTTL) != normalizeClickhouseExpr(table.ttl) {
 			fmt.Printf("TABLE %s: TTL mismatch. Current: %s, Expected: %s. Manual recreation required.\n", table.tableName, currentTTL, table.ttl)
+			// Shortening a TTL deletes rows, and the diff cannot tell that from lengthening it.
 			alters = append(alters, ClickhouseAlter{
-				SQL:  fmt.Sprintf("ALTER TABLE %s MODIFY TTL %s;", table.tableName, table.ttl),
-				Pool: table.poolCode,
+				SQL:    fmt.Sprintf("ALTER TABLE %s MODIFY TTL %s;", table.tableName, table.ttl),
+				Pool:   table.poolCode,
+				Kind:   AlterKindConvertTable,
+				Safety: AlterDestructive,
 			})
 		}
 	}
@@ -564,16 +591,20 @@ func compareClickhouseTableProperties(ctx Context, ch Clickhouse, table *Clickho
 			parts = append(parts, s[0]+" = "+s[1])
 		}
 		alters = append(alters, ClickhouseAlter{
-			SQL:  fmt.Sprintf("ALTER TABLE %s MODIFY SETTING %s;", table.tableName, strings.Join(parts, ", ")),
-			Pool: table.poolCode,
+			SQL:    fmt.Sprintf("ALTER TABLE %s MODIFY SETTING %s;", table.tableName, strings.Join(parts, ", ")),
+			Pool:   table.poolCode,
+			Kind:   AlterKindModifyTable,
+			Safety: AlterSafe,
 		})
 	}
 
 	// COMMENT can be altered
 	if table.comment != "" && comment != table.comment {
 		alters = append(alters, ClickhouseAlter{
-			SQL:  fmt.Sprintf("ALTER TABLE %s MODIFY COMMENT '%s';", table.tableName, strings.ReplaceAll(table.comment, "'", "\\'")),
-			Pool: table.poolCode,
+			SQL:    fmt.Sprintf("ALTER TABLE %s MODIFY COMMENT '%s';", table.tableName, strings.ReplaceAll(table.comment, "'", "\\'")),
+			Pool:   table.poolCode,
+			Kind:   AlterKindModifyTable,
+			Safety: AlterSafe,
 		})
 	}
 

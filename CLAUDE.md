@@ -114,10 +114,13 @@ Entities opt in to Redis Search (FT.SEARCH) indexing via struct tags on the ID f
 
 ### Key Supporting Files
 
-- `entity_schema.go` — `entitySchema` struct; all per-entity metadata (columns, indexes, caching, enums, references, struct hash)
+- `entity_schema.go` — `entitySchema` struct; all per-entity metadata (columns, indexes, caching, enums, references, struct hash). **The row-cache prefix names only `(pool, table)`** — 8 hex of sha256. It used to include the column list, so any schema change moved the key space and two versions in a rolling deploy could not see each other's invalidations. The stamp (element 0 of the cached value list) is sha256 of the full column list at 16 hex, and is now the only thing separating two layouts under one prefix
+- `redis_key_namespace.go` — rejects two entities claiming one Redis prefix, in both validators; row keys and search documents share a keyspace and `ClearRedisCache` deletes by SCANning the prefix
+- `unique_index_key.go` — `UniqueIndexKeySegment` (index name + its column list) and `UniqueIndexKeyHash` (sha256/64 of the looked-up values). Every read and every invalidation builds keys through these two, so the paths cannot drift. A cache hit is verified against the loaded row before it is returned — see `docs/entity-cache-keys.md` in droplet
+- `alter.go` — `AlterSafety` (destructive is the zero value), `AlterKind`, `SplitAlters`, kind-ordered sort
 - `save.go` — the write API: `ctx.Save` / `ctx.Delete` / `ctx.ForceDelete`, dirty-set preparation, post-commit work
 - `db.go` — MySQL abstraction (`DB` interface, `DBTransaction`, metrics)
-- `schema.go` — DDL operations (CREATE/ALTER TABLE, index management)
+- `schema.go` — DDL diff and classification. One `Alter` per unit of work rather than one merged `ALTER TABLE` per table, so the forward-compatible half can be applied while the rest waits for a uniform fleet. The column diff is keyed on name, never position
 - `nats.go` / `nats_schema.go` — NATS+JetStream pool, `NatsStreamBuilder`, `NatsConsumerBuilder`, `GetNatsAlters` reconciler
 - `subject.go` — `Subject`, `ConsumerName`, `EntitySubject`, `ReplaySubject`, `EntityStreamName`. The subject is the identity of what happened; a consumer selects the subset it wants with a subject filter. That is the whole model, and it is why one write is one message however many consumers read the entity — fan-out happens at subscribe time, not by duplicating bytes at publish time.
 - `consumer_def.go` — `ConsumerDef` (declaration), `EntityStreamOptions`, `resolveConsumers`. An entity tagged `orm:"cdc"` publishes on `fluxa.entity.<table>` and knows nothing about its readers; each consumer declares the entities it wants. `Validate()` rejects a duplicate name, an unregistered or untagged entity, a consumer declaring the same entity twice (JetStream rejects overlapping filters), and a `cdc`-tagged entity no consumer reads — every one of those is a mistake whose runtime symptom is silence.

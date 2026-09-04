@@ -215,8 +215,12 @@ func (b *NatsConsumerBuilder) toJetStreamConfig() jetstream.ConsumerConfig {
 type NatsAlter struct {
 	Description string
 	PoolCode    string
+	Kind        AlterKind
+	Safety      AlterSafety
 	execFunc    func(ctx Context) error
 }
+
+func (a NatsAlter) IsSafe() bool { return a.Safety == AlterSafe }
 
 func (a NatsAlter) Exec(ctx Context) error {
 	return a.execFunc(ctx)
@@ -251,7 +255,7 @@ func GetNatsAlters(ctx Context) ([]NatsAlter, error) {
 		for name, wanted := range streams {
 			if existingCfg, ok := existing[name]; ok {
 				if !streamConfigEqual(existingCfg, wanted) {
-					alters = append(alters, buildUpdateStreamAlter(js, name, wanted, poolCode))
+					alters = append(alters, buildUpdateStreamAlter(js, name, existingCfg, wanted, poolCode))
 				}
 				delete(existing, name)
 				continue
@@ -436,6 +440,8 @@ func buildCreateStreamAlter(js jetstream.JetStream, name string, cfg jetstream.S
 	return NatsAlter{
 		Description: fmt.Sprintf("CREATE nats stream '%s'", name),
 		PoolCode:    poolCode,
+		Kind:        AlterKindCreateTable,
+		Safety:      AlterSafe,
 		execFunc: func(ctx Context) error {
 			_, err := js.CreateStream(ctx.Context(), cfg)
 			return err
@@ -443,10 +449,19 @@ func buildCreateStreamAlter(js jetstream.JetStream, name string, cfg jetstream.S
 	}
 }
 
-func buildUpdateStreamAlter(js jetstream.JetStream, name string, cfg jetstream.StreamConfig, poolCode string) NatsAlter {
+// buildUpdateStreamAlter pushes the whole wanted config, so an update that drops a subject stops
+// the previous version's publishes without looking like a deletion. Only a widening update is safe.
+func buildUpdateStreamAlter(js jetstream.JetStream, name string, existing, cfg jetstream.StreamConfig, poolCode string) NatsAlter {
+	safety := AlterSafe
+	if !isSubjectSuperset(cfg.Subjects, existing.Subjects) {
+		safety = AlterDestructive
+	}
+
 	return NatsAlter{
 		Description: fmt.Sprintf("UPDATE nats stream '%s'", name),
 		PoolCode:    poolCode,
+		Kind:        AlterKindModifyTable,
+		Safety:      safety,
 		execFunc: func(ctx Context) error {
 			_, err := js.UpdateStream(ctx.Context(), cfg)
 			return err
@@ -458,16 +473,22 @@ func buildDeleteStreamAlter(js jetstream.JetStream, name, poolCode string) NatsA
 	return NatsAlter{
 		Description: fmt.Sprintf("DELETE nats stream '%s'", name),
 		PoolCode:    poolCode,
+		Kind:        AlterKindDropTable,
+		Safety:      AlterDestructive,
 		execFunc: func(ctx Context) error {
 			return js.DeleteStream(ctx.Context(), name)
 		},
 	}
 }
 
+// buildEnsureConsumerAlter is safe so declaring a consumer still needs no human step. Nothing diffs
+// consumers yet, so a change narrowing FilterSubjects would stop the previous version's deliveries.
 func buildEnsureConsumerAlter(js jetstream.JetStream, b *NatsConsumerBuilder, poolCode string) NatsAlter {
 	return NatsAlter{
 		Description: fmt.Sprintf("ENSURE nats consumer '%s'", b.name),
 		PoolCode:    poolCode,
+		Kind:        AlterKindCreateTable,
+		Safety:      AlterSafe,
 		execFunc: func(ctx Context) error {
 			streamName := b.streamName
 			if streamName == "" {
@@ -533,4 +554,19 @@ func subjectMatches(streamSubjects []string, subject string) bool {
 		}
 	}
 	return false
+}
+
+// isSubjectSuperset reports whether wanted still covers everything existing covered.
+func isSubjectSuperset(wanted, existing []string) bool {
+	have := make(map[string]bool, len(wanted))
+	for _, s := range wanted {
+		have[s] = true
+	}
+	for _, s := range existing {
+		if !have[s] {
+			return false
+		}
+	}
+
+	return true
 }

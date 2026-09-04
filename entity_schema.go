@@ -262,14 +262,13 @@ func (e *entitySchema) GetIndexes() map[string][]string {
 }
 
 func (e *entitySchema) GetSchemaChanges(ctx Context) (alters []Alter, has bool, err error) {
-	pre, alters, post, err := getSchemaChanges(ctx, e)
+	alters, err = getSchemaChanges(ctx, e)
 	if err != nil {
 		return nil, false, err
 	}
-	final := pre
-	final = append(final, alters...)
-	final = append(final, post...)
-	return final, len(final) > 0, nil
+	sortAlters(alters)
+
+	return alters, len(alters) > 0, nil
 }
 
 func (e *entitySchema) markSearchableField(colName, redisType, goKind string, sortable, nullable bool, precision int) {
@@ -425,14 +424,16 @@ func (e *entitySchema) init(registry *registry, entityType reflect.Type) error {
 		}
 	}
 	e.pendingSearchableFields = nil
-	cacheKey = fmt.Sprintf("%x", sha256.Sum256([]byte(cacheKey+strings.Join(e.columnNames, ":"))))
-	cacheKey = cacheKey[0:5]
-	h := fnv.New32a()
-	_, _ = h.Write([]byte(cacheKey))
-	e.structureHash = strconv.FormatUint(uint64(h.Sum32()), 10)
+
+	// Table-only, so two code versions in a rolling deploy share one key space and each other's
+	// invalidations.
+	e.cacheKey = fmt.Sprintf("%x", sha256.Sum256([]byte(cacheKey)))[0:8]
+
+	// The only thing separating two column layouts under that prefix, and a collision is read
+	// positionally rather than as a miss, so it carries the full shape entropy.
+	e.structureHash = fmt.Sprintf("%x", sha256.Sum256([]byte(strings.Join(e.columnNames, ":"))))[0:16]
 	e.redisCacheName = redisCacheName
 	e.hasRedisCache = redisCacheName != ""
-	e.cacheKey = cacheKey
 	err = e.validateIndexes()
 	if err != nil {
 		return err

@@ -323,6 +323,9 @@ func (r *registry) Validate() (Engine, error) {
 	for _, schema := range e.registry.entitySchemas {
 		e.registry.entitySchemasByIndex[schema.index] = schema
 	}
+	if err := validateRedisKeyNamespaces(e.registry.entitySchemasByIndex); err != nil {
+		return nil, err
+	}
 
 	e.registry.defaultQueryLogger = &defaultLogLogger{maxPoolLen: maxPoolLen, logger: log.New(os.Stderr, "", 0)}
 	for _, schema := range e.registry.entitySchemas {
@@ -407,6 +410,9 @@ func (r *registry) ValidateForCodeGen() (Engine, error) {
 	e.registry.entitySchemasByIndex = make(map[string]*entitySchema)
 	for _, schema := range e.registry.entitySchemas {
 		e.registry.entitySchemasByIndex[schema.index] = schema
+	}
+	if err := validateRedisKeyNamespaces(e.registry.entitySchemasByIndex); err != nil {
+		return nil, err
 	}
 	e.registry.defaultQueryLogger = &defaultLogLogger{maxPoolLen: 10, logger: log.New(os.Stderr, "", 0)}
 	for _, schema := range e.registry.entitySchemas {

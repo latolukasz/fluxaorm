@@ -978,7 +978,7 @@ func TestGenerate(t *testing.T) {
 
 	redisCacheProvider = &entities.GenerateEntityProvider
 	assert.Equal(t, "default", redisCacheProvider.RedisCode())
-	assert.Equal(t, "c1b51:", redisCacheProvider.RedisCachePrefix())
+	assert.Equal(t, "e11dd246:", redisCacheProvider.RedisCachePrefix())
 	assert.NotNil(t, redisCacheProvider.ClearRedisCache)
 
 	redisCacheProvider = &entities.GenerateEntityCachedUniqueProvider

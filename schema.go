@@ -4,6 +4,7 @@ import (
 	"database/sql"
 	"fmt"
 	"reflect"
+	"regexp"
 	"sort"
 	"strconv"
 	"strings"
@@ -12,8 +13,13 @@ import (
 )
 
 type Alter struct {
-	SQL  string
-	Pool string
+	SQL    string
+	Pool   string
+	Kind   AlterKind
+	Table  string
+	Entity string // empty for a table with no registered entity
+	Safety AlterSafety
+	Reason string
 }
 
 type tableSQLSchemaDefinition struct {
@@ -26,19 +32,10 @@ type tableSQLSchemaDefinition struct {
 	DBCreateSchema string
 	DBEncoding     string
 	Engine         string
-	PreAlters      []Alter
-	PostAlters     []Alter
 }
 
 func GetAlters(ctx Context) (alters []Alter, err error) {
-	pre, alters, post, err := getAlters(ctx)
-	if err != nil {
-		return nil, err
-	}
-	final := pre
-	final = append(final, alters...)
-	final = append(final, post...)
-	return final, nil
+	return getAlters(ctx)
 }
 
 func (td *tableSQLSchemaDefinition) CreateTableSQL() string {
@@ -102,7 +99,7 @@ func (a Alter) Exec(ctx Context) error {
 	return err
 }
 
-func getAlters(ctx Context) (preAlters, alters, postAlters []Alter, err error) {
+func getAlters(ctx Context) (alters []Alter, err error) {
 	tablesInDB := make(map[string]map[string]bool)
 	tablesInEntities := make(map[string]map[string]bool)
 
@@ -111,7 +108,7 @@ func getAlters(ctx Context) (preAlters, alters, postAlters []Alter, err error) {
 		tablesInEntities[poolName] = make(map[string]bool)
 		tables, err := getAllTables(pool.GetDBClient())
 		if err != nil {
-			return nil, nil, nil, err
+			return nil, err
 		}
 		for _, table := range tables {
 			tablesInDB[poolName][table] = true
@@ -121,13 +118,11 @@ func getAlters(ctx Context) (preAlters, alters, postAlters []Alter, err error) {
 	for _, schema := range ctx.Engine().Registry().(*engineRegistryImplementation).entitySchemas {
 		db := schema.GetDB()
 		tablesInEntities[db.GetConfig().GetCode()][schema.GetTableName()] = true
-		pre, middle, post, err := getSchemaChanges(ctx, schema)
+		schemaAlters, err := getSchemaChanges(ctx, schema)
 		if err != nil {
-			return nil, nil, nil, err
+			return nil, err
 		}
-		preAlters = append(preAlters, pre...)
-		alters = append(alters, middle...)
-		postAlters = append(postAlters, post...)
+		alters = append(alters, schemaAlters...)
 	}
 	for poolName, tables := range tablesInDB {
 		for tableName := range tables {
@@ -137,15 +132,21 @@ func getAlters(ctx Context) (preAlters, alters, postAlters []Alter, err error) {
 				if !has {
 					pool := ctx.Engine().DB(poolName)
 					dropSQL := fmt.Sprintf("DROP TABLE IF EXISTS `%s`.`%s`;", pool.GetConfig().GetDatabaseName(), tableName)
-					alters = append(alters, Alter{SQL: dropSQL, Pool: poolName})
+					alters = append(alters, Alter{
+						SQL:    dropSQL,
+						Pool:   poolName,
+						Kind:   AlterKindDropTable,
+						Table:  tableName,
+						Safety: AlterDestructive,
+						Reason: "table has no registered entity",
+					})
 				}
 			}
 		}
 	}
-	sort.Slice(alters, func(i int, j int) bool {
-		return len(alters[i].SQL) < len(alters[j].SQL)
-	})
-	return
+	sortAlters(alters)
+
+	return alters, nil
 }
 
 func getAllTables(db DBClient) ([]string, error) {
@@ -170,9 +171,12 @@ func getAllTables(db DBClient) ([]string, error) {
 	return tables, err
 }
 
-func getSchemaChanges(ctx Context, entitySchema *entitySchema) (preAlters, alters, postAlters []Alter, err error) {
+func getSchemaChanges(ctx Context, entitySchema *entitySchema) (alters []Alter, err error) {
 	indexes := make(map[string]*IndexSchemaDefinition)
 	columns, err := checkStruct(ctx.Engine(), entitySchema, entitySchema.GetType(), indexes, nil, "", -1)
+	if err != nil {
+		return nil, err
+	}
 
 	if entitySchema.hasFakeDelete {
 		hasFakeDeleteIndex := false
@@ -198,9 +202,6 @@ func getSchemaChanges(ctx Context, entitySchema *entitySchema) (preAlters, alter
 			}
 		}
 	}
-	if err != nil {
-		return nil, nil, nil, err
-	}
 	indexesSlice := make([]*IndexSchemaDefinition, 0)
 	for _, index := range indexes {
 		indexesSlice = append(indexesSlice, index)
@@ -209,7 +210,7 @@ func getSchemaChanges(ctx Context, entitySchema *entitySchema) (preAlters, alter
 	var skip string
 	hasTable, err := pool.QueryRow(ctx, NewWhere(fmt.Sprintf("SHOW TABLES LIKE '%s'", entitySchema.GetTableName())), &skip)
 	if err != nil {
-		return nil, nil, nil, err
+		return nil, err
 	}
 	sqlSchema := &tableSQLSchemaDefinition{
 		ctx:           ctx,
@@ -217,255 +218,279 @@ func getSchemaChanges(ctx Context, entitySchema *entitySchema) (preAlters, alter
 		EntityIndexes: indexesSlice,
 		DBEncoding:    pool.GetConfig().GetOptions().DefaultEncoding,
 		EntityColumns: columns}
-	if hasTable {
-		sqlSchema.DBTableColumns = make([]*ColumnSchemaDefinition, 0)
-		_, err = pool.QueryRow(ctx, NewWhere(fmt.Sprintf("SHOW CREATE TABLE `%s`", entitySchema.GetTableName())), &skip, &sqlSchema.DBCreateSchema)
-		if err != nil {
-			return nil, nil, nil, err
-		}
-		lines := strings.Split(sqlSchema.DBCreateSchema, "\n")
-		for x := 1; x < len(lines); x++ {
-			l := strings.Trim(lines[x], " ")
-			if strings.HasPrefix(l, "CONSTRAINT ") {
-				alter := fmt.Sprintf("ALTER TABLE `%s`.`%s`\n", pool.GetConfig().GetDatabaseName(), entitySchema.GetTableName())
-				parts := strings.Split(l, " ")
-				alter += " DROP FOREIGN KEY " + parts[1] + ";"
-				preAlters = append(preAlters, Alter{
-					SQL:  alter,
-					Pool: pool.GetConfig().GetCode(),
-				})
-				continue
-			}
-			if lines[x][2] != 96 {
-				for _, field := range strings.Split(lines[x], " ") {
-					if strings.HasPrefix(field, "CHARSET=") {
-						sqlSchema.DBEncoding = field[8:]
-					} else if strings.HasPrefix(field, "ENGINE=") {
-						sqlSchema.Engine = field[7:]
-					}
-				}
-				continue
-			}
-			var line = strings.TrimRight(lines[x], ",")
-			line = strings.TrimLeft(line, " ")
-			var columnName = strings.Split(line, "`")[1]
-			sqlSchema.DBTableColumns = append(sqlSchema.DBTableColumns, &ColumnSchemaDefinition{columnName, line})
-		}
 
-		var rows []indexDB
-		/* #nosec */
-		results, def, err := pool.Query(ctx, fmt.Sprintf("SHOW INDEXES FROM `%s`", entitySchema.GetTableName()))
-		if err != nil {
-			return nil, nil, nil, err
-		}
-		defer def()
-		for results.Next() {
-			var row indexDB
-			err = results.Scan(&row.Skip, &row.NonUnique, &row.KeyName, &row.Seq, &row.Column, &row.Skip, &row.Skip, &row.Skip, &row.Skip, &row.Skip, &row.Skip, &row.Skip, &row.Skip, &row.Skip, &row.Skip)
-			if err != nil {
-				return nil, nil, nil, err
-			}
-			rows = append(rows, row)
-		}
-		def()
-		for _, value := range rows {
-			hasCurrent := false
-			for _, current := range sqlSchema.DBIndexes {
-				if current.Name == value.KeyName {
-					hasCurrent = true
-					current.columnsMap[value.Seq] = value.Column
-					break
-				}
-			}
-			if !hasCurrent {
-				current := &IndexSchemaDefinition{Name: value.KeyName, Unique: value.NonUnique == 0, columnsMap: map[int]string{value.Seq: value.Column}}
-				sqlSchema.DBIndexes = append(sqlSchema.DBIndexes, current)
-			}
-		}
-	}
-	if sqlSchema.PreAlters != nil {
-		preAlters = append(preAlters, sqlSchema.PreAlters...)
-	}
 	if !hasTable {
-		alters = append(alters, Alter{SQL: sqlSchema.CreateTableSQL(), Pool: entitySchema.GetDB().GetConfig().GetCode()})
-		if sqlSchema.PostAlters != nil {
-			postAlters = append(postAlters, sqlSchema.PostAlters...)
-		}
-		return
+		return []Alter{newAlter(entitySchema, AlterKindCreateTable, AlterSafe, "", sqlSchema.CreateTableSQL())}, nil
 	}
-	hasAlterEngineCharset := sqlSchema.DBEncoding != pool.GetConfig().GetOptions().DefaultEncoding
-	hasAlterEngine := sqlSchema.Engine != "InnoDB"
-	hasAlters := hasAlterEngineCharset || hasAlterEngine
-	hasAlterNormal := false
 
-	var newColumns []string
-	var changedColumns [][2]string
-
-	for key, value := range columns {
-		var tableColumn string
-		if key < len(sqlSchema.DBTableColumns) {
-			tableColumn = sqlSchema.DBTableColumns[key].Definition
-		}
-		if tableColumn == value.Definition {
+	sqlSchema.DBTableColumns = make([]*ColumnSchemaDefinition, 0)
+	_, err = pool.QueryRow(ctx, NewWhere(fmt.Sprintf("SHOW CREATE TABLE `%s`", entitySchema.GetTableName())), &skip, &sqlSchema.DBCreateSchema)
+	if err != nil {
+		return nil, err
+	}
+	lines := strings.Split(sqlSchema.DBCreateSchema, "\n")
+	for x := 1; x < len(lines); x++ {
+		l := strings.Trim(lines[x], " ")
+		if strings.HasPrefix(l, "CONSTRAINT ") {
+			// Reports drift rather than converging: nothing re-adds the constraint, so it returns
+			// on every call. Dormant while no table carries a foreign key.
+			parts := strings.Split(l, " ")
+			alters = append(alters, newAlter(entitySchema, AlterKindDropForeignKey, AlterDestructive,
+				"foreign keys are not part of the entity schema",
+				fmt.Sprintf("ALTER TABLE `%s`.`%s`\n DROP FOREIGN KEY %s;",
+					pool.GetConfig().GetDatabaseName(), entitySchema.GetTableName(), parts[1])))
 			continue
 		}
-		if isNullableDefaultEquivalent(tableColumn, value.Definition) {
+		if lines[x][2] != 96 {
+			for _, field := range strings.Split(lines[x], " ") {
+				if strings.HasPrefix(field, "CHARSET=") {
+					sqlSchema.DBEncoding = field[8:]
+				} else if strings.HasPrefix(field, "ENGINE=") {
+					sqlSchema.Engine = field[7:]
+				}
+			}
 			continue
 		}
-		hasName := -1
-		hasDefinition := -1
-		for z, v := range sqlSchema.DBTableColumns {
-			if v.Definition == value.Definition || isNullableDefaultEquivalent(v.Definition, value.Definition) {
-				hasDefinition = z
-			}
-			if v.ColumnName == value.ColumnName {
-				hasName = z
-			}
-		}
-		if hasName == -1 {
-			alter := fmt.Sprintf("ADD COLUMN %s", value.Definition)
-			if key > 0 {
-				alter += fmt.Sprintf(" AFTER `%s`", columns[key-1].ColumnName)
-			}
-			newColumns = append(newColumns, alter)
-			hasAlters = true
-		} else {
-			if hasDefinition == -1 {
-				alter := fmt.Sprintf("CHANGE COLUMN `%s` %s", value.ColumnName, value.Definition)
-				if key > 0 {
-					/* #nosec */
-					alter += fmt.Sprintf(" AFTER `%s`", columns[key-1].ColumnName)
-				}
-				/* #nosec */
-				changedColumns = append(changedColumns, [2]string{alter, fmt.Sprintf("CHANGED FROM %s", sqlSchema.DBTableColumns[hasName].Definition)})
-				hasAlters = true
-			} else {
-				alter := fmt.Sprintf("CHANGE COLUMN `%s` %s", value.ColumnName, value.Definition)
-				if key > 0 {
-					alter += fmt.Sprintf(" AFTER `%s`", columns[key-1].ColumnName)
-				}
-				changedColumns = append(changedColumns, [2]string{alter, "CHANGED ORDER"})
-				hasAlters = true
-			}
-		}
-	}
-	droppedColumns := make([]string, 0)
-OUTER:
-	for _, value := range sqlSchema.DBTableColumns {
-		for _, v := range columns {
-			if v.ColumnName == value.ColumnName {
-				continue OUTER
-			}
-		}
-		droppedColumns = append(droppedColumns, fmt.Sprintf("DROP COLUMN `%s`", value.ColumnName))
-		hasAlters = true
+		var line = strings.TrimRight(lines[x], ",")
+		line = strings.TrimLeft(line, " ")
+		var columnName = strings.Split(line, "`")[1]
+		sqlSchema.DBTableColumns = append(sqlSchema.DBTableColumns, &ColumnSchemaDefinition{columnName, line})
 	}
 
-	var droppedIndexes []string
-	var newIndexes []string
-	for _, indexEntity := range sqlSchema.EntityIndexes {
-		hasIndex := false
+	var rows []indexDB
+	/* #nosec */
+	results, def, err := pool.Query(ctx, fmt.Sprintf("SHOW INDEXES FROM `%s`", entitySchema.GetTableName()))
+	if err != nil {
+		return nil, err
+	}
+	defer def()
+	for results.Next() {
+		var row indexDB
+		err = results.Scan(&row.Skip, &row.NonUnique, &row.KeyName, &row.Seq, &row.Column, &row.Skip, &row.Skip, &row.Skip, &row.Skip, &row.Skip, &row.Skip, &row.Skip, &row.Skip, &row.Skip, &row.Skip)
+		if err != nil {
+			return nil, err
+		}
+		rows = append(rows, row)
+	}
+	def()
+	for _, value := range rows {
+		hasCurrent := false
+		for _, current := range sqlSchema.DBIndexes {
+			if current.Name == value.KeyName {
+				hasCurrent = true
+				current.columnsMap[value.Seq] = value.Column
+				break
+			}
+		}
+		if !hasCurrent {
+			current := &IndexSchemaDefinition{Name: value.KeyName, Unique: value.NonUnique == 0, columnsMap: map[int]string{value.Seq: value.Column}}
+			sqlSchema.DBIndexes = append(sqlSchema.DBIndexes, current)
+		}
+	}
+
+	alters = append(alters, diffColumnsAndIndexes(entitySchema, sqlSchema, columns)...)
+
+	return alters, nil
+}
+
+// diffColumnsAndIndexes emits one classified Alter per unit of work. Keyed on column name, not
+// position: physical order is unobservable, so reordering a struct field must not rebuild a table.
+func diffColumnsAndIndexes(entitySchema *entitySchema, sqlSchema *tableSQLSchemaDefinition, columns []*ColumnSchemaDefinition) []Alter {
+	pool := entitySchema.GetDB()
+	dbByName := make(map[string]*ColumnSchemaDefinition, len(sqlSchema.DBTableColumns))
+	for _, c := range sqlSchema.DBTableColumns {
+		dbByName[c.ColumnName] = c
+	}
+	entityByName := make(map[string]*ColumnSchemaDefinition, len(columns))
+	for _, c := range columns {
+		entityByName[c.ColumnName] = c
+	}
+
+	var alters []Alter
+	// Added without a usable default, so an index over one has to wait for the same uniform fleet.
+	deferredColumns := make(map[string]bool)
+
+	for i, value := range columns {
+		live, inDB := dbByName[value.ColumnName]
+		if inDB {
+			if isDefinitionEquivalent(live.Definition, value.Definition) {
+				continue
+			}
+			if clause, ok := defaultOnlyDifference(live.Definition, value.Definition); ok {
+				alters = append(alters, newAlter(entitySchema, AlterKindSetDefault, AlterSafe,
+					"column default changed", alterTableSQL(entitySchema, instant(clause))))
+				continue
+			}
+			alters = append(alters, newAlter(entitySchema, AlterKindChangeColumn, AlterDestructive,
+				fmt.Sprintf("CHANGED FROM %s", live.Definition),
+				alterTableSQL(entitySchema, fmt.Sprintf("CHANGE COLUMN `%s` %s", value.ColumnName, value.Definition))))
+			continue
+		}
+		// An ADD COLUMN carrying an expression default cannot be INSTANT (1845), so the column is
+		// added bare and the default follows as a set_default, ranked to run straight after. In
+		// between the column is NOT NULL with no default and an INSERT omitting it fails 1364 —
+		// a window on one locked connection, and the next boot re-emits the MODIFY if it is lost.
+		addDefinition, deferredDefault := splitExpressionDefault(value.Definition)
+
+		// AFTER only when the predecessor is already there, so it never names a missing column.
+		clause := fmt.Sprintf("ADD COLUMN %s", addDefinition)
+		if i > 0 {
+			if _, predecessorLive := dbByName[columns[i-1].ColumnName]; predecessorLive {
+				clause += fmt.Sprintf(" AFTER `%s`", columns[i-1].ColumnName)
+			}
+		}
+		safety, reason := AlterSafe, ""
+		if !isForwardCompatibleAdd(value.Definition) {
+			safety = AlterDestructive
+			reason = "NOT NULL without DEFAULT"
+			deferredColumns[value.ColumnName] = true
+		}
+		alters = append(alters, newAlter(entitySchema, AlterKindAddColumn, safety, reason,
+			alterTableSQL(entitySchema, instant(clause))))
+		if deferredDefault {
+			alters = append(alters, newAlter(entitySchema, AlterKindSetDefault, AlterSafe,
+				"adding the column default the ADD could not carry",
+				alterTableSQL(entitySchema, instant("MODIFY "+value.Definition))))
+		}
+	}
+
+	for _, live := range sqlSchema.DBTableColumns {
+		if _, stillWanted := entityByName[live.ColumnName]; stillWanted {
+			continue
+		}
+		alters = append(alters, newAlter(entitySchema, AlterKindDropColumn, AlterDestructive,
+			"column is no longer part of the entity",
+			alterTableSQL(entitySchema, fmt.Sprintf("DROP COLUMN `%s`", live.ColumnName))))
+	}
+
+	alters = append(alters, diffIndexes(entitySchema, sqlSchema, deferredColumns)...)
+
+	if sqlSchema.DBEncoding != pool.GetConfig().GetOptions().DefaultEncoding || sqlSchema.Engine != "InnoDB" {
+		collate := " COLLATE=" + pool.GetConfig().GetOptions().DefaultEncoding + "_" + pool.GetConfig().GetOptions().DefaultCollate
+		alters = append(alters, newAlter(entitySchema, AlterKindConvertTable, AlterDestructive,
+			"table rebuild: engine or charset conversion",
+			fmt.Sprintf("ALTER TABLE `%s`.`%s`\n ENGINE=InnoDB DEFAULT CHARSET=%s%s;",
+				pool.GetConfig().GetDatabaseName(), entitySchema.GetTableName(),
+				pool.GetConfig().GetOptions().DefaultEncoding, collate)))
+	}
+
+	return alters
+}
+
+func diffIndexes(entitySchema *entitySchema, sqlSchema *tableSQLSchemaDefinition, deferredColumns map[string]bool) []Alter {
+	var alters []Alter
+
+	sortedEntityIndexes := make([]*IndexSchemaDefinition, len(sqlSchema.EntityIndexes))
+	copy(sortedEntityIndexes, sqlSchema.EntityIndexes)
+	sort.Slice(sortedEntityIndexes, func(i, j int) bool { return sortedEntityIndexes[i].Name < sortedEntityIndexes[j].Name })
+
+	for _, indexEntity := range sortedEntityIndexes {
+		var live *IndexSchemaDefinition
 		for _, index := range sqlSchema.DBIndexes {
 			if index.Name == indexEntity.Name {
-				hasIndex = true
-				addIndexSQLEntity := buildCreateIndexSQL(indexEntity)
-				addIndexSQLDB := buildCreateIndexSQL(index)
-				if addIndexSQLEntity != addIndexSQLDB {
-					droppedIndexes = append(droppedIndexes, fmt.Sprintf("DROP INDEX `%s`", indexEntity.Name))
-					newIndexes = append(newIndexes, addIndexSQLEntity)
-					hasAlters = true
-				}
+				live = index
 				break
 			}
 		}
-		if !hasIndex && !indexEntity.Duplicated {
-			newIndexes = append(newIndexes, buildCreateIndexSQL(indexEntity))
-			hasAlters = true
-		}
-	}
-
-	for _, key := range sqlSchema.DBIndexes {
-		if key.Name == "PRIMARY" {
+		addSQL := buildCreateIndexSQL(indexEntity)
+		if live != nil {
+			if addSQL == buildCreateIndexSQL(live) {
+				continue
+			}
+			// The DROP and the ADD share a name, so splitting them makes the ADD fail with 1061.
+			alters = append(alters, newAlter(entitySchema, AlterKindRebuildIndex, AlterDestructive,
+				"index definition changed",
+				alterTableSQL(entitySchema, fmt.Sprintf("DROP INDEX `%s`", indexEntity.Name), addSQL)))
 			continue
 		}
-		hasIndex := false
+		if indexEntity.Duplicated {
+			continue
+		}
+		kind, safety, reason := AlterKindAddIndex, AlterSafe, ""
+		if indexEntity.Unique {
+			// Neither ordering works: applied mid-rollout it fails the old version's inserts,
+			// deferred the new pods create the duplicates that make it fail forever.
+			kind, safety, reason = AlterKindAddUniqueIndex, AlterDestructive, "unique index cannot be added during a rollout"
+		}
+		if safety == AlterSafe && indexDependsOnDeferredColumn(indexEntity, deferredColumns) {
+			safety = AlterDestructive
+			reason = "indexes a column that is itself deferred"
+		}
+		alters = append(alters, newAlter(entitySchema, kind, safety, reason, alterTableSQL(entitySchema, addSQL)))
+	}
+
+	sortedDBIndexes := make([]*IndexSchemaDefinition, len(sqlSchema.DBIndexes))
+	copy(sortedDBIndexes, sqlSchema.DBIndexes)
+	sort.Slice(sortedDBIndexes, func(i, j int) bool { return sortedDBIndexes[i].Name < sortedDBIndexes[j].Name })
+
+	for _, live := range sortedDBIndexes {
+		if live.Name == "PRIMARY" {
+			continue
+		}
+		wanted := false
 		for _, index := range sqlSchema.EntityIndexes {
-			if index.Name == key.Name && !index.Duplicated {
-				hasIndex = true
+			if index.Name == live.Name && !index.Duplicated {
+				wanted = true
 				break
 			}
 		}
-		if !hasIndex {
-			droppedIndexes = append(droppedIndexes, fmt.Sprintf("DROP INDEX `%s`", key.Name))
-			hasAlters = true
+		if wanted {
+			continue
 		}
-	}
-	if !hasAlters {
-		if sqlSchema.PostAlters != nil {
-			postAlters = append(postAlters, sqlSchema.PostAlters...)
-		}
-		return
+		alters = append(alters, newAlter(entitySchema, AlterKindDropIndex, AlterDestructive,
+			"index is no longer part of the entity",
+			alterTableSQL(entitySchema, fmt.Sprintf("DROP INDEX `%s`", live.Name))))
 	}
 
-	alterSQL := fmt.Sprintf("ALTER TABLE `%s`.`%s`\n", pool.GetConfig().GetDatabaseName(), entitySchema.GetTableName())
-	newAlters := make([]string, 0)
-	comments := make([]string, 0)
+	return alters
+}
 
-	for _, value := range droppedColumns {
-		newAlters = append(newAlters, fmt.Sprintf("    %s", value))
-		comments = append(comments, "")
-		hasAlterNormal = true
+func indexDependsOnDeferredColumn(index *IndexSchemaDefinition, deferredColumns map[string]bool) bool {
+	if len(deferredColumns) == 0 {
+		return false
 	}
-	for _, value := range newColumns {
-		newAlters = append(newAlters, fmt.Sprintf("    %s", value))
-		comments = append(comments, "")
-		hasAlterNormal = true
-	}
-	for _, value := range changedColumns {
-		newAlters = append(newAlters, fmt.Sprintf("    %s", value[0]))
-		comments = append(comments, value[1])
-	}
-	sort.Strings(droppedIndexes)
-	for _, value := range droppedIndexes {
-		newAlters = append(newAlters, fmt.Sprintf("    %s", value))
-		comments = append(comments, "")
-		hasAlterNormal = true
-	}
-	sort.Strings(newIndexes)
-	for _, value := range newIndexes {
-		newAlters = append(newAlters, fmt.Sprintf("    %s", value))
-		comments = append(comments, "")
-		hasAlterNormal = true
-	}
-	for x := 0; x < len(newAlters)-1; x++ {
-		hasAlterNormal = true
-		alterSQL += newAlters[x] + ","
-		if comments[x] != "" {
-			alterSQL += fmt.Sprintf("/*%s*/", comments[x])
-		}
-		alterSQL += "\n"
-	}
-	lastIndex := len(newAlters) - 1
-	if lastIndex >= 0 {
-		hasAlterNormal = true
-		alterSQL += newAlters[lastIndex] + ";"
-		if comments[lastIndex] != "" {
-			alterSQL += fmt.Sprintf("/*%s*/", comments[lastIndex])
+	for _, col := range index.GetColumns() {
+		if deferredColumns[col] {
+			return true
 		}
 	}
 
-	if hasAlterNormal {
-		alters = append(alters, Alter{SQL: alterSQL, Pool: entitySchema.GetDB().GetConfig().GetCode()})
-	} else if hasAlterEngineCharset || hasAlterEngine {
-		collate := " COLLATE=" + pool.GetConfig().GetOptions().DefaultEncoding + "_" + pool.GetConfig().GetOptions().DefaultCollate
-		alterSQL += " ENGINE=InnoDB"
-		alterSQL += fmt.Sprintf(" DEFAULT CHARSET=%s%s;", pool.GetConfig().GetOptions().DefaultEncoding, collate)
-		alters = append(alters, Alter{SQL: alterSQL, Pool: entitySchema.GetDB().GetConfig().GetCode()})
+	return false
+}
+
+func alterTableSQL(entitySchema *entitySchema, clauses ...string) string {
+	pool := entitySchema.GetDB()
+	sql := fmt.Sprintf("ALTER TABLE `%s`.`%s`\n", pool.GetConfig().GetDatabaseName(), entitySchema.GetTableName())
+	for i, clause := range clauses {
+		if i > 0 {
+			sql += ",\n"
+		}
+		sql += "    " + clause
 	}
-	if sqlSchema.PostAlters != nil {
-		postAlters = append(postAlters, sqlSchema.PostAlters...)
+
+	return sql + ";"
+}
+
+func newAlter(entitySchema *entitySchema, kind AlterKind, safety AlterSafety, reason, sql string) Alter {
+	return Alter{
+		SQL:    sql,
+		Pool:   entitySchema.GetDB().GetConfig().GetCode(),
+		Kind:   kind,
+		Table:  entitySchema.GetTableName(),
+		Entity: entitySchema.GetType().String(),
+		Safety: safety,
+		Reason: reason,
 	}
-	return
+}
+
+// isForwardCompatibleAdd reports whether the previous version can keep inserting once this column
+// exists: it must accept NULL or supply its own default.
+func isForwardCompatibleAdd(definition string) bool {
+	if !strings.Contains(definition, "NOT NULL") {
+		return true
+	}
+
+	return strings.Contains(definition, " DEFAULT ")
 }
 
 func checkColumn(engine Engine, schema *entitySchema, field *reflect.StructField, indexes map[string]*IndexSchemaDefinition, prefix string) ([]*ColumnSchemaDefinition, error) {
@@ -630,6 +655,11 @@ func checkColumn(engine Engine, schema *entitySchema, field *reflect.StructField
 			definition += " NOT NULL"
 			isNotNull = true
 		}
+		if defaultValue == "nil" && isNotNull && columnName != "ID" && isTextOrBlob(definition) {
+			// Without a default the previous version's INSERT omits the column and fails with 1364
+			// under strict mode. MySQL takes an expression default on TEXT/BLOB since 8.0.13.
+			defaultValue = "('')"
+		}
 		if defaultValue != "nil" && columnName != "ID" {
 			definition += " DEFAULT " + defaultValue
 		} else if !isNotNull && addDefaultNullIfNullable {
@@ -638,6 +668,49 @@ func checkColumn(engine Engine, schema *entitySchema, field *reflect.StructField
 		columns = append(columns, &ColumnSchemaDefinition{columnName, fmt.Sprintf("`%s` %s", columnName, definition)})
 	}
 	return columns, nil
+}
+
+// emptyExprDefaultRE matches the expression default MySQL accepts on TEXT and BLOB. The introducer
+// follows the connection charset, not the column's, so the same column reads back differently.
+var emptyExprDefaultRE = regexp.MustCompile(` DEFAULT \((?:_[a-z0-9]+)?''\)$`)
+
+// isDefinitionEquivalent is the single place deciding two definitions describe the same column.
+// The diff compares SHOW CREATE TABLE text against generated text, so anything MySQL renders
+// differently has to be reconciled here or the alter is re-emitted forever.
+func isDefinitionEquivalent(dbDef, entityDef string) bool {
+	if dbDef == entityDef {
+		return true
+	}
+	if isNullableDefaultEquivalent(dbDef, entityDef) {
+		return true
+	}
+
+	// Introducer only, never the presence of the clause: a column with no default must still
+	// read as different, or it never gets one.
+	return canonicalExprDefault(dbDef) == canonicalExprDefault(entityDef)
+}
+
+// canonicalExprDefault rewrites MySQL's echo of an empty expression default to the generated form.
+func canonicalExprDefault(definition string) string {
+	return emptyExprDefaultRE.ReplaceAllString(definition, " DEFAULT ('')")
+}
+
+// defaultOnlyDifference returns the narrow statement for two definitions differing by nothing but
+// their DEFAULT clause. A MODIFY, because MySQL rejects ALTER COLUMN ... SET DEFAULT on TEXT (1101).
+func defaultOnlyDifference(dbDef, entityDef string) (string, bool) {
+	dbBase := trimDefaultClause(dbDef)
+	entityBase := trimDefaultClause(entityDef)
+	if dbBase == "" || dbBase != entityBase || dbDef == entityDef {
+		return "", false
+	}
+
+	return "MODIFY " + entityDef, true
+}
+
+var defaultClauseRE = regexp.MustCompile(` DEFAULT (\([^)]*\)|'[^']*'|[A-Za-z0-9_.]+)$`)
+
+func trimDefaultClause(definition string) string {
+	return defaultClauseRE.ReplaceAllString(definition, "")
 }
 
 // isNullableDefaultEquivalent returns true when two column definitions differ only
@@ -846,4 +919,30 @@ func buildCreateIndexSQL(index *IndexSchemaDefinition) string {
 		indexType = "UNIQUE " + indexType
 	}
 	return fmt.Sprintf("ADD %s `%s` (%s)", indexType, index.Name, strings.Join(indexColumns, ","))
+}
+
+// isTextOrBlob reports whether MySQL refuses a literal default on this column's type.
+func isTextOrBlob(definition string) bool {
+	for _, t := range []string{"text", "blob"} {
+		if strings.HasPrefix(definition, t) || strings.HasPrefix(definition, "medium"+t) ||
+			strings.HasPrefix(definition, "long"+t) || strings.HasPrefix(definition, "tiny"+t) {
+			return true
+		}
+	}
+
+	return false
+}
+
+// instant pins the algorithm rather than hoping for it: MySQL silently falls back to a full rebuild
+// after 64 instant additions to a table, and at boot that is a stall with no explanation.
+func instant(clause string) string {
+	return clause + ", ALGORITHM=INSTANT"
+}
+
+// splitExpressionDefault separates a trailing expression default. MySQL refuses ALGORITHM=INSTANT
+// for an ADD COLUMN carrying one, but accepts it for a MODIFY adding the same default afterwards.
+func splitExpressionDefault(definition string) (string, bool) {
+	trimmed := emptyExprDefaultRE.ReplaceAllString(definition, "")
+
+	return trimmed, trimmed != definition
 }
