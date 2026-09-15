@@ -34,7 +34,8 @@ type txState struct {
 	order        []string
 	rollbackOnly bool
 	afterCommit  []func() error
-	staged       map[Entity]bool
+	originals    map[Entity]Entity
+	committed    map[string]bool
 }
 
 func (orm *ormImplementation) InTransaction() bool {
@@ -138,6 +139,10 @@ func (orm *ormImplementation) commitTx() error {
 			return err
 		}
 		committedPools = append(committedPools, pool)
+		if orm.tx.committed == nil {
+			orm.tx.committed = make(map[string]bool)
+		}
+		orm.tx.committed[pool] = true
 	}
 	return nil
 }
@@ -147,14 +152,18 @@ func (orm *ormImplementation) rollbackTx() {
 		return
 	}
 	for _, pool := range orm.tx.order {
-		_ = orm.tx.txs[pool].Rollback(orm)
+		if !orm.tx.committed[pool] {
+			_ = orm.tx.txs[pool].Rollback(orm)
+		}
 	}
+	for entity, original := range orm.tx.originals {
+		state := entity.(entityWriteState)
+		if !orm.tx.committed[state.PrivateDatabasePool()] {
+			state.PrivateRollback(original)
+		}
+	}
+	orm.tx.originals = nil
 	orm.tx.txs = make(map[string]DBTransaction)
 	orm.tx.order = nil
-	for _, dbPipeline := range orm.dbPipeLines {
-		dbPipeline.discard()
-	}
-	for _, redisPipeline := range orm.takeRedisPipelines() {
-		redisPipeline.discard()
-	}
+	orm.discardWriteQueues()
 }

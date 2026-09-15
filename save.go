@@ -1,9 +1,27 @@
 package fluxaorm
 
 import (
+	"errors"
 	"fmt"
 	"reflect"
 )
+
+// ErrEntityNeedsRegeneration rejects generated code without transactional state
+// snapshots. Continuing with that code would silently lose repeated writes.
+var ErrEntityNeedsRegeneration = errors.New("generated entity needs regeneration with fluxaorm.Generate to support transactional write snapshots")
+
+// ErrEntityReadOnly protects the frozen entity views passed to after callbacks.
+// Obtain the live entity from its provider to make another write.
+var ErrEntityReadOnly = errors.New("entity is a read-only write snapshot")
+
+type entityWriteState interface {
+	PrivateSnapshot() Entity
+	PrivateRollback(Entity)
+	PrivateAdvance(Entity)
+	PrivateIsSnapshot() bool
+	PrivateIsDeleted() bool
+	PrivateDatabasePool() string
+}
 
 // Optional capabilities the generator emits. Adding a method to Entity itself
 // breaks every consumer until it regenerates, so only put one there when the ORM
@@ -24,10 +42,11 @@ type entityForceDeletable interface {
 	PrivateForceDelete()
 }
 
-// pendingWrite is the entity plus the flush metadata captured before
-// PrivateFlushed() folds the change set away.
+// pendingWrite keeps a frozen SQL write alongside its independently mutable
+// source. Post-commit events read the snapshot, never the live source.
 type pendingWrite struct {
 	entity     Entity
+	source     Entity
 	cacheIndex string
 	// dirtyPayload is the CDC event serialised once during outbox staging and
 	// reused when publishing. The payload is not deterministic - buildEvent
@@ -70,6 +89,9 @@ func (orm *ormImplementation) deleteEntities(entities []Entity, force bool) erro
 		if e == nil {
 			continue
 		}
+		if state, ok := e.(entityWriteState); ok && state.PrivateIsSnapshot() {
+			return ErrEntityReadOnly
+		}
 		if e.PrivateIsNew() {
 			return fmt.Errorf("%w: %T %d", ErrEntityNotPersisted, e, e.GetID())
 		}
@@ -89,7 +111,7 @@ func (orm *ormImplementation) deleteEntities(entities []Entity, force bool) erro
 }
 
 // prepareWrites dedupes by pointer identity, rejects entities bound to another
-// context, and drops the ones that would produce no statement.
+// context, and checks that generated code supports transactional snapshots.
 func (orm *ormImplementation) prepareWrites(entities []Entity) ([]*pendingWrite, error) {
 	if len(entities) == 0 {
 		return nil, nil
@@ -104,39 +126,39 @@ func (orm *ormImplementation) prepareWrites(entities []Entity) ([]*pendingWrite,
 		if bound, ok := e.(entityBoundContext); ok && bound.PrivateContext() != Context(orm) {
 			return nil, fmt.Errorf("entity %T %d belongs to a different context; save it on the context that created or loaded it", e, e.GetID())
 		}
-		if orm.tx != nil && orm.tx.staged[e] && !orm.hasUnstagedChanges(e) {
-			continue
+		state, ok := e.(entityWriteState)
+		if !ok {
+			return nil, fmt.Errorf("%w: %T", ErrEntityNeedsRegeneration, e)
+		}
+		if state.PrivateIsSnapshot() {
+			return nil, ErrEntityReadOnly
 		}
 		cacheIndex := ""
 		if indexed, ok := e.(entityCacheIndexed); ok {
 			cacheIndex = indexed.PrivateCacheIndex()
 		}
-		list = append(list, &pendingWrite{entity: e, cacheIndex: cacheIndex})
+		list = append(list, &pendingWrite{source: e, cacheIndex: cacheIndex})
 	}
 	return list, nil
 }
 
-// hasUnstagedChanges reports whether re-staging an already-staged entity would
-// produce a meaningful statement. An insert or a delete would only be repeated;
-// an update carries the cumulative bind, so re-issuing it is correct.
-func (orm *ormImplementation) hasUnstagedChanges(e Entity) bool {
-	if e.PrivateIsNew() {
-		return false
-	}
-	return len(e.PrivateGetDatabaseBind()) > 0
-}
-
-func (orm *ormImplementation) writeEntities(list []*pendingWrite) error {
+func (orm *ormImplementation) writeEntities(list []*pendingWrite) (err error) {
+	written := false
+	defer func() {
+		if err != nil && !written {
+			if orm.tx != nil {
+				orm.tx.rollbackOnly = true
+			}
+			orm.discardWriteQueues()
+		}
+	}()
 	for _, w := range list {
-		if err := w.entity.PrivateFlush(); err != nil {
+		if err := w.source.PrivateFlush(); err != nil {
 			return err
 		}
-		if orm.tx != nil {
-			if orm.tx.staged == nil {
-				orm.tx.staged = make(map[Entity]bool)
-			}
-			orm.tx.staged[w.entity] = true
-		}
+		// Capture after before-callbacks and automatic timestamps, but before
+		// advancing the live origin. Later setters cannot alter this write.
+		w.entity = w.source.(entityWriteState).PrivateSnapshot()
 	}
 	outboxIDs, err := orm.stageDirtyOutbox(list)
 	if err != nil {
@@ -150,6 +172,21 @@ func (orm *ormImplementation) writeEntities(list []*pendingWrite) error {
 		if err := dbPipeline.Exec(orm); err != nil {
 			return err
 		}
+	}
+	written = true
+	for _, w := range list {
+		if eventType, _ := w.entity.PrivateFlushEvent(); eventType == 0 {
+			continue
+		}
+		if orm.tx != nil {
+			if orm.tx.originals == nil {
+				orm.tx.originals = make(map[Entity]Entity)
+			}
+			if _, exists := orm.tx.originals[w.source]; !exists {
+				orm.tx.originals[w.source] = w.entity
+			}
+		}
+		w.source.(entityWriteState).PrivateAdvance(w.entity)
 	}
 	post := func() error { return orm.runPostCommit(list, keys, outboxIDs) }
 	if orm.tx != nil {
@@ -166,6 +203,15 @@ func (orm *ormImplementation) writeEntities(list []*pendingWrite) error {
 // are durable. The second cache delete closes the window where a concurrent read
 // refilled a key from a pre-commit snapshot.
 func (orm *ormImplementation) runPostCommit(list []*pendingWrite, keys map[string][]string, outboxIDs []uint64) error {
+	for _, w := range list {
+		if eventType, _ := w.entity.PrivateFlushEvent(); eventType == 3 && w.cacheIndex != "" {
+			// A later write may have restored a soft-deleted row or replaced a
+			// hard-deleted handle. A historical event must not evict that handle.
+			if w.source.(entityWriteState).PrivateIsDeleted() && orm.GetFromContextCache(w.cacheIndex, w.entity.GetID()) == w.source {
+				orm.removeFromContextCache(w.cacheIndex, w.entity.GetID())
+			}
+		}
+	}
 	if err := orm.deleteCacheKeys(keys); err != nil {
 		return err
 	}
@@ -181,21 +227,20 @@ func (orm *ormImplementation) runPostCommit(list []*pendingWrite, keys map[strin
 	if err := orm.markOutboxDispatched(outboxIDs); err != nil {
 		return err
 	}
-	if err := orm.runAfterHandlers(list); err != nil {
-		return err
-	}
-	for _, w := range list {
-		if eventType, _ := w.entity.PrivateFlushEvent(); eventType == 3 && w.cacheIndex != "" {
-			orm.removeFromContextCache(w.cacheIndex, w.entity.GetID())
-		}
-		w.entity.PrivateFlushed()
-	}
-	return nil
+	return orm.runAfterHandlers(list)
 }
 
-// publishDirtyFor must run before PrivateFlushed: the CDC snapshot reads the
-// pre-change values, and folding first would make every update event report
-// Before == After.
+func (orm *ormImplementation) discardWriteQueues() {
+	orm.discardPendingInvalidations()
+	for _, pipeline := range orm.dbPipeLines {
+		pipeline.discard()
+	}
+	for _, pipeline := range orm.takeRedisPipelines() {
+		pipeline.discard()
+	}
+}
+
+// publishDirtyFor reads each frozen write's pre-change origin and change set.
 func (orm *ormImplementation) publishDirtyFor(list []*pendingWrite) error {
 	if len(orm.engine.registry.dirtyPublishers) == 0 {
 		return nil

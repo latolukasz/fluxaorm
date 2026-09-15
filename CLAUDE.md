@@ -26,6 +26,8 @@ Tests require running MySQL and Redis services. Use `docker/docker-compose.yml` 
 
 Linting is configured in `revive.toml`. Cyclomatic complexity threshold is 100. `fmt.Print*` and `spew.Dump` calls are banned by `make check`.
 
+Pushes to `v2` and release tags matching `v2.*` run `.github/workflows/release.yml` (also available manually). Verify the branch commit before creating its release tag. It reads Go from `go.mod`, starts disposable MySQL on 3397, Redis on 6395, ClickHouse on 9942/9943 and NATS JetStream on 9944, regenerates test entities, then runs `go build ./...`, the full race-enabled test suite, `go vet ./...` and the targeted CDC delivery tests. The workflow requires only `contents: read` and does not publish a GitHub release; publication follows successful verification.
+
 ## Architecture
 
 FLUXA ORM is a **code-generation-based** Go ORM targeting MySQL + Redis 8.0. The main package is everything at the root level (`github.com/latolukasz/fluxaorm/v2`).
@@ -60,6 +62,7 @@ Entity registration: `registry.RegisterEntity(&MyEntity{})`, then call `registry
 - `generate.go` — entry point, file I/O, `codeGenerator` struct
 - `generate_entity.go` — `XxxEntity` struct body
 - `generate_entity_struct.go` — entity struct scaffolding
+- `generate_write_state.go` — per-write snapshots, SQL baseline advancement and rollback rebasing
 - `generate_fields.go` — per-field SQL row and Redis serialisation helpers
 - `generate_getters.go` / `generate_getters_nullable.go` — typed getters & setters
 - `generate_provider.go` — `XxxProvider` singleton, `XxxSQLRow`, `redisValues()`
@@ -69,7 +72,7 @@ Entity registration: `registry.RegisterEntity(&MyEntity{})`, then call `registry
 
 - **`XxxSQLRow` struct** — flat struct with fields `F0`, `F1`, `F2`... for reflection-free `Scan()`
 - **`XxxProvider` singleton** — holds static metadata (tableName, dbCode, redisCode, cacheIndex, redisCachePrefix, stamp, TTL) and exposes all query methods. `cacheIndex` is the fully qualified entity type name as a string (e.g. `"app/entities.User"`); it keys `afterInsertHandlers`/`afterUpdateHandlers`/`afterDeleteHandlers` and `ormImplementation.cachedEntities`. Using the type name keeps the value stable across registrations and self-documenting in payloads and logs.
-- **`XxxEntity` struct** — user-facing entity; holds `ctx`, `id`, `new`, `deleted`, `originDatabaseValues` (SQLRow)
+- **`XxxEntity` struct** — user-facing entity; holds `ctx`, `id`, `new`, `deleted`, `removed` (hard-delete tombstone), `snapshot` (read-only callback view), `originDatabaseValues` (SQLRow)
 
 ### Caching (Two Tiers)
 
@@ -96,6 +99,16 @@ The identity map used to expire on a 1-second clock. That made "is this handle c
 - Setters compare new value against current origin; no-op if unchanged; otherwise update bind maps
 - `PrivateFlush()` enqueues INSERT/UPDATE/DELETE on the DB pipeline. It does **not** write the row cache back: `Save` invalidates the stale keys instead, before the statement and again after commit.
 - `PrivateReload()` replaces `originDatabaseValues` from MySQL and clears `originRedisValues`, so a getter cannot keep answering from a stale redis-loaded row.
+
+### Repeated Saves and Transaction State
+
+Every successful `Save` advances the live entity's baseline to the values actually written by that call, including inside an explicit transaction. A newly inserted entity can be updated or deleted by a later call in the same transaction; an unchanged save emits no SQL or event. Returning a field to an earlier value after a successful save is a real change against the latest written baseline.
+
+`PrivateSnapshot()` freezes the SQL origin, bind and event metadata after before-callbacks. CDC, outbox and after-callbacks use one snapshot per SQL write and still run only after commit. After-callbacks receive a distinct read-only entity view: `Save`, `Delete`, `ForceDelete` and `Reload` reject it with `ErrEntityReadOnly`. Reference getters retain the originating context. `PrivateAdvance(snapshot)` preserves edits made after the captured statement, including mutations by a later entity's before-callback in a batch. Those edits remain unsaved after commit, including when post-commit work fails.
+
+A transaction retains the first baseline snapshot for each entity. On rollback, panic or failed commit, `PrivateRollback(snapshot)` restores the original persisted baseline while retaining the latest saved and unsaved field values for a retry. A rolled-back insert becomes new again; a rolled-back hard delete remains pending for retry. In a partial multi-pool commit, only uncommitted pools are restored; already committed entities retain their durable baseline. A failed `Save` discards pending queues and marks an explicit transaction rollback-only even if the caller swallows its error.
+
+Generated code must be regenerated for this behavior. `Save` rejects older entities with `ErrEntityNeedsRegeneration` before staging SQL. The required generated capability comprises `PrivateSnapshot`, `PrivateAdvance`, `PrivateRollback`, `PrivateIsSnapshot`, `PrivateIsDeleted` (latest saved deletion state) and `PrivateDatabasePool`. Historical delete events only evict an identity-map entry when that live handle is still saved as deleted and still occupies the entry; restoring a soft delete or replacing a deleted handle cannot evict a newer live object.
 
 ### ID Generation
 

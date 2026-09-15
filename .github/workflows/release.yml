@@ -1,0 +1,114 @@
+name: Release build and tests
+
+on:
+  push:
+    branches:
+      - v2
+    tags:
+      - 'v2.*'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    name: Build and verify release
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    services:
+      mysql:
+        image: mysql/mysql-server:8.0
+        env:
+          MYSQL_ROOT_PASSWORD: root
+          MYSQL_DATABASE: test
+          MYSQL_ROOT_HOST: '%'
+        ports:
+          - 3397:3306
+        options: >-
+          --health-cmd="mysql -h127.0.0.1 -uroot -proot -e 'SELECT 1' test"
+          --health-interval=5s
+          --health-timeout=5s
+          --health-start-period=30s
+          --health-retries=30
+      redis:
+        image: redis:8.6
+        ports:
+          - 6395:6379
+        options: >-
+          --health-cmd="redis-cli ping"
+          --health-interval=5s
+          --health-timeout=5s
+          --health-retries=20
+      clickhouse:
+        image: clickhouse/clickhouse-server:24
+        ports:
+          - 9942:9000
+          - 9943:8123
+        options: >-
+          --health-cmd="clickhouse-client --query 'SELECT 1'"
+          --health-interval=5s
+          --health-timeout=5s
+          --health-start-period=20s
+          --health-retries=20
+
+    steps:
+      - name: Check out release
+        uses: actions/checkout@v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Set up Go
+        uses: actions/setup-go@v7.0.0
+        with:
+          go-version-file: go.mod
+          cache-dependency-path: go.sum
+
+      # Actions services do not accept a command override; JetStream needs -js.
+      - name: Start NATS JetStream
+        run: |
+          docker run --detach --name fluxaorm-ci-nats \
+            --publish 9944:4222 --publish 9945:8222 \
+            nats:2.10-alpine -js -m 8222
+          curl --fail --silent --show-error \
+            --retry 30 --retry-all-errors --retry-delay 1 --max-time 2 \
+            http://127.0.0.1:9945/healthz
+
+      - name: Configure test database
+        env:
+          MYSQL_CONTAINER: ${{ job.services.mysql.id }}
+        run: docker exec "$MYSQL_CONTAINER" mysql -uroot -proot -e 'SET GLOBAL max_connections = 300'
+
+      - name: Regenerate test entities
+        run: go run ./test_generate/genboot
+
+      - name: Build all packages
+        run: go build ./...
+
+      - name: Run tests with race detector
+        run: go test -race -p 1 -count=1 -timeout 8m ./...
+
+      - name: Run Go vet
+        run: go vet ./...
+
+      - name: Verify CDC delivery
+        run: >-
+          go test -race -p 1 -count=1 -timeout 8m -tags=cdc_e2e
+          -run '^(TestOneWriteIsOneMessageHoweverManyConsumers|TestCDCSyncPath|TestCDCWatchFields)$'
+          ./test_generate/...
+
+      - name: Show service logs on failure
+        if: failure()
+        env:
+          MYSQL_CONTAINER: ${{ job.services.mysql.id }}
+          REDIS_CONTAINER: ${{ job.services.redis.id }}
+          CLICKHOUSE_CONTAINER: ${{ job.services.clickhouse.id }}
+        run: |
+          docker logs "$MYSQL_CONTAINER"
+          docker logs "$REDIS_CONTAINER"
+          docker logs "$CLICKHOUSE_CONTAINER"
+          docker logs fluxaorm-ci-nats || true
+
+      - name: Stop NATS
+        if: always()
+        run: docker rm --force fluxaorm-ci-nats || true

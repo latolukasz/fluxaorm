@@ -534,6 +534,8 @@ func (g *codeGenerator) generateEntityStruct(schema *entitySchema, names *entity
 	g.addLine("\tid uint64")
 	g.addLine("\tnew bool")
 	g.addLine("\tdeleted bool")
+	g.addLine("\tremoved bool")
+	g.addLine("\tsnapshot bool")
 	g.addLine(fmt.Sprintf("\toriginDatabaseValues *%s", names.sqlRowName))
 	g.addLine("\tdatabaseBind map[string]any")
 	if schema.hasRedisCache {
@@ -587,6 +589,10 @@ func (g *codeGenerator) generateEntityStruct(schema *entitySchema, names *entity
 
 	// PrivateFlush
 	g.addLine(fmt.Sprintf("func (e *%s) PrivateFlush() error {", names.entityName))
+	g.addLine("\tif e.snapshot { return fluxaorm.ErrEntityReadOnly }")
+	g.addLine("\te.flushType = 0")
+	g.addLine("\te.flushChanges = nil")
+	g.addLine("\tif e.removed || (e.new && e.deleted) { return nil }")
 
 	// INSERT block
 	g.addLine("\tif e.new {")
@@ -711,6 +717,7 @@ func (g *codeGenerator) generateEntityStruct(schema *entitySchema, names *entity
 	// UPDATE block
 	g.addLine("\tif len(e.databaseBind) > 0 {")
 	g.addLine(fmt.Sprintf("\t\tfor _, cb := range %sBeforeUpdateCallbacks { cb(e) }", names.entityPrivate))
+	g.addLine("\t\tif len(e.databaseBind) == 0 { return nil }")
 
 	// Lifecycle callback: determine flush event type and build old-values map
 	if schema.hasFakeDelete {
@@ -1023,6 +1030,8 @@ func (g *codeGenerator) generateEntityStruct(schema *entitySchema, names *entity
 
 	g.generatePrivateFlushed(schema, names)
 	g.addLine("")
+	g.generatePrivateWriteState(schema, names)
+	g.addLine("")
 
 	g.generatePrivateReload(schema, names)
 	g.addLine("")
@@ -1218,6 +1227,7 @@ func (g *codeGenerator) generatePrivateFlushed(schema *entitySchema, names *enti
 	g.addLine("\t\t}")
 	g.addLine("\t}")
 	g.addLine("\te.databaseBind = nil")
+	g.addLine("\te.removed = e.removed || e.deleted")
 	g.addLine("\te.deleted = false")
 	g.addLine("\te.flushType = 0")
 	g.addLine("\te.flushChanges = nil")
@@ -1229,6 +1239,7 @@ func (g *codeGenerator) generatePrivateFlushed(schema *entitySchema, names *enti
 // reloading under a lock is trying not to trust.
 func (g *codeGenerator) generatePrivateReload(schema *entitySchema, names *entityNames) {
 	g.addLine(fmt.Sprintf("func (e *%s) PrivateReload() (bool, error) {", names.entityName))
+	g.addLine("\tif e.snapshot { return false, fluxaorm.ErrEntityReadOnly }")
 	g.appendToLine("\tquery := \"SELECT `ID`")
 	for _, columnName := range schema.GetColumns()[1:] {
 		g.appendToLine(",`" + columnName + "`")
@@ -1252,6 +1263,7 @@ func (g *codeGenerator) generatePrivateReload(schema *entitySchema, names *entit
 		g.addLine("\te.originRedisValues = nil")
 	}
 	g.addLine("\te.deleted = false")
+	g.addLine("\te.removed = false")
 	g.addLine("\treturn true, nil")
 	g.addLine("}")
 }

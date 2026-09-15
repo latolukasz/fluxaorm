@@ -24,6 +24,9 @@ var ErrEntityVanished = errors.New("entity row no longer exists")
 // read goes through the transaction, so it sees that transaction's own writes.
 func (orm *ormImplementation) Reload(entities ...Entity) error {
 	for _, entity := range entities {
+		if state, ok := entity.(entityWriteState); ok && state.PrivateIsSnapshot() {
+			return ErrEntityReadOnly
+		}
 		if entity.PrivateIsNew() {
 			return fmt.Errorf("reload entity %d: %w", entity.GetID(), ErrEntityNotPersisted)
 		}
