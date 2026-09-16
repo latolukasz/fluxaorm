@@ -44,8 +44,50 @@ func (rp *RedisPipeLine) Get(key string) *PipeLineGet {
 }
 
 func (rp *RedisPipeLine) LRange(key string, start, stop int64) *PipeLineSlice {
+	result := rp.LRangeValue(key, start, stop)
+	return &result
+}
+
+// LRangeValue queues LRANGE and returns its result handle by value, allowing
+// generated batch readers to store handles without allocating a wrapper per key.
+func (rp *RedisPipeLine) LRangeValue(key string, start, stop int64) PipeLineSlice {
 	rp.commands++
-	return &PipeLineSlice{p: rp, cmd: rp.pipeLine.LRange(rp.ctx.Context(), key, start, stop)}
+	return PipeLineSlice{p: rp, cmd: rp.pipeLine.LRange(rp.ctx.Context(), key, start, stop)}
+}
+
+// LRangeBatchInto queues one LRANGE per key and fills caller-owned result handles.
+// The result and key slices must have equal lengths. Commands keep independent
+// results after Exec; their temporary command storage is shared within the batch.
+func (rp *RedisPipeLine) LRangeBatchInto(results []PipeLineSlice, keys []string, start, stop int64) {
+	if len(results) != len(keys) {
+		panic("fluxaorm: LRANGE batch result and key lengths differ")
+	}
+	if len(keys) == 0 {
+		return
+	}
+	type entry struct {
+		command redis.StringSliceCmd
+		args    [4]any
+	}
+	entries := make([]entry, len(keys))
+	commands := make([]redis.Cmder, len(keys))
+	// Full-list reads use -1. Keep that boxed constant instead of allocating
+	// another interface value for the common upper bound on every batch.
+	var startArg, stopArg any = start, int64(-1)
+	if stop != -1 {
+		stopArg = stop
+	}
+	ctx := rp.ctx.Context()
+	for i, key := range keys {
+		item := &entries[i]
+		item.args = [4]any{"lrange", key, startArg, stopArg}
+		// Construct every command in its final location before queuing pointers.
+		item.command = *redis.NewStringSliceCmd(ctx, item.args[:]...)
+		commands[i] = &item.command
+		results[i] = PipeLineSlice{p: rp, cmd: &item.command}
+	}
+	rp.commands += len(keys)
+	_ = rp.pipeLine.BatchProcess(ctx, commands...)
 }
 
 func (rp *RedisPipeLine) Set(key string, value any, expiration time.Duration) {
@@ -105,9 +147,10 @@ func (rp *RedisPipeLine) Exec(ctx Context) (response []redis.Cmder, err error) {
 	}
 	hasLog, loggers := rp.ctx.getRedisLoggers()
 	start := time.Now()
+	// go-redis detaches the queued commands before executing them, including
+	// on errors. Reuse the empty pipeline; previous result handles stay valid.
 	res, err := rp.pipeLine.Exec(rp.ctx.Context())
 	end := time.Since(start)
-	rp.pipeLine = rp.r.client.Pipeline()
 	if err != nil && errors.Is(err, redis.Nil) {
 		err = nil
 	}

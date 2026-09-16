@@ -364,7 +364,20 @@ func (r *redisCache) Type(ctx Context, key string) (string, error) {
 func (r *redisCache) LRange(ctx Context, key string, start, stop int64) ([]string, error) {
 	hasLogger, _ := ctx.getRedisLoggers()
 	s := time.Now()
-	req := r.client.LRange(ctx.Context(), key, start, stop)
+	// Keep the native command and its argument array in one allocation.
+	// Process uses the same hooks, decoder and retry handling as Client.LRange.
+	entry := &struct {
+		command redis.StringSliceCmd
+		args    [4]any
+	}{}
+	var stopArg any = int64(-1)
+	if stop != -1 {
+		stopArg = stop
+	}
+	entry.args = [4]any{"lrange", key, start, stopArg}
+	entry.command = *redis.NewStringSliceCmd(ctx.Context(), entry.args[:]...)
+	req := &entry.command
+	_ = r.client.Process(ctx.Context(), req)
 	val, err := req.Result()
 	end := time.Since(s)
 	if hasLogger {

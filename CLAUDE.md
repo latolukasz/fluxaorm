@@ -24,6 +24,18 @@ go test -race -p 1 -run TestName ./...
 
 Tests require running MySQL and Redis services. Use `docker/docker-compose.yml` for setup (requires `LOCAL_IP`, `MYSQL_PORT`, `REDIS_PORT` env vars). MySQL 8.0 on port 3306 and Redis 8.2.2 on port 6379.
 
+`test_generate/get_by_ids_benchmark_test.go` adds `BenchmarkGetByIDs10` with `ContextCacheHit`, `RedisCacheHit` and `MySQL` cases. It fetches 10 existing IDs from equivalent 27-column fixtures with all nullable fields populated; one operation is the whole batch. Only `GetByIDs` is timed: fixture/connection setup, context creation, getters and SQL/Redis path checks are outside the measurement. The Redis and MySQL cases disable the context cache; MySQL uses the fixture without Redis caching, excluding Redis miss/fill work.
+
+After generating `test_generate/entities/`, point the benchmark at dedicated MySQL and Redis services:
+```bash
+FLUXAORM_BENCH_MYSQL_DSN='root:root@tcp(localhost:13397)/test' \
+FLUXAORM_BENCH_REDIS_ADDR='localhost:16395' \
+go test ./test_generate -run '^$' -bench '^BenchmarkGetByIDs10$' -benchmem -count=5
+```
+Both variables are required (otherwise the benchmark skips); `FLUXAORM_BENCH_REDIS_DB` defaults to `0`. It creates missing fixture tables, fails on an incompatible existing fixture schema, and cleans up only its inserted rows and exact Redis keys. Created tables remain. Use a normal build for allocation measurements; `-race` adds instrumentation overhead.
+
+`test_generate/get_by_id_benchmark_test.go` adds `BenchmarkGetByID1` with `ContextCacheHit`, `RedisCacheHit` and `MySQL` cases for one existing entity. It shares the 27-column fixture setup and service environment variables with `BenchmarkGetByIDs10`; setup still seeds ten rows, while each timed operation fetches only the first ID. Context creation, warm-up, getters and query-path checks are outside timing. Redis and MySQL disable the context cache; the Redis case verifies one direct `LRANGE`, and MySQL uses the equivalent fixture without Redis caching. Run with `go test ./test_generate -run '^$' -bench '^BenchmarkGetByID1$' -benchmem -count=5` and the same explicit `FLUXAORM_BENCH_MYSQL_DSN` / `FLUXAORM_BENCH_REDIS_ADDR` configuration as above. `B/op` and `allocs/op` describe one entity read.
+
 Linting is configured in `revive.toml`. Cyclomatic complexity threshold is 100. `fmt.Print*` and `spew.Dump` calls are banned by `make check`.
 
 Pushes to `v2` and release tags matching `v2.*` run `.github/workflows/release.yml` (also available manually). Verify the branch commit before creating its release tag. It reads Go from `go.mod`, starts disposable MySQL on 3397, Redis on 6395, ClickHouse on 9942/9943 and NATS JetStream on 9944, regenerates test entities, then runs `go build ./...`, the full race-enabled test suite, `go vet ./...` and the targeted CDC delivery tests. The workflow requires only `contents: read` and does not publish a GitHub release; publication follows successful verification.
@@ -82,6 +94,20 @@ Entity registration: `registry.RegisterEntity(&MyEntity{})`, then call `registry
 There is no local (per-process) cache. One was implemented but no read path ever consulted it, so it was removed.
 
 The identity map used to expire on a 1-second clock. That made "is this handle current?" depend on how slow the request was, which is untestable and inverted under load — a lock that re-read the row got fresh data only when contention was high enough to push the wait past the TTL. The clock is gone. Because nothing expires, no dirty set is needed either: `Track`, `untrack` and `trackedEntities` were removed with it.
+
+### Batched Reads (`GetByIDs`)
+
+Generated `GetByIDs` returns one slice in first-occurrence ID order and omits missing rows. Small batches use stack scratch for deduplication and pending result positions; larger batches use an ID-to-position map. Context, Redis and SQL results fill the same result slice. SQL query construction reuses a digit buffer, and one Scan argument array is reused across rows while each returned entity retains its own SQL row storage. Redis pipeline result handles are stored by value. These changes reduce temporary allocations without sharing returned entity buffers or changing cache behavior. Regenerate providers to adopt the optimized implementation; the method signature is unchanged.
+
+Generated batch readers pass numeric Scan destinations through `SQLScanTarget`. Its pointer adapters avoid temporary strings on successful numeric conversions and preserve `database/sql` NULL, overflow and conversion-error behavior through standard fallbacks. FLOAT values retain the standard decimal float32-to-float64 conversion. Each returned entity still owns its SQL row storage.
+
+Redis batch readers use `LRangeBatchInto` with caller-owned result handles. Commands and arguments are allocated together for the batch and queued as native go-redis `StringSliceCmd` values; normal LRANGE decoding, errors, logging and metrics remain in use. Decoded entity data remains independent of the temporary command batch. Regenerate providers with the matching updated ORM runtime to use both helpers.
+
+### Single Reads (`GetByID`)
+
+Generated `GetByID` returns context-cache hits before constructing query or Redis buffers. Other reads format the uint64 ID with `strconv.AppendUint` using stack scratch. Schemas without MySQL FLOAT columns use the decimal ID directly in SELECT, avoiding a transient prepared statement. Schemas with `float32` or `*float32` fields without a `decimal` tag retain the parameterized query: MySQL text replies can round FLOAT values differently from binary replies. The decision uses flattened field metadata, including nested fields. Both paths use `SQLScanTarget` while retaining QueryRow logging, metrics, error propagation and independent entity row storage.
+
+The Redis `LRange` runtime keeps its native `StringSliceCmd` and argument array in one allocation and uses `Client.Process`, preserving native hooks, decoding, retry, logging and metrics. Command/result storage is fresh per call. Regenerate application providers with the updated ORM runtime to adopt the generated GetByID changes; the method signature and row-cache format are unchanged.
 
 ### Reload (`reload.go`)
 
