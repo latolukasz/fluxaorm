@@ -84,16 +84,35 @@ func (orm *ormImplementation) ForceDelete(entities ...Entity) error {
 	return orm.deleteEntities(entities, true)
 }
 
+// deleteEntities validates the whole batch before it marks anything deleted.
+// Marking as it validates would leave the entities it already reached carrying a
+// delete intent once a later one fails, and nothing clears that intent again: an
+// unrelated Save of such an entity would silently DELETE its row.
 func (orm *ormImplementation) deleteEntities(entities []Entity, force bool) error {
 	for _, e := range entities {
 		if e == nil {
 			continue
 		}
-		if state, ok := e.(entityWriteState); ok && state.PrivateIsSnapshot() {
-			return ErrEntityReadOnly
+		if _, err := orm.validateWritable(e); err != nil {
+			return err
 		}
 		if e.PrivateIsNew() {
 			return fmt.Errorf("%w: %T %d", ErrEntityNotPersisted, e, e.GetID())
+		}
+		if force {
+			if _, ok := e.(entityForceDeletable); ok {
+				continue
+			}
+		}
+		if _, ok := e.(entityDeletable); !ok {
+			return fmt.Errorf("%T does not support Delete", e)
+		}
+	}
+	// The assertions below cannot fail: the pass above accepted every entity on
+	// exactly these branches.
+	for _, e := range entities {
+		if e == nil {
+			continue
 		}
 		if force {
 			if fd, ok := e.(entityForceDeletable); ok {
@@ -101,13 +120,27 @@ func (orm *ormImplementation) deleteEntities(entities []Entity, force bool) erro
 				continue
 			}
 		}
-		d, ok := e.(entityDeletable)
-		if !ok {
-			return fmt.Errorf("%T does not support Delete", e)
-		}
-		d.PrivateDelete()
+		e.(entityDeletable).PrivateDelete()
 	}
 	return orm.Save(entities...)
+}
+
+// validateWritable rejects an entity no write can accept: one bound to another
+// context, one generated before transactional write snapshots existed, and a
+// read-only snapshot handed to an After handler. Delete runs it over the whole
+// batch before it marks anything, so a rejected batch leaves every entity alone.
+func (orm *ormImplementation) validateWritable(e Entity) (entityWriteState, error) {
+	if bound, ok := e.(entityBoundContext); ok && bound.PrivateContext() != Context(orm) {
+		return nil, fmt.Errorf("entity %T %d belongs to a different context; save it on the context that created or loaded it", e, e.GetID())
+	}
+	state, ok := e.(entityWriteState)
+	if !ok {
+		return nil, fmt.Errorf("%w: %T", ErrEntityNeedsRegeneration, e)
+	}
+	if state.PrivateIsSnapshot() {
+		return nil, ErrEntityReadOnly
+	}
+	return state, nil
 }
 
 // prepareWrites dedupes by pointer identity, rejects entities bound to another
@@ -123,15 +156,8 @@ func (orm *ormImplementation) prepareWrites(entities []Entity) ([]*pendingWrite,
 			continue
 		}
 		seen[e] = true
-		if bound, ok := e.(entityBoundContext); ok && bound.PrivateContext() != Context(orm) {
-			return nil, fmt.Errorf("entity %T %d belongs to a different context; save it on the context that created or loaded it", e, e.GetID())
-		}
-		state, ok := e.(entityWriteState)
-		if !ok {
-			return nil, fmt.Errorf("%w: %T", ErrEntityNeedsRegeneration, e)
-		}
-		if state.PrivateIsSnapshot() {
-			return nil, ErrEntityReadOnly
+		if _, err := orm.validateWritable(e); err != nil {
+			return nil, err
 		}
 		cacheIndex := ""
 		if indexed, ok := e.(entityCacheIndexed); ok {
