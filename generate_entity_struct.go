@@ -621,6 +621,9 @@ func (g *codeGenerator) generateEntityStruct(schema *entitySchema, names *entity
 	insertQueryLine += ")\n"
 	if schema.hasRedisCache {
 		insertQueryLine += fmt.Sprintf("\t\te.ctx.InvalidateCacheKey(%s.redisCode, %s.redisCachePrefix+strconv.FormatUint(e.GetID(), 10))", names.providerName, names.providerName)
+		if schema.cacheAll {
+			insertQueryLine += fmt.Sprintf("\n\t\te.ctx.InvalidateCacheKey(%s.redisCode, %s.redisAllKey)", names.providerName, names.providerName)
+		}
 	}
 	g.addLine(insertQueryLine)
 
@@ -690,6 +693,9 @@ func (g *codeGenerator) generateEntityStruct(schema *entitySchema, names *entity
 	g.addLine(fmt.Sprintf("\t\te.ctx.DatabasePipeLine(%s.dbCode).AddQueryForTable(%s.tableName, sqlQuery, e.GetID())", names.providerName, names.providerName))
 	if schema.hasRedisCache {
 		g.addLine(fmt.Sprintf("\t\te.ctx.InvalidateCacheKey(%s.redisCode, %s.redisCachePrefix+strconv.FormatUint(e.GetID(), 10))", names.providerName, names.providerName))
+		if schema.cacheAll {
+			g.addLine(fmt.Sprintf("\t\te.ctx.InvalidateCacheKey(%s.redisCode, %s.redisAllKey)", names.providerName, names.providerName))
+		}
 	}
 	if schema.hasRedisSearch {
 		g.addLine(fmt.Sprintf("\t\te.ctx.RedisPipeLine(%s.redisSearchCode).Del(%s.redisSearchPrefix + strconv.FormatUint(e.GetID(), 10))", names.providerName, names.providerName))
@@ -792,6 +798,9 @@ func (g *codeGenerator) generateEntityStruct(schema *entitySchema, names *entity
 	g.addLine(fmt.Sprintf("\t\te.ctx.DatabasePipeLine(%s.dbCode).AddQueryForTable(%s.tableName, sqlQuery, updateParams...)", names.providerName, names.providerName))
 	if schema.hasRedisCache {
 		g.addLine(fmt.Sprintf("\t\te.ctx.InvalidateCacheKey(%s.redisCode, %s.redisCachePrefix+strconv.FormatUint(e.GetID(), 10))", names.providerName, names.providerName))
+		if schema.cacheAll {
+			g.addLine(fmt.Sprintf("\t\te.ctx.InvalidateCacheKey(%s.redisCode, %s.redisAllKey)", names.providerName, names.providerName))
+		}
 	}
 
 	// Redis Search UPDATE

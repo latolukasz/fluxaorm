@@ -119,6 +119,7 @@ type entitySchema struct {
 	options                 map[string]any
 	redisCacheName          string
 	hasRedisCache           bool
+	cacheAll                bool
 	redisCache              *redisCache
 	cacheKey                string
 	structureHash           string
@@ -335,6 +336,7 @@ func (e *entitySchema) init(registry *registry, entityType reflect.Type) error {
 			entityType.Name())
 	}
 	e.cdc = e.getTag("cdc", "true", "") == "true"
+	e.cacheAll = e.getTag("cached", "true", "") == "true"
 	e.outbox = e.getTag("outbox", "true", "") == "true"
 	e.tableName = e.getTag("table", entityType.Name(), entityType.Name())
 	redisCacheName := e.getTag("redisCache", DefaultPoolCode, "")
@@ -434,6 +436,13 @@ func (e *entitySchema) init(registry *registry, entityType reflect.Type) error {
 	e.structureHash = fmt.Sprintf("%x", sha256.Sum256([]byte(strings.Join(e.columnNames, ":"))))[0:16]
 	e.redisCacheName = redisCacheName
 	e.hasRedisCache = redisCacheName != ""
+	// GetAll reads the id set from Redis and hydrates through the row cache, so both tiers have to
+	// be there; without them the tag would silently generate a method that only ever hits MySQL.
+	if e.cacheAll && !e.hasRedisCache {
+		return fmt.Errorf(
+			"entity '%s' is tagged `orm:\"cached\"` but has no Redis cache; add `redisCache` to the same tag",
+			entityType.Name())
+	}
 	err = e.validateIndexes()
 	if err != nil {
 		return err

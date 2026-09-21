@@ -15,6 +15,9 @@ func (g *codeGenerator) generateProviderAndSQLRow(schema *entitySchema, names *e
 		g.addLine("\tredisCachePrefix string")
 		g.addLine("\tredisCacheStamp string")
 		g.addLine("\tredisCacheTTL int")
+		if schema.cacheAll {
+			g.addLine("\tredisAllKey string")
+		}
 	} else if schema.hasCachedUniqueIndexes {
 		g.addLine("\tredisCachePrefix string")
 	}
@@ -39,6 +42,11 @@ func (g *codeGenerator) generateProviderAndSQLRow(schema *entitySchema, names *e
 		g.addLine(fmt.Sprintf("\tredisCachePrefix: \"%s\",", schema.cacheKey+":"))
 		g.addLine(fmt.Sprintf("\tredisCacheStamp: \"%s\",", schema.structureHash))
 		g.addLine(fmt.Sprintf("\tredisCacheTTL: %d,", schema.cacheTTL))
+		if schema.cacheAll {
+			// Under the row-cache prefix on purpose: ClearRedisCache SCANs it, so the id set is
+			// wiped by the same call that wipes the rows.
+			g.addLine(fmt.Sprintf("\tredisAllKey: \"%s\",", schema.cacheKey+":all"))
+		}
 	} else if schema.hasCachedUniqueIndexes {
 		g.addLine(fmt.Sprintf("\tredisCachePrefix: \"%s\",", schema.cacheKey+":"))
 	}

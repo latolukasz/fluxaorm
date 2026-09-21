@@ -7,6 +7,11 @@ import "time"
 // only the backstop.
 const EntityCacheTTL = time.Hour
 
+// MaxCachedAllRows caps what `orm:"cached"` will put in one Redis list. Past it GetAll still
+// answers correctly, straight from MySQL - the tag is meant for small reference tables, and a
+// runaway one degrades instead of parking a huge list in Redis for an hour.
+const MaxCachedAllRows = 10000
+
 // InvalidateCacheKey records a redis key that the pending write makes stale.
 // Generated write code registers the keys; Save owns the timing - it deletes
 // them once before the statement runs and once after the transaction commits.

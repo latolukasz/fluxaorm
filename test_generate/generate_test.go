@@ -1016,8 +1016,8 @@ func TestGenerate(t *testing.T) {
 	_, isRedisSearch = entityProvider.(fluxaorm.RedisSearchEntityProvider)
 	assert.False(t, isRedisSearch)
 
-	// AllProviders: correct length (17 entities)
-	assert.Len(t, entities.AllProviders, 17)
+	// AllProviders: correct length (19 entities)
+	assert.Len(t, entities.AllProviders, 19)
 
 	// AllProviders: all entries implement EntityProvider and have non-empty TableName
 	for _, p := range entities.AllProviders {

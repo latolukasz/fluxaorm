@@ -971,3 +971,76 @@ func (g *codeGenerator) verifyCachedUniqueHit(schema *entitySchema, idxName stri
 	g.addLine(indent + "\t_vOK = _vFakeDelete == \"0\"")
 	g.addLine(indent + "}")
 }
+
+// generateGetAll emits the read behind `orm:"cached"`: every row of a small, rarely written table,
+// served without touching MySQL. The id set lives in one Redis list under the row-cache prefix and
+// the rows themselves come back through GetByIDs, so the two tiers stay the single source of truth
+// for a row's contents - this cache only ever answers "which ids exist".
+func (g *codeGenerator) generateGetAll(schema *entitySchema, names *entityNames) {
+	g.addImport("strconv")
+	g.addLine(fmt.Sprintf("func (p %s) GetAll(ctx fluxaorm.Context) ([]*%s, error) {", names.providerNamePrivate, names.entityName))
+
+	// Inside a transaction MySQL reads go through the tx, so a cached set would hide the write that
+	// is in flight and a fill would publish uncommitted ids. Same gate as GetByID.
+	g.addLine("\t_useCache := !ctx.InTransaction()")
+	g.addLine("\tif _useCache {")
+	g.addLine("\t\t_cached, err := ctx.Engine().Redis(p.redisCode).LRange(ctx, p.redisAllKey, 0, -1)")
+	g.addLine("\t\tif err != nil {")
+	g.addLine("\t\t\treturn nil, err")
+	g.addLine("\t\t}")
+	g.addLine("\t\tif len(_cached) > 0 && _cached[0] == p.redisCacheStamp {")
+	g.addLine("\t\t\t_ids := make([]uint64, 0, len(_cached)-1)")
+	g.addLine("\t\t\t_ok := true")
+	g.addLine("\t\t\tfor _, _raw := range _cached[1:] {")
+	g.addLine("\t\t\t\t_id, _parseErr := strconv.ParseUint(_raw, 10, 64)")
+	g.addLine("\t\t\t\tif _parseErr != nil {")
+	g.addLine("\t\t\t\t\t_ok = false")
+	g.addLine("\t\t\t\t\tbreak")
+	g.addLine("\t\t\t\t}")
+	g.addLine("\t\t\t\t_ids = append(_ids, _id)")
+	g.addLine("\t\t\t}")
+	g.addLine("\t\t\tif _ok {")
+	g.addLine("\t\t\t\treturn p.GetByIDs(ctx, _ids...)")
+	g.addLine("\t\t\t}")
+	g.addLine("\t\t}")
+	g.addLine("\t}")
+
+	selectSQL := fmt.Sprintf("SELECT `ID` FROM `%s`", schema.tableName)
+	if schema.hasFakeDelete {
+		selectSQL += " WHERE `FakeDelete` = 0"
+	}
+	selectSQL += " ORDER BY `ID`"
+
+	g.addLine(fmt.Sprintf("\trows, cl, err := ctx.DB(p.dbCode).Query(ctx, %q)", selectSQL))
+	g.addLine("\tif err != nil {")
+	g.addLine("\t\treturn nil, err")
+	g.addLine("\t}")
+	g.addLine("\tvar ids []uint64")
+	g.addLine("\tfor rows.Next() {")
+	g.addLine("\t\tvar id uint64")
+	g.addLine("\t\tif err = rows.Scan(&id); err != nil {")
+	g.addLine("\t\t\tcl()")
+	g.addLine("\t\t\treturn nil, err")
+	g.addLine("\t\t}")
+	g.addLine("\t\tids = append(ids, id)")
+	g.addLine("\t}")
+	g.addLine("\tcl()")
+
+	// The stamp is always element 0, so an empty table still caches as a one-element list and is
+	// told apart from a cold key. It also means RowCacheRewriteScript never RPUSHes nothing.
+	g.addLine("\tif _useCache && len(ids) <= fluxaorm.MaxCachedAllRows {")
+	g.addLine("\t\t_evalArgs := make([]any, 0, len(ids)+2)")
+	g.addLine("\t\t_evalArgs = append(_evalArgs, int(fluxaorm.EntityCacheTTL.Seconds()), p.redisCacheStamp)")
+	g.addLine("\t\tfor _, id := range ids {")
+	g.addLine("\t\t\t_evalArgs = append(_evalArgs, strconv.FormatUint(id, 10))")
+	g.addLine("\t\t}")
+	g.addLine("\t\t_, err = ctx.Engine().Redis(p.redisCode).Eval(ctx, fluxaorm.RowCacheRewriteScript, []string{p.redisAllKey}, _evalArgs...)")
+	g.addLine("\t\tif err != nil {")
+	g.addLine("\t\t\treturn nil, err")
+	g.addLine("\t\t}")
+	g.addLine("\t}")
+
+	g.addLine("\treturn p.GetByIDs(ctx, ids...)")
+	g.addLine("}")
+	g.addLine("")
+}

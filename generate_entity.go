@@ -36,6 +36,9 @@ func (g *codeGenerator) generateCodeForEntity(schema *entitySchema) error {
 	g.generateGetByID(schema, names)
 	g.generateMustGetByID(names)
 	g.generateGetByIDs(schema, names)
+	if schema.cacheAll {
+		g.generateGetAll(schema, names)
+	}
 	g.generateNewMethods(schema, names)
 	g.generateSearchOne(schema, names)
 	g.generateSearchMany(schema, names)

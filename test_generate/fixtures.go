@@ -105,6 +105,17 @@ type generateEntityWithTimestampsRedis struct {
 	UpdatedAt time.Time
 }
 
+type generateEntityCachedAll struct {
+	ID   uint64 `orm:"redisCache;cached"`
+	Name string `orm:"required"`
+}
+
+type generateEntityCachedAllFakeDelete struct {
+	ID         uint64 `orm:"redisCache;cached"`
+	FakeDelete bool
+	Name       string `orm:"required"`
+}
+
 type generateEntityCachedUnique struct {
 	ID    uint64 `orm:"redisCache"`
 	Name  string
@@ -229,6 +240,7 @@ func FixtureEntities() []any {
 		generateEntity{}, generateEntityNoRedis{}, generateReferenceEntity{},
 		generateEntityWithSearch{}, generateEntityWithTimestamps{}, generateEntityWithTimestampsRedis{},
 		generateEntityCachedUnique{}, generateEntityCachedUniqueNoRedis{}, generateEntityCachedUniqueFakeDelete{},
+		generateEntityCachedAll{}, generateEntityCachedAllFakeDelete{},
 		generateEntityWithIndex{}, generateEntityEnumRef{}, generateEntityDirty{}, generateEntityDirtyB{},
 		generateEntityOutbox{}, generateEntityStoreOnly{}, fluxaorm.CDCOutboxEntity{},
 		fluxaorm.JobRunEntity{},
