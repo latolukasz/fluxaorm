@@ -473,7 +473,7 @@ func (g *codeGenerator) createGetterSetterSetNullable(schema *entitySchema, fiel
 	g.addLine("\t\t\tif hasInDB {")
 	g.addLine("\t\t\t\tvNullable := v.(sql.NullString)")
 	g.addLine("\t\t\t\tif vNullable.Valid {")
-	g.addLine("\t\t\t\t\tsliced := strings.Split(v.(string), \",\")")
+	g.addLine("\t\t\t\t\tsliced := strings.Split(vNullable.String, \",\")")
 	g.addLine(fmt.Sprintf("\t\t\t\t\tvalue := make([]%s, len(sliced))", setName))
 	g.addLine("\t\t\t\t\tfor k, code := range sliced {")
 	g.addLine(fmt.Sprintf("\t\t\t\t\t\tvalue[k] = %s(code)", setName))
