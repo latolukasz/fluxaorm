@@ -22,7 +22,7 @@ To run a single test:
 go test -race -p 1 -run TestName ./...
 ```
 
-Tests require running MySQL and Redis services. Use `docker/docker-compose.yml` for setup (requires `LOCAL_IP`, `MYSQL_PORT`, `REDIS_PORT` env vars). MySQL 8.0 on port 3306 and Redis 8.2.2 on port 6379.
+Tests require running MySQL, Redis (8.2 or newer), ClickHouse and NATS with JetStream enabled. Use `docker/docker-compose.yml` with `docker/.env` for setup (env vars `LOCAL_IP`, `MYSQL_PORT`, `REDIS_PORT`, `CLICKHOUSE_PORT`, `CLICKHOUSE_HTTP_PORT`, `NATS_PORT`, `NATS_HTTP_PORT`). The tests dial the ports from `docker/.env`: MySQL `localhost:3397` (database `test`, `root:root`), Redis `localhost:6395` (db 0 and db 1), ClickHouse `localhost:9942` (HTTP `9943`), NATS `nats://localhost:9944` (monitoring `9945`).
 
 `test_generate/get_by_ids_benchmark_test.go` adds `BenchmarkGetByIDs10` with `ContextCacheHit`, `RedisCacheHit` and `MySQL` cases. It fetches 10 existing IDs from equivalent 27-column fixtures with all nullable fields populated; one operation is the whole batch. Only `GetByIDs` is timed: fixture/connection setup, context creation, getters and SQL/Redis path checks are outside the measurement. The Redis and MySQL cases disable the context cache; MySQL uses the fixture without Redis caching, excluding Redis miss/fill work.
 
@@ -42,11 +42,11 @@ Pushes to `v2` and release tags matching `v2.*` run `.github/workflows/release.y
 
 ## Architecture
 
-FLUXA ORM is a **code-generation-based** Go ORM targeting MySQL + Redis 8.0. The main package is everything at the root level (`github.com/latolukasz/fluxaorm/v2`).
+FLUXA ORM is a **code-generation-based** Go ORM targeting MySQL + Redis 8.2+ (`Validate()` rejects older Redis). Go 1.25. The main package is everything at the root level (`github.com/latolukasz/fluxaorm/v2`).
 
 ### Core Flow
 
-1. **Registry** (`registry.go`) — configure entity types, connection pools (MySQL, Redis, ClickHouse, NATS), and plugins via `NewRegistry()`
+1. **Registry** (`registry.go`) — configure entity types, connection pools (MySQL, Redis, ClickHouse, NATS), ClickHouse tables, NATS streams/consumers, `ConsumerDef`s, tasks and metrics via `NewRegistry()`. There is no plugin system.
 2. **Engine** (`engine.go`) — immutable runtime object created via `registry.Validate()`; holds connection pools and all entity schemas
 3. **Context** (`orm.go`) — created from Engine per-request (`Context` interface / `ormImplementation`); the main API surface for ORM operations
 
@@ -78,7 +78,10 @@ Entity registration: `registry.RegisterEntity(&MyEntity{})`, then call `registry
 - `generate_fields.go` — per-field SQL row and Redis serialisation helpers
 - `generate_getters.go` / `generate_getters_nullable.go` — typed getters & setters
 - `generate_provider.go` — `XxxProvider` singleton, `XxxSQLRow`, `redisValues()`
-- `generate_query.go` — `GetByID`, `GetByIDs`, `Search*`, `SearchIDs*`, `New`, `Delete`, etc.
+- `generate_typed_fields.go` — the typed `Fields` descriptor struct on the provider
+- `generate_query.go` — `GetByID`, `GetByIDs`, `Search*`, `New`, etc.
+- `generate_providers.go` — `providers.go` with `AllProviders`
+- `generate_consumer.go` — per-entity CDC publisher block, `consumers.go` and one `<name>_consumer.go` per declared consumer (only when consumers/tasks are registered)
 
 **Generated output structure (per entity):**
 
@@ -148,7 +151,7 @@ Entities opt in to Redis Search (FT.SEARCH) indexing via struct tags on the ID f
 - Index name = `<tableName>_<8-char FNV hash of field definitions>` — index is recreated when schema changes
 - Hash key prefix = `<5-char FNV hash of "<tableName>:search">:h:` + entity ID
 - `PrivateFlush()` maintains Redis hashes: Del+HSet on INSERT/UPDATE, Del on DELETE; soft-deleted entities are removed from the index
-- Generated query methods: `SearchInRedis`, `SearchOneInRedis`, `SearchInRedisWithCount`, `SearchIDsInRedis`, `SearchIDsInRedisWithCount`
+- Generated query methods: `SearchOneInRedis`, `SearchManyInRedis`, `SearchManyInRedisWithTotal`, `ReindexRedisSearch`
 - Type mapping: numeric types + bool + time.Time + Reference → NUMERIC; string → TEXT; enum/set → TAG
 
 ### Key Supporting Files
@@ -181,14 +184,17 @@ Entities opt in to Redis Search (FT.SEARCH) indexing via struct tags on the ID f
 - `locker.go` — distributed locking via `bsm/redislock`
 - `metrics.go` — Prometheus metrics for queries, cache hits/misses
 - `where.go` — typed WHERE clause builder
-- `test.go` — test utilities (`PrepareTables`, mock structures)
+- `test.go` — test utilities (`PrepareTables`, `PrepareTablesWithNats`, `PrepareTablesWithConsumers`, mock structures)
 
 ### Test Fixtures
 
 `test_generate/` contains:
-- `generate_test.go` — entity struct definitions used as generator input + `TestGenerate` which calls `Generate()` and then exercises the output
-- `entities/` — committed generated output (must be kept up-to-date by re-running `TestGenerate`)
-- `entities/enums/` — generated enum types
+- `fixtures.go` — entity structs, `ConsumerDef`s and task fixtures used as generator input (`FixtureEntities`, `FixtureConsumers`, `FixtureTasks`, `FixtureTaskConsumers`, `FixtureRegistry`). They live outside `_test.go` so the generator can be re-run without compiling the test binary
+- `models/` — JSON struct types referenced by fixture fields
+- `genboot/main.go` — `go run ./test_generate/genboot` validates the fixtures against the local services, applies the alters and regenerates `test_generate/entities/`
+- `entities/` — generated output, **git-ignored** (`.gitignore`); regenerate it with `genboot` before running the `test_generate` tests
+- `generate_test.go` and the other `*_test.go` files — exercise the generated output
+- `test_fixtures/jobtasks/` and `test_fixtures/media/jobtasks/` (repo root) — task structs used by the task/consumer fixtures
 
 ### Concurrency
 
