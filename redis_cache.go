@@ -11,7 +11,7 @@ import (
 
 	"github.com/redis/go-redis/v9"
 
-	"github.com/shamaton/msgpack"
+	"github.com/shamaton/msgpack/v3"
 )
 
 const metricsOperationOther = "other"
