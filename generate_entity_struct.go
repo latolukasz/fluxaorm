@@ -1245,7 +1245,8 @@ func (g *codeGenerator) generatePrivateFlushed(schema *entitySchema, names *enti
 
 // generatePrivateReload emits the in-place refresh Context.Reload drives. It
 // reads MySQL directly - never the Redis row cache, which is what a caller
-// reloading under a lock is trying not to trust.
+// reloading under a lock is trying not to trust - and drops the cached row, so a
+// copy a racing read parked there cannot outlive the reload.
 func (g *codeGenerator) generatePrivateReload(schema *entitySchema, names *entityNames) {
 	g.addLine(fmt.Sprintf("func (e *%s) PrivateReload() (bool, error) {", names.entityName))
 	g.addLine("\tif e.snapshot { return false, fluxaorm.ErrEntityReadOnly }")
@@ -1263,6 +1264,16 @@ func (g *codeGenerator) generatePrivateReload(schema *entitySchema, names *entit
 	g.addLine("\tif err != nil {")
 	g.addLine("\t\treturn false, err")
 	g.addLine("\t}")
+	if schema.hasRedisCache {
+		g.addImport("strconv")
+		keys := fmt.Sprintf("%s.redisCachePrefix+strconv.FormatUint(e.id, 10)", names.providerName)
+		if schema.cacheAll {
+			keys += fmt.Sprintf(", %s.redisAllKey", names.providerName)
+		}
+		g.addLine(fmt.Sprintf("\tif err := e.ctx.Engine().Redis(%s.redisCode).Del(e.ctx, %s); err != nil {", names.providerName, keys))
+		g.addLine("\t\treturn false, err")
+		g.addLine("\t}")
+	}
 	g.addLine("\tif !found {")
 	g.addLine("\t\treturn false, nil")
 	g.addLine("\t}")

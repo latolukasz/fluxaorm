@@ -126,6 +126,7 @@ The Redis `LRange` runtime keeps its native `StringSliceCmd` and argument array 
 `ctx.Reload(entities ...Entity) error` re-reads each entity **in place**. The pointer is unchanged, so every holder of the row — including the identity map — sees the fresh values. That is the point: evicting and re-reading would instead produce a *second* handle on one row, with its own origin snapshot and bind, which is the lost-update the identity map exists to prevent.
 
 - Bypasses the Redis row cache, always MySQL. A cached row is exactly what a caller reloading under a lock refuses to trust.
+- Drops the row's Redis key (and the all-ids key on a `cached` entity), whether or not the row is found, inside a transaction too. Save's double delete narrows but cannot close the window where a read that straddles a commit refills the key with the pre-commit row; without the drop that copy outlives the reload until `EntityCacheTTL`, and every cached read keeps serving it. Cached unique-index keys are not dropped — addressing them needs the old index values.
 - Inside a transaction it reads through that transaction, so it sees the transaction's own writes.
 - Refuses an entity with unsaved changes (`ErrEntityUnsavedChanges`) — reload discards them, and doing that silently to a handle an outer caller is still mutating is the same bug in another shape.
 - Refuses a `new` entity (`ErrEntityNotPersisted`); reports a deleted row as `ErrEntityVanished`.
@@ -136,7 +137,7 @@ The Redis `LRange` runtime keeps its native `StringSliceCmd` and argument array 
 - Getters read from (priority): `databaseBind` → `originRedisValues` → `originDatabaseValues`
 - Setters compare new value against current origin; no-op if unchanged; otherwise update bind maps
 - `PrivateFlush()` enqueues INSERT/UPDATE/DELETE on the DB pipeline. It does **not** write the row cache back: `Save` invalidates the stale keys instead, before the statement and again after commit.
-- `PrivateReload()` replaces `originDatabaseValues` from MySQL and clears `originRedisValues`, so a getter cannot keep answering from a stale redis-loaded row.
+- `PrivateReload()` replaces `originDatabaseValues` from MySQL and clears `originRedisValues`, so a getter cannot keep answering from a stale redis-loaded row. It also deletes the row's Redis key so the next cached read refills from MySQL.
 
 ### Repeated Saves and Transaction State
 

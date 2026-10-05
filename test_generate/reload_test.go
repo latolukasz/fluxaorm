@@ -198,3 +198,38 @@ func TestReloadRefreshesTheOriginSnapshot(t *testing.T) {
 	assert.NoError(t, err)
 	assert.Equal(t, "V1", persisted.GetName())
 }
+
+// A read that straddles another write's commit can park the pre-commit row in the
+// cache past both of Save's deletes. Reload is where a caller learns the truth, so
+// it must not leave that copy behind for the next cached read.
+func TestReloadDropsTheStaleCachedRow(t *testing.T) {
+	ctx := fluxaorm.PrepareTables(t, fluxaorm.NewRegistry(), generateEntityWithTimestampsRedis{})
+
+	e := entities.GenerateEntityWithTimestampsRedisProvider.New(ctx)
+	e.SetName("V1")
+	assert.NoError(t, ctx.Save(e))
+
+	cachedRead := func() string {
+		reader := ctx.Clone()
+		loaded, found, err := entities.GenerateEntityWithTimestampsRedisProvider.GetByID(reader, e.GetID())
+		assert.NoError(t, err)
+		assert.True(t, found)
+
+		return loaded.GetName()
+	}
+
+	assert.Equal(t, "V1", cachedRead(), "the read fills the row cache")
+
+	_, err := ctx.DB(fluxaorm.DefaultPoolCode).Exec(ctx,
+		"UPDATE `generateEntityWithTimestampsRedis` SET `Name` = ? WHERE `ID` = ?", "V2", e.GetID())
+	assert.NoError(t, err)
+	assert.Equal(t, "V1", cachedRead(), "precondition: the cache serves the stale row")
+
+	holder := ctx.Clone()
+	handle, _, err := entities.GenerateEntityWithTimestampsRedisProvider.GetByID(holder, e.GetID())
+	assert.NoError(t, err)
+	assert.NoError(t, holder.Reload(handle))
+	assert.Equal(t, "V2", handle.GetName())
+
+	assert.Equal(t, "V2", cachedRead(), "after the reload a cached read must return the committed row")
+}
