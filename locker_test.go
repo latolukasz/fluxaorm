@@ -53,3 +53,54 @@ func TestLocker(t *testing.T) {
 	_, _, err = l.Obtain(orm, "test_key", time.Second, time.Second*2)
 	assert.EqualError(t, err, "waitTimeout can't be higher than ttl")
 }
+
+func TestLockerObtainSoonAfterRelease(t *testing.T) {
+	registry := NewRegistry()
+	registry.RegisterRedis("localhost:6395", 15, DefaultPoolCode, nil)
+	validatedRegistry, err := registry.Validate()
+	assert.Nil(t, err)
+	orm := validatedRegistry.NewContext(context.Background())
+	err = orm.Engine().Redis(DefaultPoolCode).FlushDB(orm)
+	assert.NoError(t, err)
+
+	l := orm.Engine().Redis(DefaultPoolCode).GetLocker()
+	lock, has, err := l.Obtain(orm, "test_key", time.Second*10, 0)
+	assert.NoError(t, err)
+	assert.True(t, has)
+
+	go func() {
+		time.Sleep(time.Millisecond * 30)
+		lock.Release(orm)
+	}()
+
+	start := time.Now()
+	waiter, has, err := l.Obtain(orm, "test_key", time.Second*10, time.Second*2)
+	assert.NoError(t, err)
+	assert.True(t, has)
+	assert.Less(t, time.Since(start), time.Millisecond*200)
+	waiter.Release(orm)
+}
+
+func TestLockerWaitTimeout(t *testing.T) {
+	registry := NewRegistry()
+	registry.RegisterRedis("localhost:6395", 15, DefaultPoolCode, nil)
+	validatedRegistry, err := registry.Validate()
+	assert.Nil(t, err)
+	orm := validatedRegistry.NewContext(context.Background())
+	err = orm.Engine().Redis(DefaultPoolCode).FlushDB(orm)
+	assert.NoError(t, err)
+
+	l := orm.Engine().Redis(DefaultPoolCode).GetLocker()
+	lock, has, err := l.Obtain(orm, "test_key", time.Second*10, 0)
+	assert.NoError(t, err)
+	assert.True(t, has)
+	defer lock.Release(orm)
+
+	start := time.Now()
+	_, has, err = l.Obtain(orm, "test_key", time.Second*10, time.Millisecond*300)
+	elapsed := time.Since(start)
+	assert.NoError(t, err)
+	assert.False(t, has)
+	assert.GreaterOrEqual(t, elapsed, time.Millisecond*300)
+	assert.Less(t, elapsed, time.Millisecond*500)
+}

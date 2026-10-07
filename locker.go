@@ -10,6 +10,8 @@ import (
 	"github.com/pkg/errors"
 )
 
+const lockMaxRetryBackoff = 50 * time.Millisecond
+
 type lockerClient interface {
 	Obtain(context context.Context, key string, ttl time.Duration, opt *redislock.Options) (*redislock.Lock, error)
 }
@@ -43,22 +45,20 @@ func (l *Locker) Obtain(ctx Context, key string, ttl time.Duration, waitTimeout 
 	}
 	hasLogger, _ := ctx.getRedisLoggers()
 	var options *redislock.Options
+	obtainCtx := ctx.Context()
 	if waitTimeout > 0 {
-		options = &redislock.Options{}
-		interval := time.Second
-		limit := 1
-		if waitTimeout < interval {
-			interval = waitTimeout
-		} else {
-			limit = int(waitTimeout / time.Second)
-		}
-		options.RetryStrategy = redislock.LimitRetry(redislock.LinearBackoff(interval), limit)
+		// A lock is usually held for milliseconds, so retry often instead of sleeping a fixed interval.
+		options = &redislock.Options{RetryStrategy: redislock.ExponentialBackoff(0, lockMaxRetryBackoff)}
+		var cancel context.CancelFunc
+		obtainCtx, cancel = context.WithTimeout(obtainCtx, waitTimeout)
+		defer cancel()
 	}
 	start := time.Now()
-	redisLock, err := l.locker.Obtain(ctx.Context(), key, ttl, options)
+	redisLock, err := l.locker.Obtain(obtainCtx, key, ttl, options)
 	end := time.Since(start)
 	if err != nil {
-		if errors.Is(err, redislock.ErrNotObtained) {
+		waitExpired := errors.Is(obtainCtx.Err(), context.DeadlineExceeded) && ctx.Context().Err() == nil
+		if errors.Is(err, redislock.ErrNotObtained) || waitExpired {
 			if hasLogger {
 				message := fmt.Sprintf("LOCK OBTAIN %s TTL %s WAIT %s", key, ttl.String(), waitTimeout.String())
 				l.fillLogFields(ctx, "LOCK OBTAIN", message, end, true, nil)
