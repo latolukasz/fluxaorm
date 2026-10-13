@@ -58,7 +58,7 @@ func TestAfterUpdateCallback(t *testing.T) {
 	assert.False(t, updateCalled)
 
 	// Now update
-	e, _, _ = entities.GenerateEntityWithTimestampsProvider.GetByID(ctx, e.GetID())
+	e, _ = entities.GenerateEntityWithTimestampsProvider.GetByID(ctx, e.GetID())
 	e.SetName("Updated")
 	assert.NoError(t, ctx.Save(e))
 
@@ -83,7 +83,7 @@ func TestAfterDeleteCallback(t *testing.T) {
 	e.SetName("DeleteTest")
 	assert.NoError(t, ctx.Save(e))
 
-	e, _, _ = entities.GenerateEntityWithTimestampsProvider.GetByID(ctx, e.GetID())
+	e, _ = entities.GenerateEntityWithTimestampsProvider.GetByID(ctx, e.GetID())
 	assert.NoError(t, ctx.Delete(e))
 
 	assert.NotNil(t, callbackEntity)
@@ -108,7 +108,7 @@ func TestAfterDeleteCallbackFakeDelete(t *testing.T) {
 	e.SetName("FakeDeleteTest")
 	assert.NoError(t, ctx.Save(e))
 
-	e, _, _ = entities.GenerateReferenceEntityProvider.GetByID(ctx, e.GetID())
+	e, _ = entities.GenerateReferenceEntityProvider.GetByID(ctx, e.GetID())
 	assert.NoError(t, ctx.Delete(e))
 
 	// AfterDelete should fire, not AfterUpdate
@@ -124,9 +124,8 @@ func TestAfterWriteCallbacksNoHandler(t *testing.T) {
 	e.SetName("NoHandler")
 	assert.NoError(t, ctx.Save(e))
 
-	e, found, err := entities.GenerateEntityWithTimestampsProvider.GetByID(ctx, e.GetID())
+	e, err := entities.GenerateEntityWithTimestampsProvider.GetByID(ctx, e.GetID())
 	assert.NoError(t, err)
-	assert.True(t, found)
 	assert.Equal(t, "NoHandler", e.GetName())
 }
 
@@ -144,7 +143,7 @@ func TestAfterUpdateExcludesUpdatedAt(t *testing.T) {
 	assert.NoError(t, ctx.Save(e))
 
 	time.Sleep(time.Second)
-	e, _, _ = entities.GenerateEntityWithTimestampsProvider.GetByID(ctx, e.GetID())
+	e, _ = entities.GenerateEntityWithTimestampsProvider.GetByID(ctx, e.GetID())
 	e.SetName("Updated")
 	assert.NoError(t, ctx.Save(e))
 
@@ -210,8 +209,7 @@ func TestAfterCallbackErrorPropagation(t *testing.T) {
 	assert.ErrorAs(t, err, &postCommit)
 
 	// Entity was still persisted to DB (callback runs after DB+Redis writes)
-	e2, found, err := entities.GenerateEntityWithTimestampsProvider.GetByID(ctx, e.GetID())
+	e2, err := entities.GenerateEntityWithTimestampsProvider.GetByID(ctx, e.GetID())
 	assert.NoError(t, err)
-	assert.True(t, found)
 	assert.Equal(t, "ErrorTest", e2.GetName())
 }

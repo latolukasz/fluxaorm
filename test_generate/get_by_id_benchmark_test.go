@@ -37,25 +37,25 @@ func BenchmarkGetByID1(b *testing.B) {
 
 func benchmarkGetByID1[T getByIDsBenchmarkEntity](b *testing.B, engine fluxaorm.Engine,
 	ids []uint64, referenceID uint64, disableContextCache bool, wantSQL, wantRedis int,
-	get func(fluxaorm.Context, uint64) (T, bool, error), sink *T,
+	get func(fluxaorm.Context, uint64) (T, error), sink *T,
 ) {
 	ctx := engine.NewContext(context.Background())
 	if disableContextCache {
 		ctx.DisableContextCache()
 	}
 	id := ids[0]
-	entity, found, err := get(ctx, id)
-	if err != nil || !found {
-		b.Fatalf("warm GetByID: found=%t, err=%v", found, err)
+	entity, err := get(ctx, id)
+	if err != nil {
+		b.Fatalf("warm GetByID: err=%v", err)
 	}
 	checkGetByIDs10(b, []T{entity}, ids, referenceID)
 
 	b.ReportAllocs()
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		*sink, found, err = get(ctx, id)
-		if err != nil || !found {
-			b.Fatalf("GetByID: found=%t, err=%v", found, err)
+		*sink, err = get(ctx, id)
+		if err != nil {
+			b.Fatalf("GetByID: err=%v", err)
 		}
 	}
 	b.StopTimer()
@@ -66,9 +66,9 @@ func benchmarkGetByID1[T getByIDsBenchmarkEntity](b *testing.B, engine fluxaorm.
 	sqlLog, redisLog := &fluxaorm.MockLogHandler{}, &fluxaorm.MockLogHandler{}
 	ctx.RegisterQueryLogger(sqlLog, fluxaorm.QueryLoggerOptions{MySQL: true})
 	ctx.RegisterQueryLogger(redisLog, fluxaorm.QueryLoggerOptions{Redis: true})
-	entity, found, err = get(ctx, id)
-	if err != nil || !found {
-		b.Fatalf("verification GetByID: found=%t, err=%v", found, err)
+	entity, err = get(ctx, id)
+	if err != nil {
+		b.Fatalf("verification GetByID: err=%v", err)
 	}
 	checkGetByIDs10(b, []T{entity}, ids, referenceID)
 	if countSelects(sqlLog) != wantSQL || len(redisLog.Logs) != wantRedis {

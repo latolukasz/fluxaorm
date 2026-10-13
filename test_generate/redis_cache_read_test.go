@@ -42,9 +42,8 @@ func TestRedisCacheServesTheSecondRead(t *testing.T) {
 	sql := &fluxaorm.MockLogHandler{}
 	reader.RegisterQueryLogger(sql, fluxaorm.QueryLoggerOptions{MySQL: true})
 
-	first, found, err := entities.GenerateEntityWithTimestampsRedisProvider.GetByID(reader, e.GetID())
+	first, err := entities.GenerateEntityWithTimestampsRedisProvider.GetByID(reader, e.GetID())
 	assert.NoError(t, err)
-	assert.True(t, found)
 	assert.Equal(t, wantName, first.GetName())
 	assert.Equal(t, 1, countSelects(sql), "the write invalidated the key, so the first read must miss and hit MySQL")
 
@@ -57,9 +56,8 @@ func TestRedisCacheServesTheSecondRead(t *testing.T) {
 
 	sql.Clear()
 
-	second, found, err := entities.GenerateEntityWithTimestampsRedisProvider.GetByID(reader, e.GetID())
+	second, err := entities.GenerateEntityWithTimestampsRedisProvider.GetByID(reader, e.GetID())
 	assert.NoError(t, err)
-	assert.True(t, found)
 	assert.Equal(t, 0, countSelects(sql), "the second read must be served from Redis, not MySQL")
 
 	// Every column has to survive the round trip through originRedisValues, not just the one asserted
@@ -81,9 +79,8 @@ func TestRedisCacheHitRequiresMatchingStamp(t *testing.T) {
 	reader := ctx.Clone()
 	reader.DisableContextCache()
 
-	_, found, err := entities.GenerateEntityWithTimestampsRedisProvider.GetByID(reader, e.GetID())
+	_, err := entities.GenerateEntityWithTimestampsRedisProvider.GetByID(reader, e.GetID())
 	assert.NoError(t, err)
-	assert.True(t, found)
 
 	redis := ctx.Engine().Redis(fluxaorm.DefaultPoolCode)
 	key := entities.GenerateEntityWithTimestampsRedisProvider.RedisCachePrefix() + strconv.FormatUint(e.GetID(), 10)
@@ -93,9 +90,8 @@ func TestRedisCacheHitRequiresMatchingStamp(t *testing.T) {
 	sql := &fluxaorm.MockLogHandler{}
 	reader.RegisterQueryLogger(sql, fluxaorm.QueryLoggerOptions{MySQL: true})
 
-	reloaded, found, err := entities.GenerateEntityWithTimestampsRedisProvider.GetByID(reader, e.GetID())
+	reloaded, err := entities.GenerateEntityWithTimestampsRedisProvider.GetByID(reader, e.GetID())
 	assert.NoError(t, err)
-	assert.True(t, found)
 	assert.Equal(t, 1, countSelects(sql), "a stamp mismatch must fall through to MySQL")
 	assert.Equal(t, "Stamped", reloaded.GetName())
 }
@@ -123,9 +119,8 @@ func TestStampMismatchFallsThroughAndRewrites(t *testing.T) {
 	sql := &fluxaorm.MockLogHandler{}
 	reader.RegisterQueryLogger(sql, fluxaorm.QueryLoggerOptions{MySQL: true})
 
-	loaded, found, err := entities.GenerateEntityWithTimestampsRedisProvider.GetByID(reader, e.GetID())
+	loaded, err := entities.GenerateEntityWithTimestampsRedisProvider.GetByID(reader, e.GetID())
 	assert.NoError(t, err)
-	assert.True(t, found)
 	assert.Equal(t, "Shaped", loaded.GetName(), "the foreign value list must not be read")
 	assert.Equal(t, 1, countSelects(sql), "a stamp mismatch must fall through to MySQL")
 
@@ -134,7 +129,7 @@ func TestStampMismatchFallsThroughAndRewrites(t *testing.T) {
 	second.DisableContextCache()
 	sql2 := &fluxaorm.MockLogHandler{}
 	second.RegisterQueryLogger(sql2, fluxaorm.QueryLoggerOptions{MySQL: true})
-	_, _, err = entities.GenerateEntityWithTimestampsRedisProvider.GetByID(second, e.GetID())
+	_, err = entities.GenerateEntityWithTimestampsRedisProvider.GetByID(second, e.GetID())
 	assert.NoError(t, err)
 	assert.Equal(t, 0, countSelects(sql2), "the rewrite must have restored a usable entry")
 }
@@ -160,7 +155,7 @@ func TestConcurrentFillsLeaveOneCopy(t *testing.T) {
 	assert.NoError(t, redis.Del(ctx, key))
 	warm := ctx.Clone()
 	warm.DisableContextCache()
-	_, _, err := entities.GenerateEntityWithTimestampsRedisProvider.GetByID(warm, e.GetID())
+	_, err := entities.GenerateEntityWithTimestampsRedisProvider.GetByID(warm, e.GetID())
 	assert.NoError(t, err)
 	oneCopy, err := redis.LRange(ctx, key, 0, -1)
 	assert.NoError(t, err)
@@ -183,7 +178,7 @@ func TestConcurrentFillsLeaveOneCopy(t *testing.T) {
 		go func(reader fluxaorm.Context) {
 			defer wg.Done()
 			<-start
-			_, _, _ = entities.GenerateEntityWithTimestampsRedisProvider.GetByID(reader, e.GetID())
+			_, _ = entities.GenerateEntityWithTimestampsRedisProvider.GetByID(reader, e.GetID())
 		}(readers[i])
 	}
 	close(start)

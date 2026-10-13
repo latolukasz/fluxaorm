@@ -40,11 +40,10 @@ func TestCachedUniqueIndexRejectsAColludingKey(t *testing.T) {
 	reader := ctx.Clone()
 	reader.DisableContextCache()
 
-	found, has, err := entities.GenerateEntityCachedUniqueProvider.SearchOne(reader, fluxaorm.NewQuery().Filter(
+	found, err := entities.GenerateEntityCachedUniqueProvider.SearchOne(reader, fluxaorm.NewQuery().Filter(
 		entities.GenerateEntityCachedUniqueProvider.Fields.Email.Is("attacker@example.com"),
 	))
 	assert.NoError(t, err)
-	assert.True(t, has)
 	assert.Equal(t, attacker.GetID(), found.GetID(), "a colliding key must not return the other row")
 	assert.Equal(t, "attacker@example.com", found.GetEmail())
 }
@@ -73,12 +72,11 @@ func TestCachedUniqueIndexVerifiesEveryColumnOfACompositeIndex(t *testing.T) {
 	reader := ctx.Clone()
 	reader.DisableContextCache()
 
-	found, has, err := entities.GenerateEntityCachedUniqueProvider.SearchOne(reader, fluxaorm.NewQuery().Filter(
+	found, err := entities.GenerateEntityCachedUniqueProvider.SearchOne(reader, fluxaorm.NewQuery().Filter(
 		entities.GenerateEntityCachedUniqueProvider.Fields.Name.Is("Alice"),
 		entities.GenerateEntityCachedUniqueProvider.Fields.Age.Eq(uint64(40)),
 	))
 	assert.NoError(t, err)
-	assert.True(t, has)
 	assert.Equal(t, sameName.GetID(), found.GetID(), "the second column of the index must be verified too")
 	assert.EqualValues(t, 40, found.GetAge())
 }
@@ -99,9 +97,8 @@ func TestCachedUniqueIndexIgnoresAFakeDeletedHit(t *testing.T) {
 	reader := ctx.Clone()
 	reader.DisableContextCache()
 
-	_, has, err := entities.GenerateEntityCachedUniqueFakeDeleteProvider.SearchOne(reader, fluxaorm.NewQuery().Filter(
+	_, err := entities.GenerateEntityCachedUniqueFakeDeleteProvider.SearchOne(reader, fluxaorm.NewQuery().Filter(
 		entities.GenerateEntityCachedUniqueFakeDeleteProvider.Fields.Name.Is("Gone"),
 	))
-	assert.NoError(t, err)
-	assert.False(t, has, "a fake-deleted row must not be served from the index cache")
+	assert.ErrorAs(t, err, new(*fluxaorm.NotFoundError))
 }

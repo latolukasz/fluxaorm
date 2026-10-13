@@ -24,9 +24,8 @@ func TestSaveIsImmediate(t *testing.T) {
 	// A second context shares no unit of work and no identity map, so finding
 	// the row there proves the write already reached MySQL.
 	other := ctx.Clone()
-	loaded, found, err := entities.GenerateEntityWithTimestampsProvider.GetByID(other, e.GetID())
+	loaded, err := entities.GenerateEntityWithTimestampsProvider.GetByID(other, e.GetID())
 	assert.NoError(t, err)
-	assert.True(t, found)
 	assert.Equal(t, "Immediate", loaded.GetName())
 }
 
@@ -72,9 +71,8 @@ func TestTransactionCommits(t *testing.T) {
 	}))
 	assert.False(t, ctx.InTransaction())
 
-	loaded, found, err := entities.GenerateEntityWithTimestampsProvider.GetByID(ctx.Clone(), id)
+	loaded, err := entities.GenerateEntityWithTimestampsProvider.GetByID(ctx.Clone(), id)
 	assert.NoError(t, err)
-	assert.True(t, found)
 	assert.Equal(t, "Committed", loaded.GetName())
 }
 
@@ -185,9 +183,8 @@ func TestNoCacheFillInsideTransaction(t *testing.T) {
 
 	missingID := uint64(123456789)
 	err := ctx.Transaction(func(tx fluxaorm.Context) error {
-		_, found, gErr := entities.GenerateEntityWithTimestampsRedisProvider.GetByID(tx, missingID)
-		assert.NoError(t, gErr)
-		assert.False(t, found)
+		_, gErr := entities.GenerateEntityWithTimestampsRedisProvider.GetByID(tx, missingID)
+		assert.ErrorAs(t, gErr, new(*fluxaorm.NotFoundError))
 		return errors.New("roll it back")
 	})
 	assert.Error(t, err)
@@ -215,9 +212,8 @@ func TestDeleteRemovesTheRowFromTheIdentityMap(t *testing.T) {
 	assert.NoError(t, ctx.Save(e))
 	assert.NoError(t, ctx.Delete(e))
 
-	_, found, err := entities.GenerateEntityWithTimestampsProvider.GetByID(ctx, e.GetID())
-	assert.NoError(t, err)
-	assert.False(t, found)
+	_, err := entities.GenerateEntityWithTimestampsProvider.GetByID(ctx, e.GetID())
+	assert.ErrorAs(t, err, new(*fluxaorm.NotFoundError))
 }
 
 func TestSaveAfterDeleteDoesNotReissueTheDelete(t *testing.T) {
@@ -245,22 +241,20 @@ func TestOneRowIsOneEntityForTheWholeContext(t *testing.T) {
 	e.SetName("Before")
 	assert.NoError(t, ctx.Save(e))
 
-	loaded, found, err := entities.GenerateEntityWithTimestampsProvider.GetByID(ctx, e.GetID())
+	loaded, err := entities.GenerateEntityWithTimestampsProvider.GetByID(ctx, e.GetID())
 	assert.NoError(t, err)
-	assert.True(t, found)
 	loaded.SetName("After")
 
 	// Long enough that the old 1s TTL would have expired the entry twice over.
 	time.Sleep(1100 * time.Millisecond)
 
-	again, found, err := entities.GenerateEntityWithTimestampsProvider.GetByID(ctx, e.GetID())
+	again, err := entities.GenerateEntityWithTimestampsProvider.GetByID(ctx, e.GetID())
 	assert.NoError(t, err)
-	assert.True(t, found)
 	assert.Same(t, loaded, again, "a second read must hand back the same handle, not a second one")
 	assert.Equal(t, "After", again.GetName(), "the unsaved change must still be visible")
 
 	assert.NoError(t, ctx.Save(loaded))
-	persisted, _, err := entities.GenerateEntityWithTimestampsProvider.GetByID(ctx.Clone(), e.GetID())
+	persisted, err := entities.GenerateEntityWithTimestampsProvider.GetByID(ctx.Clone(), e.GetID())
 	assert.NoError(t, err)
 	assert.Equal(t, "After", persisted.GetName())
 }
@@ -276,12 +270,12 @@ func TestASavedEntityStaysInTheIdentityMap(t *testing.T) {
 	e.SetName("Clean")
 	assert.NoError(t, ctx.Save(e))
 
-	loaded, _, err := entities.GenerateEntityWithTimestampsProvider.GetByID(ctx, e.GetID())
+	loaded, err := entities.GenerateEntityWithTimestampsProvider.GetByID(ctx, e.GetID())
 	assert.NoError(t, err)
 
 	time.Sleep(1100 * time.Millisecond)
 
-	again, _, err := entities.GenerateEntityWithTimestampsProvider.GetByID(ctx, e.GetID())
+	again, err := entities.GenerateEntityWithTimestampsProvider.GetByID(ctx, e.GetID())
 	assert.NoError(t, err)
 	assert.Same(t, loaded, again)
 }
@@ -295,19 +289,18 @@ func TestUpdateInvalidatesTheRowCacheInsteadOfWritingItBack(t *testing.T) {
 
 	// Warm the row cache on a context with its own identity map.
 	warm := ctx.Clone()
-	_, _, err := entities.GenerateEntityWithTimestampsRedisProvider.GetByID(warm, e.GetID())
+	_, err := entities.GenerateEntityWithTimestampsRedisProvider.GetByID(warm, e.GetID())
 	assert.NoError(t, err)
 
 	writer := ctx.Clone()
-	toEdit, _, err := entities.GenerateEntityWithTimestampsRedisProvider.GetByID(writer, e.GetID())
+	toEdit, err := entities.GenerateEntityWithTimestampsRedisProvider.GetByID(writer, e.GetID())
 	assert.NoError(t, err)
 	toEdit.SetName("V2")
 	assert.NoError(t, writer.Save(toEdit))
 
 	reader := ctx.Clone()
-	reloaded, found, err := entities.GenerateEntityWithTimestampsRedisProvider.GetByID(reader, e.GetID())
+	reloaded, err := entities.GenerateEntityWithTimestampsRedisProvider.GetByID(reader, e.GetID())
 	assert.NoError(t, err)
-	assert.True(t, found)
 	assert.Equal(t, "V2", reloaded.GetName())
 }
 
@@ -319,15 +312,14 @@ func TestCacheOffGivesTheSameResults(t *testing.T) {
 	e.SetName("NoCache")
 	assert.NoError(t, ctx.Save(e))
 
-	loaded, found, err := entities.GenerateEntityWithTimestampsRedisProvider.GetByID(ctx, e.GetID())
+	loaded, err := entities.GenerateEntityWithTimestampsRedisProvider.GetByID(ctx, e.GetID())
 	assert.NoError(t, err)
-	assert.True(t, found)
 	assert.Equal(t, "NoCache", loaded.GetName())
 
 	loaded.SetName("NoCache2")
 	assert.NoError(t, ctx.Save(loaded))
 
-	again, _, err := entities.GenerateEntityWithTimestampsRedisProvider.GetByID(ctx.Clone(), e.GetID())
+	again, err := entities.GenerateEntityWithTimestampsRedisProvider.GetByID(ctx.Clone(), e.GetID())
 	assert.NoError(t, err)
 	assert.Equal(t, "NoCache2", again.GetName())
 }

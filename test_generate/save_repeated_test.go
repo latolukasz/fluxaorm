@@ -127,13 +127,11 @@ func TestRepeatedSaveRollbackOfRedisLoadedEntity(t *testing.T) {
 	ctx := fluxaorm.PrepareTables(t, fluxaorm.NewRegistry(), generateEntityWithTimestampsRedis{})
 	e := entities.GenerateEntityWithTimestampsRedisProvider.New(ctx).SetName("original")
 	require.NoError(t, ctx.Save(e))
-	_, found, err := entities.GenerateEntityWithTimestampsRedisProvider.GetByID(ctx.Clone(), e.GetID())
-	require.NoError(t, err)
-	require.True(t, found) // First read populates Redis.
+	_, err := entities.GenerateEntityWithTimestampsRedisProvider.GetByID(ctx.Clone(), e.GetID())
+	require.NoError(t, err) // First read populates Redis.
 	writer := ctx.Clone()
-	loaded, found, err := entities.GenerateEntityWithTimestampsRedisProvider.GetByID(writer, e.GetID())
+	loaded, err := entities.GenerateEntityWithTimestampsRedisProvider.GetByID(writer, e.GetID())
 	require.NoError(t, err)
-	require.True(t, found)
 	created := loaded.GetCreatedAt()
 	require.Error(t, writer.Transaction(func(tx fluxaorm.Context) error {
 		loaded.SetName("first")
@@ -145,9 +143,8 @@ func TestRepeatedSaveRollbackOfRedisLoadedEntity(t *testing.T) {
 	}))
 	require.Equal(t, created, loaded.GetCreatedAt())
 	require.NoError(t, writer.Save(loaded))
-	readback, found, err := entities.GenerateEntityWithTimestampsRedisProvider.GetByID(ctx.Clone(), e.GetID())
+	readback, err := entities.GenerateEntityWithTimestampsRedisProvider.GetByID(ctx.Clone(), e.GetID())
 	require.NoError(t, err)
-	require.True(t, found)
 	require.Equal(t, "latest", readback.GetName())
 	require.Equal(t, created, readback.GetCreatedAt())
 }
@@ -171,9 +168,8 @@ func TestRepeatedSaveThenDeleteInOneTransaction(t *testing.T) {
 	}))
 	require.Equal(t, []string{"updated"}, names)
 	require.Equal(t, 1, logs.count("DELETE FROM `generateEntityWithTimestamps`"))
-	_, found, err := entities.GenerateEntityWithTimestampsProvider.GetByID(ctx, e.GetID())
-	require.NoError(t, err)
-	require.False(t, found)
+	_, err := entities.GenerateEntityWithTimestampsProvider.GetByID(ctx, e.GetID())
+	require.ErrorAs(t, err, new(*fluxaorm.NotFoundError))
 }
 
 func TestRepeatedSaveDeleteRollbackCanRetry(t *testing.T) {
@@ -188,9 +184,8 @@ func TestRepeatedSaveDeleteRollbackCanRetry(t *testing.T) {
 	}))
 	require.Equal(t, "original", persistedRepeatedName(t, ctx, e.GetID()))
 	require.NoError(t, ctx.Save(e), "retained delete intent can be retried")
-	_, found, err := entities.GenerateEntityWithTimestampsProvider.GetByID(ctx.Clone(), e.GetID())
-	require.NoError(t, err)
-	require.False(t, found)
+	_, err := entities.GenerateEntityWithTimestampsProvider.GetByID(ctx.Clone(), e.GetID())
+	require.ErrorAs(t, err, new(*fluxaorm.NotFoundError))
 }
 
 func TestRepeatedSaveSoftDeleteCanBeReverted(t *testing.T) {
@@ -204,14 +199,12 @@ func TestRepeatedSaveSoftDeleteCanBeReverted(t *testing.T) {
 		e.SetName("pending")
 		return nil
 	}))
-	identity, found, err := entities.GenerateReferenceEntityProvider.GetByID(ctx, e.GetID())
+	identity, err := entities.GenerateReferenceEntityProvider.GetByID(ctx, e.GetID())
 	require.NoError(t, err)
-	require.True(t, found)
 	require.Same(t, e, identity, "historical delete must not evict a restored live handle")
 	require.Equal(t, "pending", identity.GetName())
-	loaded, found, err := entities.GenerateReferenceEntityProvider.GetByID(ctx.Clone(), e.GetID())
+	loaded, err := entities.GenerateReferenceEntityProvider.GetByID(ctx.Clone(), e.GetID())
 	require.NoError(t, err)
-	require.True(t, found)
 	require.False(t, loaded.GetFakeDelete())
 	require.Equal(t, "restored", loaded.GetName())
 }
@@ -308,9 +301,8 @@ func TestRepeatedSaveOutboxCapturesEveryWrite(t *testing.T) {
 	require.Equal(t, fluxaorm.DirtyUpdate, events[2].Op)
 	require.Equal(t, "updated", (*events[2].Before)["Name"])
 	require.Equal(t, "inserted", (*events[2].After)["Name"])
-	readback, found, err := entities.GenerateEntityOutboxProvider.GetByID(ctx.Clone(), e.GetID())
+	readback, err := entities.GenerateEntityOutboxProvider.GetByID(ctx.Clone(), e.GetID())
 	require.NoError(t, err)
-	require.True(t, found)
 	require.Equal(t, "inserted", readback.GetName())
 	require.Equal(t, "unsaved", e.GetName())
 }

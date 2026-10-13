@@ -30,7 +30,7 @@ func TestGetByIDUint64Boundaries(t *testing.T) {
 }
 
 func checkGetByIDUint64[T getByIDsTestEntity](t *testing.T, fixture any, table string,
-	get func(fluxaorm.Context, uint64) (T, bool, error),
+	get func(fluxaorm.Context, uint64) (T, error),
 ) {
 	t.Helper()
 	ctx := fluxaorm.PrepareTables(t, fluxaorm.NewRegistry(), fixture)
@@ -45,31 +45,48 @@ func checkGetByIDUint64[T getByIDsTestEntity](t *testing.T, fixture any, table s
 	reader := ctx.Clone()
 	reader.DisableContextCache()
 	for index, id := range ids {
-		first, found, err := get(reader, id)
+		first, err := get(reader, id)
 		require.NoError(t, err)
-		require.True(t, found)
 		require.Equal(t, id, first.GetID())
 		require.Equal(t, strconv.FormatUint(id, 10), first.GetName())
 		// A later read must not reuse the first entity's field storage.
-		second, found, err := get(reader, id)
+		second, err := get(reader, id)
 		require.NoError(t, err)
-		require.True(t, found)
 		require.NotSame(t, first, second)
-		_, _, err = get(reader, ids[(index+1)%len(ids)])
+		_, err = get(reader, ids[(index+1)%len(ids)])
 		require.NoError(t, err)
 		require.Equal(t, strconv.FormatUint(id, 10), first.GetName())
 		cached := ctx.Clone()
-		original, found, err := get(cached, id)
+		original, err := get(cached, id)
 		require.NoError(t, err)
-		require.True(t, found)
-		repeated, found, err := get(cached, id)
+		repeated, err := get(cached, id)
 		require.NoError(t, err)
-		require.True(t, found)
 		require.Same(t, original, repeated)
 	}
-	_, found, err := get(reader, 123)
-	require.NoError(t, err)
-	require.False(t, found)
+	_, err := get(reader, 123)
+	require.ErrorAs(t, err, new(*fluxaorm.NotFoundError))
+}
+
+func TestNotFoundError(t *testing.T) {
+	registry := FixtureRegistry()
+	ctx := fluxaorm.PrepareTablesWithConsumers(t, registry, FixtureConsumers(), FixtureEntities()...)
+	defer ctx.Engine().Nats("nats").Close()
+
+	_, err := entities.GenerateEntityProvider.GetByID(ctx, 123)
+	notFound, ok := errors.AsType[*fluxaorm.NotFoundError](err)
+	require.True(t, ok)
+	require.Equal(t, fluxaorm.NotFoundError{Entity: "generateEntity", ID: 123}, *notFound)
+	require.EqualError(t, err, "generateEntity 123 not found")
+
+	_, err = entities.GenerateEntityProvider.SearchOne(ctx, fluxaorm.NewQuery())
+	notFound, ok = errors.AsType[*fluxaorm.NotFoundError](err)
+	require.True(t, ok)
+	require.Equal(t, fluxaorm.NotFoundError{Entity: "generateEntity"}, *notFound)
+
+	_, err = entities.GenerateEntityProvider.New(ctx).GetReferenceOptional(ctx)
+	notFound, ok = errors.AsType[*fluxaorm.NotFoundError](err)
+	require.True(t, ok)
+	require.Equal(t, fluxaorm.NotFoundError{Entity: "generateReferenceEntity"}, *notFound)
 }
 
 func TestGetByIDNegativeCacheAndStamp(t *testing.T) {
@@ -80,35 +97,30 @@ func TestGetByIDNegativeCacheAndStamp(t *testing.T) {
 	logs := &fluxaorm.MockLogHandler{}
 	reader.RegisterQueryLogger(logs, fluxaorm.QueryLoggerOptions{MySQL: true})
 	missingID := ctx.Engine().NextID()
-	row, found, err := provider.GetByID(reader, missingID)
-	require.NoError(t, err)
-	require.False(t, found)
+	row, err := provider.GetByID(reader, missingID)
+	require.ErrorAs(t, err, new(*fluxaorm.NotFoundError))
 	require.Nil(t, row)
 	require.Equal(t, 1, countSelects(logs))
 	logs.Clear()
-	row, found, err = provider.GetByID(reader, missingID)
-	require.NoError(t, err)
-	require.False(t, found)
+	row, err = provider.GetByID(reader, missingID)
+	require.ErrorAs(t, err, new(*fluxaorm.NotFoundError))
 	require.Nil(t, row)
 	require.Zero(t, countSelects(logs), "the second missing read must use the negative cache")
 	created := provider.New(ctx).SetName("persisted")
 	require.NoError(t, ctx.Save(created))
-	row, found, err = provider.GetByID(reader, created.GetID())
+	row, err = provider.GetByID(reader, created.GetID())
 	require.NoError(t, err)
-	require.True(t, found)
 	require.Equal(t, "persisted", row.GetName())
 	key := provider.RedisCachePrefix() + strconv.FormatUint(created.GetID(), 10)
 	require.NoError(t, ctx.Engine().Redis(fluxaorm.DefaultPoolCode).LSet(ctx, key, 0, "old-stamp"))
 	logs.Clear()
-	row, found, err = provider.GetByID(reader, created.GetID())
+	row, err = provider.GetByID(reader, created.GetID())
 	require.NoError(t, err)
-	require.True(t, found)
 	require.Equal(t, "persisted", row.GetName())
 	require.Equal(t, 1, countSelects(logs), "an incompatible Redis stamp must fall through to MySQL")
 	logs.Clear()
-	_, found, err = provider.GetByID(reader, created.GetID())
+	_, err = provider.GetByID(reader, created.GetID())
 	require.NoError(t, err)
-	require.True(t, found)
 	require.Zero(t, countSelects(logs), "the fallback must refill the row cache")
 }
 
@@ -119,9 +131,8 @@ func TestGetByIDTransactionReadsOwnWrites(t *testing.T) {
 	require.NoError(t, ctx.Save(row))
 	reader := ctx.Clone()
 	reader.DisableContextCache()
-	_, found, err := provider.GetByID(reader, row.GetID())
+	_, err := provider.GetByID(reader, row.GetID())
 	require.NoError(t, err)
-	require.True(t, found)
 	redisLog := &fluxaorm.MockLogHandler{}
 	reader.RegisterQueryLogger(redisLog, fluxaorm.QueryLoggerOptions{Redis: true})
 	abort := errors.New("rollback the parity update")
@@ -131,9 +142,8 @@ func TestGetByIDTransactionReadsOwnWrites(t *testing.T) {
 		if err != nil {
 			return err
 		}
-		loaded, found, err := provider.GetByID(tx, row.GetID())
+		loaded, err := provider.GetByID(tx, row.GetID())
 		require.NoError(t, err)
-		require.True(t, found)
 		require.Equal(t, "inside", loaded.GetName())
 		require.Empty(t, redisLog.Logs)
 		return abort
@@ -152,16 +162,14 @@ func TestGetByIDPropagatesQueryAndScanErrors(t *testing.T) {
 		QueryRowMock: func(string, ...any) *sql.Row { return failed },
 	})
 	defer db.SetMockDBClient(original)
-	row, found, err := entities.GenerateEntityWithTimestampsProvider.GetByID(ctx, 123)
+	row, err := entities.GenerateEntityWithTimestampsProvider.GetByID(ctx, 123)
 	require.ErrorIs(t, err, expected)
-	require.False(t, found)
 	require.Nil(t, row)
 	db.SetMockDBClient(&fluxaorm.MockDBClient{OriginDB: original,
 		QueryRowMock: func(string, ...any) *sql.Row { return original.QueryRow("SELECT 123") },
 	})
-	row, found, err = entities.GenerateEntityWithTimestampsProvider.GetByID(ctx, 123)
+	row, err = entities.GenerateEntityWithTimestampsProvider.GetByID(ctx, 123)
 	require.Error(t, err)
-	require.False(t, found)
 	require.Nil(t, row)
 }
 
@@ -169,9 +177,8 @@ func TestGetByIDPropagatesRedisError(t *testing.T) {
 	ctx := fluxaorm.PrepareTables(t, fluxaorm.NewRegistry(), generateEntityWithTimestampsRedis{})
 	canceled, cancel := context.WithCancel(context.Background())
 	cancel()
-	row, found, err := entities.GenerateEntityWithTimestampsRedisProvider.GetByID(ctx.CloneWithContext(canceled), 123)
+	row, err := entities.GenerateEntityWithTimestampsRedisProvider.GetByID(ctx.CloneWithContext(canceled), 123)
 	require.ErrorIs(t, err, context.Canceled)
-	require.False(t, found)
 	require.Nil(t, row)
 }
 

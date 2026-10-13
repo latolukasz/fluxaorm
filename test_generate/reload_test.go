@@ -19,13 +19,12 @@ func TestReloadRefreshesTheSamePointer(t *testing.T) {
 	assert.NoError(t, ctx.Save(e))
 
 	reader := ctx.Clone()
-	stale, found, err := entities.GenerateEntityWithTimestampsProvider.GetByID(reader, e.GetID())
+	stale, err := entities.GenerateEntityWithTimestampsProvider.GetByID(reader, e.GetID())
 	assert.NoError(t, err)
-	assert.True(t, found)
 	assert.Equal(t, "V1", stale.GetName())
 
 	writer := ctx.Clone()
-	toEdit, _, err := entities.GenerateEntityWithTimestampsProvider.GetByID(writer, e.GetID())
+	toEdit, err := entities.GenerateEntityWithTimestampsProvider.GetByID(writer, e.GetID())
 	assert.NoError(t, err)
 	toEdit.SetName("V2")
 	assert.NoError(t, writer.Save(toEdit))
@@ -35,7 +34,7 @@ func TestReloadRefreshesTheSamePointer(t *testing.T) {
 	assert.NoError(t, reader.Reload(stale))
 	assert.Equal(t, "V2", stale.GetName())
 
-	after, _, err := entities.GenerateEntityWithTimestampsProvider.GetByID(reader, e.GetID())
+	after, err := entities.GenerateEntityWithTimestampsProvider.GetByID(reader, e.GetID())
 	assert.NoError(t, err)
 	assert.Same(t, stale, after, "reload must not replace the identity-map entry with a second handle")
 }
@@ -51,14 +50,14 @@ func TestReloadIsVisibleThroughEveryHolder(t *testing.T) {
 	assert.NoError(t, ctx.Save(e))
 
 	reader := ctx.Clone()
-	outer, _, err := entities.GenerateEntityWithTimestampsProvider.GetByID(reader, e.GetID())
+	outer, err := entities.GenerateEntityWithTimestampsProvider.GetByID(reader, e.GetID())
 	assert.NoError(t, err)
-	inner, _, err := entities.GenerateEntityWithTimestampsProvider.GetByID(reader, e.GetID())
+	inner, err := entities.GenerateEntityWithTimestampsProvider.GetByID(reader, e.GetID())
 	assert.NoError(t, err)
 	assert.Same(t, outer, inner)
 
 	writer := ctx.Clone()
-	toEdit, _, err := entities.GenerateEntityWithTimestampsProvider.GetByID(writer, e.GetID())
+	toEdit, err := entities.GenerateEntityWithTimestampsProvider.GetByID(writer, e.GetID())
 	assert.NoError(t, err)
 	toEdit.SetName("V2")
 	assert.NoError(t, writer.Save(toEdit))
@@ -80,7 +79,7 @@ func TestReloadBypassesTheRedisRowCache(t *testing.T) {
 
 	// The save invalidated the key, so this read misses and refills it.
 	warm := ctx.Clone()
-	_, _, err := entities.GenerateEntityWithTimestampsRedisProvider.GetByID(warm, e.GetID())
+	_, err := entities.GenerateEntityWithTimestampsRedisProvider.GetByID(warm, e.GetID())
 	assert.NoError(t, err)
 
 	// This one hits Redis, so the handle carries redis-loaded values - the state
@@ -88,9 +87,8 @@ func TestReloadBypassesTheRedisRowCache(t *testing.T) {
 	reader := ctx.Clone()
 	sql := &fluxaorm.MockLogHandler{}
 	reader.RegisterQueryLogger(sql, fluxaorm.QueryLoggerOptions{MySQL: true})
-	cached, found, err := entities.GenerateEntityWithTimestampsRedisProvider.GetByID(reader, e.GetID())
+	cached, err := entities.GenerateEntityWithTimestampsRedisProvider.GetByID(reader, e.GetID())
 	assert.NoError(t, err)
-	assert.True(t, found)
 	assert.Equal(t, 0, countSelects(sql), "precondition: this handle was built from Redis, not MySQL")
 	assert.Equal(t, "V1", cached.GetName())
 
@@ -118,7 +116,7 @@ func TestReloadInsideTransactionSeesTheTransactionsWrite(t *testing.T) {
 	assert.NoError(t, ctx.Save(e))
 
 	reader := ctx.Clone()
-	handle, _, err := entities.GenerateEntityWithTimestampsProvider.GetByID(reader, e.GetID())
+	handle, err := entities.GenerateEntityWithTimestampsProvider.GetByID(reader, e.GetID())
 	assert.NoError(t, err)
 
 	assert.NoError(t, reader.Transaction(func(tx fluxaorm.Context) error {
@@ -148,11 +146,11 @@ func TestReloadedEntityCanBeMutatedAndSaved(t *testing.T) {
 	assert.NoError(t, ctx.Save(e))
 
 	reader := ctx.Clone()
-	handle, _, err := entities.GenerateEntityWithTimestampsProvider.GetByID(reader, e.GetID())
+	handle, err := entities.GenerateEntityWithTimestampsProvider.GetByID(reader, e.GetID())
 	assert.NoError(t, err)
 
 	writer := ctx.Clone()
-	toEdit, _, err := entities.GenerateEntityWithTimestampsProvider.GetByID(writer, e.GetID())
+	toEdit, err := entities.GenerateEntityWithTimestampsProvider.GetByID(writer, e.GetID())
 	assert.NoError(t, err)
 	toEdit.SetName("V2")
 	assert.NoError(t, writer.Save(toEdit))
@@ -162,7 +160,7 @@ func TestReloadedEntityCanBeMutatedAndSaved(t *testing.T) {
 	handle.SetName("V3")
 	assert.NoError(t, reader.Save(handle))
 
-	persisted, _, err := entities.GenerateEntityWithTimestampsProvider.GetByID(ctx.Clone(), e.GetID())
+	persisted, err := entities.GenerateEntityWithTimestampsProvider.GetByID(ctx.Clone(), e.GetID())
 	assert.NoError(t, err)
 	assert.Equal(t, "V3", persisted.GetName())
 }
@@ -178,11 +176,11 @@ func TestReloadRefreshesTheOriginSnapshot(t *testing.T) {
 	assert.NoError(t, ctx.Save(e))
 
 	reader := ctx.Clone()
-	handle, _, err := entities.GenerateEntityWithTimestampsProvider.GetByID(reader, e.GetID())
+	handle, err := entities.GenerateEntityWithTimestampsProvider.GetByID(reader, e.GetID())
 	assert.NoError(t, err)
 
 	writer := ctx.Clone()
-	toEdit, _, err := entities.GenerateEntityWithTimestampsProvider.GetByID(writer, e.GetID())
+	toEdit, err := entities.GenerateEntityWithTimestampsProvider.GetByID(writer, e.GetID())
 	assert.NoError(t, err)
 	toEdit.SetName("V2")
 	assert.NoError(t, writer.Save(toEdit))
@@ -194,7 +192,7 @@ func TestReloadRefreshesTheOriginSnapshot(t *testing.T) {
 	handle.SetName("V1")
 	assert.NoError(t, reader.Save(handle))
 
-	persisted, _, err := entities.GenerateEntityWithTimestampsProvider.GetByID(ctx.Clone(), e.GetID())
+	persisted, err := entities.GenerateEntityWithTimestampsProvider.GetByID(ctx.Clone(), e.GetID())
 	assert.NoError(t, err)
 	assert.Equal(t, "V1", persisted.GetName())
 }
@@ -211,9 +209,8 @@ func TestReloadDropsTheStaleCachedRow(t *testing.T) {
 
 	cachedRead := func() string {
 		reader := ctx.Clone()
-		loaded, found, err := entities.GenerateEntityWithTimestampsRedisProvider.GetByID(reader, e.GetID())
+		loaded, err := entities.GenerateEntityWithTimestampsRedisProvider.GetByID(reader, e.GetID())
 		assert.NoError(t, err)
-		assert.True(t, found)
 
 		return loaded.GetName()
 	}
@@ -226,7 +223,7 @@ func TestReloadDropsTheStaleCachedRow(t *testing.T) {
 	assert.Equal(t, "V1", cachedRead(), "precondition: the cache serves the stale row")
 
 	holder := ctx.Clone()
-	handle, _, err := entities.GenerateEntityWithTimestampsRedisProvider.GetByID(holder, e.GetID())
+	handle, err := entities.GenerateEntityWithTimestampsRedisProvider.GetByID(holder, e.GetID())
 	assert.NoError(t, err)
 	assert.NoError(t, holder.Reload(handle))
 	assert.Equal(t, "V2", handle.GetName())

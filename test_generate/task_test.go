@@ -82,14 +82,14 @@ func TestGeneratedDispatchAndHandlerRoundTrip(t *testing.T) {
 	require.Len(t, receipts, 1)
 	assert.Equal(t, uint64(99), receipts[0].OrderID)
 
-	run, err := entities.JobRunsProvider.MustGetByID(ctx, welcomeID)
+	run, err := entities.JobRunsProvider.GetByID(ctx, welcomeID)
 	require.NoError(t, err)
 	assert.Equal(t, "SendWelcomeEmail", run.GetTask())
 	assert.Equal(t, "emails", run.GetQueue())
 	assert.Equal(t, "succeeded", string(run.GetStatus()))
 	assert.Equal(t, uint64(1), run.GetAttempts())
 
-	receiptRun, err := entities.JobRunsProvider.MustGetByID(ctx, receiptID)
+	receiptRun, err := entities.JobRunsProvider.GetByID(ctx, receiptID)
 	require.NoError(t, err)
 	assert.Equal(t, "succeeded", string(receiptRun.GetStatus()))
 }
@@ -195,7 +195,7 @@ func TestTaskAndEntityConsumersLandOnTheirOwnStream(t *testing.T) {
 func assertRunQueue(t *testing.T, ctx fluxaorm.Context, runID uint64, queue string) {
 	t.Helper()
 
-	run, err := entities.JobRunsProvider.MustGetByID(ctx.Clone(), runID)
+	run, err := entities.JobRunsProvider.GetByID(ctx.Clone(), runID)
 	require.NoError(t, err)
 	assert.Equal(t, queue, run.GetQueue())
 }

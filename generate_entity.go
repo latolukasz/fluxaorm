@@ -34,7 +34,6 @@ func (g *codeGenerator) generateCodeForEntity(schema *entitySchema) error {
 	g.generateRedisSearchFields(schema, names)
 	g.generateProviderAndSQLRow(schema, names)
 	g.generateGetByID(schema, names)
-	g.generateMustGetByID(names)
 	g.generateGetByIDs(schema, names)
 	if schema.cacheAll {
 		g.generateGetAll(schema, names)

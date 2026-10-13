@@ -117,6 +117,8 @@ Redis batch readers use `LRangeBatchInto` with caller-owned result handles. Comm
 
 ### Single Reads (`GetByID`)
 
+`GetByID`, `SearchOne`, `SearchOneInRedis` and reference getters (`Get<Ref>`) return `(entity, error)`. A miss is a `*NotFoundError` (`not_found.go`) carrying the table name and, for `GetByID`, the ID; an unset reference (ID 0) is a miss too. Callers detect it with `errors.AsType[*fluxaorm.NotFoundError](err)`.
+
 Generated `GetByID` returns context-cache hits before constructing query or Redis buffers. Other reads format the uint64 ID with `strconv.AppendUint` using stack scratch. Schemas without MySQL FLOAT columns use the decimal ID directly in SELECT, avoiding a transient prepared statement. Schemas with `float32` or `*float32` fields without a `decimal` tag retain the parameterized query: MySQL text replies can round FLOAT values differently from binary replies. The decision uses flattened field metadata, including nested fields. Both paths use `SQLScanTarget` while retaining QueryRow logging, metrics, error propagation and independent entity row storage.
 
 The Redis `LRange` runtime keeps its native `StringSliceCmd` and argument array in one allocation and uses `Client.Process`, preserving native hooks, decoding, retry, logging and metrics. Command/result storage is fresh per call. Regenerate application providers with the updated ORM runtime to adopt the generated GetByID changes; the method signature and row-cache format are unchanged.

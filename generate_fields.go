@@ -28,24 +28,10 @@ func (g *codeGenerator) generateGettersSetters(entityName, providerName string, 
 			g.addImport("database/sql")
 			g.createGetterSetterUint64Nullable(schema, fieldName, entityName, "ID", providerName)
 		}
-		g.addLine(fmt.Sprintf("func (e *%s) Get%s(ctx fluxaorm.Context) (reference *%s, found bool, err error) {", entityName, fieldName, refName))
+		g.addLine(fmt.Sprintf("func (e *%s) Get%s(ctx fluxaorm.Context) (reference *%s, err error) {", entityName, fieldName, refName))
 		g.addLine(fmt.Sprintf("\tid := e.Get%sID()", fieldName))
-		if required {
-			g.addLine("\tif id == 0 {\n\t\treturn nil, false, nil\n\t}")
-			g.addLine(fmt.Sprintf("\treturn %sProvider.GetByID(ctx, id)", refName))
-		} else {
-			g.addLine("\tif id == 0 {\n\t\treturn nil, false, nil\n\t}")
-			g.addLine(fmt.Sprintf("\treturn %sProvider.GetByID(ctx, id)", refName))
-		}
-		g.addLine("}")
-		g.addLine("")
-		g.addLine(fmt.Sprintf("func (e *%s) MustGet%s(ctx fluxaorm.Context) (reference *%s, err error) {", entityName, fieldName, refName))
-		g.addLine(fmt.Sprintf("\treference, found, err := e.Get%s(ctx)", fieldName))
-		g.addLine("\tif err != nil {\n\t\treturn nil, err\n\t}")
-		g.addLine("\tif !found {")
-		g.addLine(fmt.Sprintf("\t\tpanic(\"%s not found in %s\")", fieldName, entityName))
-		g.addLine("\t}")
-		g.addLine("\treturn reference, nil")
+		g.addLine(fmt.Sprintf("\tif id == 0 {\n\t\treturn nil, &fluxaorm.NotFoundError{Entity: %q}\n\t}", refSchema.GetTableName()))
+		g.addLine(fmt.Sprintf("\treturn %sProvider.GetByID(ctx, id)", refName))
 		g.addLine("}")
 		g.addLine("")
 	}

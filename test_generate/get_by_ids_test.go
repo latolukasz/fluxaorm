@@ -120,9 +120,8 @@ func TestGetByIDsMixedCachesAndNegativeHits(t *testing.T) {
 	require.NoError(t, err)
 
 	reader := ctx.Clone()
-	contextHandle, found, err := provider.GetByID(reader, contextRow.GetID())
+	contextHandle, err := provider.GetByID(reader, contextRow.GetID())
 	require.NoError(t, err)
-	require.True(t, found)
 	sqlLog := &fluxaorm.MockLogHandler{}
 	reader.RegisterQueryLogger(sqlLog, fluxaorm.QueryLoggerOptions{MySQL: true})
 	input := []uint64{negativeID, sqlRow.GetID(), contextRow.GetID(), redisRow.GetID(), missingID, sqlRow.GetID(), negativeID}
