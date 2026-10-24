@@ -805,7 +805,8 @@ func (e *entitySchema) buildReferenceField(attributes schemaFieldAttributes) {
 		}
 		e.fieldDefinitions[columnName] = attributes
 		if attributes.Tags["searchable"] == "true" {
-			e.markSearchableField(columnName, "NUMERIC", "ref", attributes.Tags["sortable"] == "true", !isRequired, 0)
+			// TAG, not NUMERIC: RediSearch keeps numbers as float64, which merges IDs above 2^53.
+			e.markSearchableField(columnName, "TAG", "ref", attributes.Tags["sortable"] == "true", !isRequired, 0)
 		}
 	}
 }

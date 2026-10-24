@@ -169,3 +169,21 @@ func (f RedisSearchTagField) ColumnName() string { return f.Column }
 func (f RedisSearchTagField) In(values ...string) RedisSearchCondition {
 	return rsTagCondition{column: f.Column, values: values}
 }
+
+// RedisSearchReferenceField represents a reference field in a Redis Search index. It is a TAG,
+// so IDs match exactly; a NUMERIC field would round them to float64.
+type RedisSearchReferenceField struct{ Column string }
+
+func (f RedisSearchReferenceField) ColumnName() string { return f.Column }
+
+func (f RedisSearchReferenceField) Eq(id uint64) RedisSearchCondition {
+	return rsTagCondition{column: f.Column, values: []string{strconv.FormatUint(id, 10)}}
+}
+
+func (f RedisSearchReferenceField) In(ids ...uint64) RedisSearchCondition {
+	values := make([]string, len(ids))
+	for i, id := range ids {
+		values[i] = strconv.FormatUint(id, 10)
+	}
+	return rsTagCondition{column: f.Column, values: values}
+}

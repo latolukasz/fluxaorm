@@ -101,6 +101,17 @@ func TestRedisSearchUintFieldBetween(t *testing.T) {
 	assert.Equal(t, "@Count:[1 10]", f.Between(1, 10).ToFTSearch())
 }
 
+func TestRedisSearchReferenceFieldEq(t *testing.T) {
+	f := RedisSearchReferenceField{Column: "Hive"}
+	assert.Equal(t, "Hive", f.ColumnName())
+	assert.Equal(t, "@Hive:{371916210427658240}", f.Eq(371916210427658240).ToFTSearch())
+}
+
+func TestRedisSearchReferenceFieldIn(t *testing.T) {
+	f := RedisSearchReferenceField{Column: "Hive"}
+	assert.Equal(t, "@Hive:{371916210427658240|371916210427658241}", f.In(371916210427658240, 371916210427658241).ToFTSearch())
+}
+
 func TestRedisSearchIntFieldEq(t *testing.T) {
 	f := RedisSearchIntField{Column: "Score"}
 	assert.Equal(t, "Score", f.ColumnName())
@@ -147,8 +158,9 @@ func TestRedisSearchFieldInterface(t *testing.T) {
 		RedisSearchIntField{Column: "int"},
 		RedisSearchTextField{Column: "txt"},
 		RedisSearchTagField{Column: "tag"},
+		RedisSearchReferenceField{Column: "ref"},
 	)
-	expected := []string{"num", "uint", "int", "txt", "tag"}
+	expected := []string{"num", "uint", "int", "txt", "tag", "ref"}
 	for i, f := range fields {
 		assert.Equal(t, expected[i], f.ColumnName())
 	}

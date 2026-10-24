@@ -86,9 +86,10 @@ type generateReferenceEntity struct {
 
 type generateEntityWithSearch struct {
 	ID    uint64
-	Age   uint32  `orm:"searchable;sortable"`
-	Name  string  `orm:"required;searchable"`
-	Score float64 `orm:"searchable"`
+	Age   uint32                                      `orm:"searchable;sortable"`
+	Name  string                                      `orm:"required;searchable"`
+	Score float64                                     `orm:"searchable"`
+	Ref   fluxaorm.Reference[generateReferenceEntity] `orm:"searchable"`
 }
 
 type generateEntityWithTimestamps struct {

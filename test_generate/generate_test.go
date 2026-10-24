@@ -611,13 +611,33 @@ func TestGenerate(t *testing.T) {
 	es3.SetAge(30)
 	es3.SetName("Charlie")
 	es3.SetScore(3.5)
-	assert.NoError(t, ctx.Save(es1, es2, es3))
+	// Snowflake IDs one apart: equal as float64, so a NUMERIC index cannot tell them apart.
+	searchRef1 := entities.GenerateReferenceEntityProvider.NewWithID(ctx, 371916210427658240)
+	searchRef1.SetName("SearchRef1")
+	searchRef2 := entities.GenerateReferenceEntityProvider.NewWithID(ctx, 371916210427658241)
+	searchRef2.SetName("SearchRef2")
+	es1.SetRef(searchRef1.GetID())
+	es2.SetRef(searchRef2.GetID())
+	assert.NoError(t, ctx.Save(searchRef1, searchRef2, es1, es2, es3))
 
 	// SearchManyInRedis: all entities
 	var searchEntities []*entities.GenerateEntityWithSearch
 	searchEntities, err = entities.GenerateEntityWithSearchProvider.SearchManyInRedis(ctx, fluxaorm.NewRedisSearchQuery())
 	assert.NoError(t, err)
 	assert.Len(t, searchEntities, 3)
+
+	// SearchManyInRedis: reference matches the exact ID only
+	searchEntities, err = entities.GenerateEntityWithSearchProvider.SearchManyInRedis(ctx, fluxaorm.NewRedisSearchQuery().Filter(
+		entities.GenerateEntityWithSearchProvider.FieldsRedisSearch.Ref.Eq(searchRef1.GetID()),
+	))
+	assert.NoError(t, err)
+	assert.Len(t, searchEntities, 1)
+	assert.Equal(t, es1.GetID(), searchEntities[0].GetID())
+	searchEntities, err = entities.GenerateEntityWithSearchProvider.SearchManyInRedis(ctx, fluxaorm.NewRedisSearchQuery().Filter(
+		entities.GenerateEntityWithSearchProvider.FieldsRedisSearch.Ref.In(searchRef1.GetID(), searchRef2.GetID()),
+	))
+	assert.NoError(t, err)
+	assert.Len(t, searchEntities, 2)
 
 	// SearchManyInRedis: numeric range
 	searchEntities, err = entities.GenerateEntityWithSearchProvider.SearchManyInRedis(ctx, fluxaorm.NewRedisSearchQuery().Filter(
@@ -709,6 +729,12 @@ func TestGenerate(t *testing.T) {
 	assert.NoError(t, err)
 	assert.Len(t, searchEntities, 1)
 	assert.Equal(t, es1.GetID(), searchEntities[0].GetID())
+	searchEntities, err = entities.GenerateEntityWithSearchProvider.SearchManyInRedis(ctx, fluxaorm.NewRedisSearchQuery().Filter(
+		entities.GenerateEntityWithSearchProvider.FieldsRedisSearch.Ref.Eq(searchRef2.GetID()),
+	))
+	assert.NoError(t, err)
+	assert.Len(t, searchEntities, 1)
+	assert.Equal(t, es2.GetID(), searchEntities[0].GetID())
 
 	// ---- Timestamp auto-set tests (no Redis cache) ----
 	beforeInsert := time.Now().UTC().Truncate(time.Second)

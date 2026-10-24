@@ -123,7 +123,7 @@ func redisSearchGoFieldType(sf searchableFieldDef) string {
 	switch sf.redisType {
 	case "NUMERIC":
 		switch sf.goKind {
-		case "uint", "ref":
+		case "uint":
 			return "RedisSearchUintField"
 		case "int":
 			return "RedisSearchIntField"
@@ -133,6 +133,9 @@ func redisSearchGoFieldType(sf searchableFieldDef) string {
 	case "TEXT":
 		return "RedisSearchTextField"
 	case "TAG":
+		if sf.goKind == "ref" {
+			return "RedisSearchReferenceField"
+		}
 		return "RedisSearchTagField"
 	default:
 		return ""
