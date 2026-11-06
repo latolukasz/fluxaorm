@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/pkg/errors"
+	"github.com/redis/go-redis/v9"
 )
 
 func (r *registry) InitByYaml(yaml any) error {
@@ -95,6 +96,12 @@ func validateOrmClickhouseURI(registry *registry, value any, key string) error {
 			if err != nil {
 				return err
 			}
+		case "replicated":
+			replicated, ok := v.(bool)
+			if !ok {
+				return fmt.Errorf("invalid replicated value '%v' for clickhouse pool '%s'", v, key)
+			}
+			options.Replicated = replicated
 		}
 	}
 	registry.RegisterClickhouse(uri, key, options)
@@ -151,6 +158,13 @@ func validateOrmMysqlURI(registry *registry, value any, key string) error {
 }
 
 func validateRedisURI(registry *registry, value string, key string) error {
+	if isRedisURL(value) {
+		if _, err := redis.ParseURL(value); err != nil {
+			return fmt.Errorf("redis uri '%v' is not valid: %w", key, err)
+		}
+		registry.RegisterRedis(value, 0, key, nil)
+		return nil
+	}
 	parts := strings.Split(value, "?")
 	elements := strings.Split(parts[0], ":")
 	dbNumber := ""

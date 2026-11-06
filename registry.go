@@ -181,8 +181,12 @@ func (r *registry) Validate() (Engine, error) {
 			if err := table.validate(); err != nil {
 				return nil, err
 			}
-			if _, exists := r.clickhousePools[table.poolCode]; !exists {
+			pool, exists := r.clickhousePools[table.poolCode]
+			if !exists {
 				return nil, fmt.Errorf("clickhouse pool '%s' not registered for table '%s'", table.poolCode, table.tableName)
+			}
+			if pool.GetOptions().Replicated {
+				table.engine = replicatedClickhouseEngine(table.engine)
 			}
 			key := table.poolCode + "." + table.tableName
 			if existingPool, exists := seenTableNames[key]; exists {
@@ -548,13 +552,27 @@ func (r *registry) RegisterRedis(address string, db int, poolCode string, option
 		return
 	}
 	redisOptions := &redis.Options{
-		Addr:            address,
-		DB:              db,
-		ConnMaxIdleTime: time.Minute * 2,
-		UnstableResp3:   true,
+		Addr: address,
+		DB:   db,
 	}
-	if options != nil {
+	if isRedisURL(address) {
+		parsed, err := redis.ParseURL(address)
+		if err != nil {
+			panic(fmt.Errorf("redis pool '%s': %w", poolCode, err))
+		}
+		redisOptions = parsed
+		if db != 0 {
+			redisOptions.DB = db
+		}
+		// The address is kept for GetAddress, logs and metrics, so it must not carry the password.
+		address = redisOptions.Addr
+	}
+	redisOptions.ConnMaxIdleTime = time.Minute * 2
+	redisOptions.UnstableResp3 = true
+	if options != nil && options.User != "" {
 		redisOptions.Username = options.User
+	}
+	if options != nil && options.Password != "" {
 		redisOptions.Password = options.Password
 	}
 	if strings.HasSuffix(address, ".sock") {
@@ -564,7 +582,7 @@ func (r *registry) RegisterRedis(address string, db int, poolCode string, option
 		Mode: maintnotifications.ModeDisabled,
 	}
 	client := redis.NewClient(redisOptions)
-	r.registerRedis(client, poolCode, address, db)
+	r.registerRedis(client, poolCode, address, redisOptions.DB)
 }
 
 func (r *registry) registerRedis(client *redis.Client, code string, address string, db int) {
@@ -759,4 +777,9 @@ func resolveEnumRefs(schema *entitySchema, fields *tableFields, entityName strin
 		}
 	}
 	return nil
+}
+
+// isRedisURL reports whether a pool address is a redis:// or rediss:// URL rather than host:port or a socket path.
+func isRedisURL(address string) bool {
+	return strings.HasPrefix(address, "redis://") || strings.HasPrefix(address, "rediss://")
 }

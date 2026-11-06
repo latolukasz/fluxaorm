@@ -1,7 +1,10 @@
 package fluxaorm
 
 import (
+	"fmt"
 	"time"
+
+	"github.com/redis/go-redis/v9"
 )
 
 type ConfigMysql struct {
@@ -39,6 +42,7 @@ type ConfigClickhouse struct {
 	MaxOpenConnections int      `yaml:"maxOpenConnections"`
 	MaxIdleConnections int      `yaml:"maxIdleConnections"`
 	IgnoredTables      []string `yaml:"ignoredTables"`
+	Replicated         bool     `yaml:"replicated"`
 }
 
 type ConfigNatsConsumer struct {
@@ -108,6 +112,11 @@ func (r *registry) InitByConfig(config *Config) error {
 		if pool.Password != "" {
 			options.Password = pool.Password
 		}
+		if isRedisURL(pool.URI) {
+			if _, err := redis.ParseURL(pool.URI); err != nil {
+				return fmt.Errorf("redis pool '%s': %w", pool.Code, err)
+			}
+		}
 		r.RegisterRedis(pool.URI, pool.Database, pool.Code, options)
 	}
 	for _, pool := range config.RedisSentinelPools {
@@ -126,6 +135,7 @@ func (r *registry) InitByConfig(config *Config) error {
 		options.MaxOpenConnections = pool.MaxOpenConnections
 		options.MaxIdleConnections = pool.MaxIdleConnections
 		options.IgnoredTables = pool.IgnoredTables
+		options.Replicated = pool.Replicated
 		r.RegisterClickhouse(pool.URI, pool.Code, options)
 	}
 	for _, pool := range config.NatsPools {

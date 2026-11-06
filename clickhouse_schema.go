@@ -610,3 +610,13 @@ func compareClickhouseTableProperties(ctx Context, ch Clickhouse, table *Clickho
 
 	return alters, nil
 }
+
+// replicatedClickhouseEngine maps a MergeTree-family engine to its Replicated* form, keeping its arguments.
+// Path and replica name are left out: a Replicated database fills them in.
+func replicatedClickhouseEngine(engine string) string {
+	name, _, _ := strings.Cut(engine, "(")
+	if strings.HasPrefix(name, "Replicated") || !strings.HasSuffix(name, "MergeTree") {
+		return engine
+	}
+	return "Replicated" + engine
+}

@@ -50,6 +50,14 @@ FLUXA ORM is a **code-generation-based** Go ORM targeting MySQL + Redis 8.2+ (`V
 2. **Engine** (`engine.go`) — immutable runtime object created via `registry.Validate()`; holds connection pools and all entity schemas
 3. **Context** (`orm.go`) — created from Engine per-request (`Context` interface / `ormImplementation`); the main API surface for ORM operations
 
+### Redis Pools
+
+A Redis pool address is `host:port`, a `.sock` path, or a `redis://` / `rediss://` URL (`RegisterRedis`, `InitByConfig`'s `redisPools[].uri`, and `InitByYaml`'s `redis:` key). A URL is parsed with go-redis `ParseURL`, so `rediss://` turns on TLS (server name = host) and the URL can carry the ACL user, password and database. The `database` argument overrides the URL's when it is not 0; `user`/`password` options override the URL's when set. `GetAddress()` returns only `host:port`, never the password. A malformed URL is an error from `InitByConfig`/`InitByYaml` and a panic from `RegisterRedis`. Cluster mode is not supported: the client is a single-node `redis.Client`.
+
+### Replicated ClickHouse Pools
+
+`ClickhouseOptions.Replicated` (`replicated: true` in `clickhousePools[]` or the YAML `clickhouse:` map) is for a pool whose database uses the `Replicated` engine. At `Validate()` every table registered on that pool has a MergeTree-family engine rewritten to its `Replicated*` form with the same arguments (`ReplacingMergeTree(ver)` → `ReplicatedReplacingMergeTree(ver)`); engines already `Replicated*` and non-MergeTree engines are left alone. No ZooKeeper path or replica name is added: the Replicated database supplies them, and it replicates the DDL, so no `ON CLUSTER` either. Creation and the engine drift check both use the rewritten engine, so one table definition serves a single-node server (pool not replicated) and a replicated cluster.
+
 ### Entity Definition
 
 Entities are plain Go structs with an `ID` field and optional `orm:` struct tags. Field types and caching are declared on the struct; schema metadata is extracted at `Validate()` time via reflection.
