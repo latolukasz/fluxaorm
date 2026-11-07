@@ -4,8 +4,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"slices"
-	"strconv"
 	"strings"
 	"time"
 
@@ -20,7 +18,6 @@ const metricsOperationList = "list"
 const metricsOperationHash = "hash"
 const metricsOperationSet = "set"
 const metricsOperationStream = "stream"
-const metricsOperationSearch = "search"
 const metricsOperationLock = "lock"
 
 type RedisCache interface {
@@ -102,11 +99,6 @@ type RedisCache interface {
 	Scan(ctx Context, cursor uint64, match string, count int64) (keys []string, cursorNext uint64, err error)
 	GetLocker() *Locker
 	GetCode() string
-	FTList(ctx Context) ([]string, error)
-	FTDrop(ctx Context, index string, dropDocuments bool) error
-	FTSearch(ctx Context, index string, query string, options *redis.FTSearchOptions) (redis.FTSearchResult, error)
-	FTCreate(ctx Context, index string, options *redis.FTCreateOptions, schema ...*redis.FieldSchema) error
-	FTInfo(ctx Context, index string) (info *redis.FTInfoResult, found bool, err error)
 	Client() *redis.Client
 }
 
@@ -1197,243 +1189,6 @@ func (r *redisCache) XAckDel(ctx Context, stream, group string, ids ...string) (
 	}
 	r.fillMetrics(ctx, end, metricsOperationStream, true, false, err)
 	return res, err
-}
-
-func (r *redisCache) FTList(ctx Context) ([]string, error) {
-	hasLogger, _ := ctx.getRedisLoggers()
-	start := time.Now()
-	req := r.client.FT_List(ctx.Context())
-	res, err := req.Result()
-	end := time.Since(start)
-	if hasLogger {
-		r.fillLogFields(ctx, req, end, false, err)
-	}
-	r.fillMetrics(ctx, end, metricsOperationSearch, false, false, err)
-	return res, err
-}
-
-func (r *redisCache) FTDrop(ctx Context, index string, dropDocuments bool) error {
-	hasLogger, _ := ctx.getRedisLoggers()
-	start := time.Now()
-	if dropDocuments {
-		req := r.client.FTDropIndexWithArgs(ctx.Context(), index, &redis.FTDropIndexOptions{DeleteDocs: true})
-		end := time.Since(start)
-		_, err := req.Result()
-		if hasLogger {
-			r.fillLogFields(ctx, req, end, false, err)
-		}
-		r.fillMetrics(ctx, end, metricsOperationSearch, true, false, err)
-		return err
-	}
-	req := r.client.FTDropIndex(ctx.Context(), index)
-	_, err := req.Result()
-	end := time.Since(start)
-	if hasLogger {
-		r.fillLogFields(ctx, req, end, false, err)
-	}
-	r.fillMetrics(ctx, end, metricsOperationSearch, true, false, err)
-	return err
-}
-
-func (r *redisCache) FTSearch(ctx Context, index string, query string, options *redis.FTSearchOptions) (redis.FTSearchResult, error) {
-	hasLogger, _ := ctx.getRedisLoggers()
-	start := time.Now()
-	if options == nil {
-		options = &redis.FTSearchOptions{DialectVersion: 1}
-	}
-	req := r.client.FTSearchWithArgs(ctx.Context(), index, query, options)
-	rawRes, err := req.RawResult()
-	end := time.Since(start)
-	if hasLogger {
-		r.fillLogFields(ctx, req, end, false, err)
-	}
-	r.fillMetrics(ctx, end, metricsOperationSearch, false, false, err)
-	if err != nil {
-		return redis.FTSearchResult{}, err
-	}
-	res := redis.FTSearchResult{}
-	asMap := rawRes.(map[any]any)
-	res.Total = int(asMap["total_results"].(int64))
-	results := asMap["results"].([]any)
-	res.Docs = make([]redis.Document, len(results))
-	for i, result := range results {
-		doc := result.(map[any]any)
-		res.Docs[i].ID = doc["id"].(string)
-		fields, hasFields := doc["extra_attributes"]
-		if hasFields {
-			fieldsAsMap := fields.(map[any]any)
-			res.Docs[i].Fields = make(map[string]string, len(fieldsAsMap))
-			for k, v := range fieldsAsMap {
-				res.Docs[i].Fields[k.(string)] = v.(string)
-			}
-		}
-		score, hasScore := doc["score"]
-		if hasScore {
-			scoreF := score.(float64)
-			res.Docs[i].Score = &scoreF
-		}
-		payload, hasPayload := doc["payload"]
-		if hasPayload && payload != nil {
-			payloadS := payload.(string)
-			res.Docs[i].Payload = &payloadS
-		}
-		sortkey, hasSortkey := doc["payload"]
-		if hasSortkey && sortkey != nil {
-			sortkeyS := sortkey.(string)
-			res.Docs[i].SortKey = &sortkeyS
-		}
-	}
-	return res, err
-}
-
-func (r *redisCache) FTInfo(ctx Context, index string) (info *redis.FTInfoResult, found bool, err error) {
-	hasLogger, _ := ctx.getRedisLoggers()
-	start := time.Now()
-	req := r.client.FTInfo(ctx.Context(), index)
-	res, err := req.RawResult()
-	end := time.Since(start)
-	if res == nil {
-		err = nil
-		if hasLogger {
-			r.fillLogFields(ctx, req, end, true, err)
-		}
-		r.fillMetrics(ctx, end, metricsOperationSearch, false, false, err)
-		return nil, false, nil
-	}
-	info = &redis.FTInfoResult{}
-	asMap := res.(map[any]any)
-	info.SortableValuesSizeMB = asMap["sortable_values_size_mb"].(float64)
-	info.TotalIndexMemorySzMB = asMap["total_index_memory_sz_mb"].(float64)
-	info.NumDocs = int(asMap["num_docs"].(int64))
-	info.InvertedSzMB = asMap["inverted_sz_mb"].(float64)
-	info.BytesPerRecordAvg = strconv.FormatFloat(asMap["bytes_per_record_avg"].(float64), 'f', 2, 64)
-	info.Indexing = int(asMap["indexing"].(int64))
-	info.SortableValuesSizeMB = asMap["sortable_values_size_mb"].(float64)
-	indexOptions := make([]string, len(asMap["index_options"].([]any)))
-	for i, v := range asMap["index_options"].([]any) {
-		indexOptions[i] = v.(string)
-	}
-	info.IndexOptions = indexOptions
-	info.DocTableSizeMB = asMap["doc_table_size_mb"].(float64)
-	info.OffsetVectorsSzMB = asMap["offset_vectors_sz_mb"].(float64)
-	info.GeoshapesSzMB = asMap["geoshapes_sz_mb"].(float64)
-	info.NumRecords = int(asMap["num_records"].(int64))
-	info.TotalIndexMemorySzMB = asMap["total_index_memory_sz_mb"].(float64)
-	info.PercentIndexed = asMap["percent_indexed"].(float64)
-	info.Cleaning = int(asMap["cleaning"].(int64))
-	info.IndexName = asMap["index_name"].(string)
-	info.TextOverheadSzMB = asMap["text_overhead_sz_mb"].(float64)
-	indexErrors := asMap["Index Errors"].(map[any]any)
-	info.IndexErrors = redis.IndexErrors{
-		IndexingFailures:     int(indexErrors["indexing failures"].(int64)),
-		LastIndexingError:    indexErrors["last indexing error"].(string),
-		LastIndexingErrorKey: indexErrors["last indexing error key"].(string),
-	}
-	info.NumTerms = int(asMap["num_terms"].(int64))
-	info.OffsetsPerTermAvg = strconv.FormatFloat(asMap["offsets_per_term_avg"].(float64), 'f', 2, 64)
-	info.KeyTableSizeMB = asMap["key_table_size_mb"].(float64)
-	info.TagOverheadSzMB = asMap["tag_overhead_sz_mb"].(float64)
-	info.VectorIndexSzMB = asMap["vector_index_sz_mb"].(float64)
-	info.MaxDocID = int(asMap["num_terms"].(int64))
-	info.TotalInvertedIndexBlocks = int(asMap["total_inverted_index_blocks"].(int64))
-	info.RecordsPerDocAvg = strconv.FormatFloat(asMap["records_per_doc_avg"].(float64), 'f', 2, 64)
-	info.OffsetBitsPerRecordAvg = strconv.FormatFloat(asMap["offset_bits_per_record_avg"].(float64), 'f', 2, 64)
-	info.HashIndexingFailures = int(asMap["hash_indexing_failures"].(int64))
-	info.NumberOfUses = int(asMap["number_of_uses"].(int64))
-	info.TotalIndexingTime = int(asMap["total_indexing_time"].(float64))
-	cursorStats := asMap["cursor_stats"].(map[any]any)
-	info.CursorStats = redis.CursorStats{
-		GlobalIdle:    int(cursorStats["global_idle"].(int64)),
-		GlobalTotal:   int(cursorStats["global_total"].(int64)),
-		IndexCapacity: int(cursorStats["index_capacity"].(int64)),
-		IndexTotal:    int(cursorStats["index_total"].(int64)),
-	}
-	dialectStats := asMap["dialect_stats"].(map[any]any)
-	info.DialectStats = map[string]int{
-		"dialect_1": int(dialectStats["dialect_1"].(int64)),
-		"dialect_2": int(dialectStats["dialect_2"].(int64)),
-		"dialect_3": int(dialectStats["dialect_3"].(int64)),
-		"dialect_4": int(dialectStats["dialect_4"].(int64)),
-	}
-	gcStats := asMap["gc_stats"].(map[any]any)
-	info.GCStats = redis.GCStats{
-		BytesCollected:       int(gcStats["bytes_collected"].(float64)),
-		TotalMsRun:           int(gcStats["total_ms_run"].(float64)),
-		TotalCycles:          int(gcStats["total_cycles"].(float64)),
-		AverageCycleTimeMs:   strconv.FormatFloat(gcStats["average_cycle_time_ms"].(float64), 'f', 2, 64),
-		LastRunTimeMs:        int(gcStats["last_run_time_ms"].(float64)),
-		GCNumericTreesMissed: int(gcStats["gc_numeric_trees_missed"].(float64)),
-		GCBlocksDenied:       int(gcStats["gc_blocks_denied"].(float64)),
-	}
-	fieldStatistics := asMap["field statistics"].([]any)
-	info.FieldStatistics = make([]redis.FieldStatistic, len(fieldStatistics))
-	for i, v := range fieldStatistics {
-		row := v.(map[any]any)
-		fieldErrors := row["Index Errors"].(map[any]any)
-		info.FieldStatistics[i] = redis.FieldStatistic{
-			Identifier: row["identifier"].(string),
-			Attribute:  row["attribute"].(string),
-			IndexErrors: redis.IndexErrors{
-				IndexingFailures:     int(fieldErrors["indexing failures"].(int64)),
-				LastIndexingError:    fieldErrors["last indexing error"].(string),
-				LastIndexingErrorKey: fieldErrors["last indexing error key"].(string),
-			},
-		}
-	}
-	indexDef := asMap["index_definition"].(map[any]any)
-	prefixes := indexDef["prefixes"].([]any)
-	prefixesAsStrings := make([]string, len(prefixes))
-	for i, v := range prefixes {
-		prefixesAsStrings[i] = v.(string)
-	}
-	info.IndexDefinition = redis.IndexDefinition{
-		KeyType:      indexDef["key_type"].(string),
-		Prefixes:     prefixesAsStrings,
-		DefaultScore: indexDef["default_score"].(float64),
-	}
-	attributes := asMap["attributes"].([]any)
-	info.Attributes = make([]redis.FTAttribute, len(attributes))
-	for i, v := range attributes {
-		row := v.(map[any]any)
-		weight := float64(0)
-		rowWeight, has := row["WEIGHT"]
-		if has {
-			weight = rowWeight.(float64)
-		}
-		flags := row["flags"].([]any)
-		info.Attributes[i] = redis.FTAttribute{
-			Identifier:      row["identifier"].(string),
-			Attribute:       row["attribute"].(string),
-			Type:            row["type"].(string),
-			Weight:          weight,
-			Sortable:        slices.Contains(flags, "SORTABLE"),
-			NoStem:          slices.Contains(flags, "NOSTEM"),
-			NoIndex:         slices.Contains(flags, "NOINDEX"),
-			UNF:             slices.Contains(flags, "UNF"),
-			PhoneticMatcher: "",
-			CaseSensitive:   slices.Contains(flags, "CASESENSITIVE"),
-			WithSuffixtrie:  slices.Contains(flags, "WITHSUFFIXTRIE"),
-		}
-	}
-
-	if hasLogger {
-		r.fillLogFields(ctx, req, end, false, err)
-	}
-	r.fillMetrics(ctx, end, metricsOperationSearch, false, false, err)
-	return info, true, nil
-}
-
-func (r *redisCache) FTCreate(ctx Context, index string, options *redis.FTCreateOptions, schema ...*redis.FieldSchema) error {
-	hasLogger, _ := ctx.getRedisLoggers()
-	start := time.Now()
-	req := r.client.FTCreate(ctx.Context(), index, options, schema...)
-	_, err := req.Result()
-	end := time.Since(start)
-	if hasLogger {
-		r.fillLogFields(ctx, req, end, false, err)
-	}
-	r.fillMetrics(ctx, end, metricsOperationSearch, true, false, err)
-	return err
 }
 
 func (r *redisCache) FlushAll(ctx Context) error {

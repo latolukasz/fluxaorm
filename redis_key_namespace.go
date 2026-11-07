@@ -7,7 +7,7 @@ import (
 
 // validateRedisKeyNamespaces rejects two entities that would share a Redis key prefix. The prefix
 // is a truncated hash, so an overlap means ClearRedisCache's "<prefix>*" SCAN unlinks another
-// entity's rows or its FT-indexed hashes — data loss that would read as a cache bug.
+// entity's rows — data loss that would read as a cache bug.
 func validateRedisKeyNamespaces(schemas map[string]*entitySchema) error {
 	type owner struct {
 		table string
@@ -38,11 +38,6 @@ func validateRedisKeyNamespaces(schemas map[string]*entitySchema) error {
 		schema := schemas[index]
 		if schema.hasRedisCache || schema.hasCachedUniqueIndexes {
 			if err := claim(schema.cacheKey+":", schema.tableName, "row cache"); err != nil {
-				return err
-			}
-		}
-		if schema.hasRedisSearch {
-			if err := claim(schema.redisSearchPrefix, schema.tableName, "search"); err != nil {
 				return err
 			}
 		}

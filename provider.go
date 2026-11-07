@@ -12,11 +12,3 @@ type RedisCacheEntityProvider interface {
 	RedisCachePrefix() string
 	ClearRedisCache(ctx Context) (int, error)
 }
-
-// RedisSearchEntityProvider is implemented by providers whose entity has Redis Search indexing.
-type RedisSearchEntityProvider interface {
-	ReindexRedisSearch(ctx Context) error
-	RedisSearchCode() string
-	RedisSearchIndexName() string
-	RedisSearchHashPrefix() string
-}

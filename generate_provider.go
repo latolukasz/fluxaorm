@@ -21,15 +21,7 @@ func (g *codeGenerator) generateProviderAndSQLRow(schema *entitySchema, names *e
 	} else if schema.hasCachedUniqueIndexes {
 		g.addLine("\tredisCachePrefix string")
 	}
-	if schema.hasRedisSearch {
-		g.addLine("\tredisSearchCode   string")
-		g.addLine("\tredisSearchIndex  string")
-		g.addLine("\tredisSearchPrefix string")
-	}
 	g.addLine(fmt.Sprintf("\tFields %sFields", names.entityPrivate))
-	if schema.hasRedisSearch {
-		g.addLine(fmt.Sprintf("\tFieldsRedisSearch %sFieldsRedisSearch", names.entityPrivate))
-	}
 	g.addLine("}")
 	g.addLine("")
 
@@ -50,13 +42,7 @@ func (g *codeGenerator) generateProviderAndSQLRow(schema *entitySchema, names *e
 	} else if schema.hasCachedUniqueIndexes {
 		g.addLine(fmt.Sprintf("\tredisCachePrefix: \"%s\",", schema.cacheKey+":"))
 	}
-	if schema.hasRedisSearch {
-		g.addLine(fmt.Sprintf("\tredisSearchCode:   \"%s\",", schema.redisSearchPoolCode))
-		g.addLine(fmt.Sprintf("\tredisSearchIndex:  \"%s\",", schema.redisSearchIndex))
-		g.addLine(fmt.Sprintf("\tredisSearchPrefix: \"%s\",", schema.redisSearchPrefix))
-	}
 	g.generateTypedFieldsInit(schema, names)
-	g.generateRedisSearchFieldsInit(schema, names)
 	g.addLine("}")
 	g.addLine("")
 
@@ -94,14 +80,6 @@ func (g *codeGenerator) generateProviderAndSQLRow(schema *entitySchema, names *e
 		g.addLine("\t}")
 		g.addLine("\treturn int(res.(int64)), nil")
 		g.addLine("}")
-		g.addLine("")
-	}
-
-	// RedisSearchEntityProvider interface methods (only when hasRedisSearch)
-	if schema.hasRedisSearch {
-		g.addLine(fmt.Sprintf("func (p %s) RedisSearchCode() string { return p.redisSearchCode }", names.providerNamePrivate))
-		g.addLine(fmt.Sprintf("func (p %s) RedisSearchIndexName() string { return p.redisSearchIndex }", names.providerNamePrivate))
-		g.addLine(fmt.Sprintf("func (p %s) RedisSearchHashPrefix() string { return p.redisSearchPrefix }", names.providerNamePrivate))
 		g.addLine("")
 	}
 

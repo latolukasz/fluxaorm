@@ -2,8 +2,8 @@ package fluxaorm
 
 import "strconv"
 
-// NotFoundError is returned by GetByID, SearchOne, SearchOneInRedis and
-// reference getters when no row matches. ID is 0 for search and unset-reference misses.
+// NotFoundError is returned by GetByID, SearchOne and reference getters when
+// no row matches. ID is 0 for search and unset-reference misses.
 type NotFoundError struct {
 	Entity string
 	ID     uint64

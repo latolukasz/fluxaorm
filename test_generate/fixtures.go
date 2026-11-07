@@ -84,14 +84,6 @@ type generateReferenceEntity struct {
 	FakeDelete bool
 }
 
-type generateEntityWithSearch struct {
-	ID    uint64
-	Age   uint32                                      `orm:"searchable;sortable"`
-	Name  string                                      `orm:"required;searchable"`
-	Score float64                                     `orm:"searchable"`
-	Ref   fluxaorm.Reference[generateReferenceEntity] `orm:"searchable"`
-}
-
 type generateEntityWithTimestamps struct {
 	ID        uint64
 	Name      string `orm:"required"`
@@ -239,7 +231,7 @@ func FixtureConsumers() []fluxaorm.ConsumerDef {
 func FixtureEntities() []any {
 	return []any{
 		generateEntity{}, generateEntityNoRedis{}, generateReferenceEntity{},
-		generateEntityWithSearch{}, generateEntityWithTimestamps{}, generateEntityWithTimestampsRedis{},
+		generateEntityWithTimestamps{}, generateEntityWithTimestampsRedis{},
 		generateEntityCachedUnique{}, generateEntityCachedUniqueNoRedis{}, generateEntityCachedUniqueFakeDelete{},
 		generateEntityCachedAll{}, generateEntityCachedAllFakeDelete{},
 		generateEntityWithIndex{}, generateEntityEnumRef{}, generateEntityDirty{}, generateEntityDirtyB{},

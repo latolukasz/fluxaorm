@@ -588,154 +588,6 @@ func TestGenerate(t *testing.T) {
 	assert.ErrorAs(t, err, new(*fluxaorm.NotFoundError))
 	assert.Nil(t, e2)
 
-	// Redis Search tests
-	alters, err := fluxaorm.GetRedisSearchAlters(ctx)
-	assert.NoError(t, err)
-	assert.Len(t, alters, 1)
-	assert.NoError(t, alters[0].Exec(ctx))
-
-	// Second call: index already exists, no alters returned
-	alters, err = fluxaorm.GetRedisSearchAlters(ctx)
-	assert.NoError(t, err)
-	assert.Len(t, alters, 0)
-
-	es1 := entities.GenerateEntityWithSearchProvider.New(ctx)
-	es1.SetAge(10)
-	es1.SetName("Alice")
-	es1.SetScore(1.5)
-	es2 := entities.GenerateEntityWithSearchProvider.New(ctx)
-	es2.SetAge(20)
-	es2.SetName("Bob")
-	es2.SetScore(2.5)
-	es3 := entities.GenerateEntityWithSearchProvider.New(ctx)
-	es3.SetAge(30)
-	es3.SetName("Charlie")
-	es3.SetScore(3.5)
-	// Snowflake IDs one apart: equal as float64, so a NUMERIC index cannot tell them apart.
-	searchRef1 := entities.GenerateReferenceEntityProvider.NewWithID(ctx, 371916210427658240)
-	searchRef1.SetName("SearchRef1")
-	searchRef2 := entities.GenerateReferenceEntityProvider.NewWithID(ctx, 371916210427658241)
-	searchRef2.SetName("SearchRef2")
-	es1.SetRef(searchRef1.GetID())
-	es2.SetRef(searchRef2.GetID())
-	assert.NoError(t, ctx.Save(searchRef1, searchRef2, es1, es2, es3))
-
-	// SearchManyInRedis: all entities
-	var searchEntities []*entities.GenerateEntityWithSearch
-	searchEntities, err = entities.GenerateEntityWithSearchProvider.SearchManyInRedis(ctx, fluxaorm.NewRedisSearchQuery())
-	assert.NoError(t, err)
-	assert.Len(t, searchEntities, 3)
-
-	// SearchManyInRedis: reference matches the exact ID only
-	searchEntities, err = entities.GenerateEntityWithSearchProvider.SearchManyInRedis(ctx, fluxaorm.NewRedisSearchQuery().Filter(
-		entities.GenerateEntityWithSearchProvider.FieldsRedisSearch.Ref.Eq(searchRef1.GetID()),
-	))
-	assert.NoError(t, err)
-	assert.Len(t, searchEntities, 1)
-	assert.Equal(t, es1.GetID(), searchEntities[0].GetID())
-	searchEntities, err = entities.GenerateEntityWithSearchProvider.SearchManyInRedis(ctx, fluxaorm.NewRedisSearchQuery().Filter(
-		entities.GenerateEntityWithSearchProvider.FieldsRedisSearch.Ref.In(searchRef1.GetID(), searchRef2.GetID()),
-	))
-	assert.NoError(t, err)
-	assert.Len(t, searchEntities, 2)
-
-	// SearchManyInRedis: numeric range
-	searchEntities, err = entities.GenerateEntityWithSearchProvider.SearchManyInRedis(ctx, fluxaorm.NewRedisSearchQuery().Filter(
-		entities.GenerateEntityWithSearchProvider.FieldsRedisSearch.Age.Gte(10),
-		entities.GenerateEntityWithSearchProvider.FieldsRedisSearch.Age.Lte(20),
-	))
-	assert.NoError(t, err)
-	assert.Len(t, searchEntities, 2)
-
-	// SearchManyInRedisWithTotal
-	var searchTotal int
-	searchEntities, searchTotal, err = entities.GenerateEntityWithSearchProvider.SearchManyInRedisWithTotal(ctx, fluxaorm.NewRedisSearchQuery().Filter(
-		entities.GenerateEntityWithSearchProvider.FieldsRedisSearch.Age.Gte(20),
-	).Pager(fluxaorm.NewPager(1, 10)))
-	assert.NoError(t, err)
-	assert.Equal(t, 2, searchTotal)
-	assert.Len(t, searchEntities, 2)
-
-	// SearchManyInRedisWithTotal: no match
-	searchEntities, searchTotal, err = entities.GenerateEntityWithSearchProvider.SearchManyInRedisWithTotal(ctx, fluxaorm.NewRedisSearchQuery().Filter(
-		entities.GenerateEntityWithSearchProvider.FieldsRedisSearch.Age.Eq(999),
-	).Pager(fluxaorm.NewPager(1, 10)))
-	assert.NoError(t, err)
-	assert.Equal(t, 0, searchTotal)
-	assert.Nil(t, searchEntities)
-
-	// SearchManyInRedis: returns entities with filter
-	searchEntities, err = entities.GenerateEntityWithSearchProvider.SearchManyInRedis(ctx, fluxaorm.NewRedisSearchQuery().Filter(
-		entities.GenerateEntityWithSearchProvider.FieldsRedisSearch.Age.Lte(20),
-	))
-	assert.NoError(t, err)
-	assert.Len(t, searchEntities, 2)
-
-	// SearchOneInRedis
-	var searchOne *entities.GenerateEntityWithSearch
-	searchOne, err = entities.GenerateEntityWithSearchProvider.SearchOneInRedis(ctx, fluxaorm.NewRedisSearchQuery().Filter(
-		entities.GenerateEntityWithSearchProvider.FieldsRedisSearch.Age.Eq(10),
-	))
-	assert.NoError(t, err)
-	assert.Equal(t, es1.GetID(), searchOne.GetID())
-
-	searchOne, err = entities.GenerateEntityWithSearchProvider.SearchOneInRedis(ctx, fluxaorm.NewRedisSearchQuery().Filter(
-		entities.GenerateEntityWithSearchProvider.FieldsRedisSearch.Age.Eq(999),
-	))
-	assert.ErrorAs(t, err, new(*fluxaorm.NotFoundError))
-	assert.Nil(t, searchOne)
-
-	// SearchManyInRedisWithTotal: all
-	var searchWithTotal []*entities.GenerateEntityWithSearch
-	searchWithTotal, searchTotal, err = entities.GenerateEntityWithSearchProvider.SearchManyInRedisWithTotal(ctx, fluxaorm.NewRedisSearchQuery().Pager(fluxaorm.NewPager(1, 10)))
-	assert.NoError(t, err)
-	assert.Equal(t, 3, searchTotal)
-	assert.Len(t, searchWithTotal, 3)
-
-	// Update searchable field: es1 Age 10 → 15
-	es1.SetAge(15)
-	assert.NoError(t, ctx.Save(es1))
-
-	searchEntities, err = entities.GenerateEntityWithSearchProvider.SearchManyInRedis(ctx, fluxaorm.NewRedisSearchQuery().Filter(
-		entities.GenerateEntityWithSearchProvider.FieldsRedisSearch.Age.Eq(10),
-	))
-	assert.NoError(t, err)
-	assert.Nil(t, searchEntities)
-
-	searchEntities, err = entities.GenerateEntityWithSearchProvider.SearchManyInRedis(ctx, fluxaorm.NewRedisSearchQuery().Filter(
-		entities.GenerateEntityWithSearchProvider.FieldsRedisSearch.Age.Eq(15),
-	))
-	assert.NoError(t, err)
-	assert.Len(t, searchEntities, 1)
-	assert.Equal(t, es1.GetID(), searchEntities[0].GetID())
-
-	// Delete entity: should be removed from Redis Search
-	assert.NoError(t, ctx.Delete(es3))
-
-	searchEntities, err = entities.GenerateEntityWithSearchProvider.SearchManyInRedis(ctx, fluxaorm.NewRedisSearchQuery())
-	assert.NoError(t, err)
-	assert.Len(t, searchEntities, 2)
-
-	// ReindexRedisSearch: rebuild the entire index from MySQL; results should remain correct
-	err = entities.GenerateEntityWithSearchProvider.ReindexRedisSearch(ctx)
-	assert.NoError(t, err)
-	searchEntities, err = entities.GenerateEntityWithSearchProvider.SearchManyInRedis(ctx, fluxaorm.NewRedisSearchQuery())
-	assert.NoError(t, err)
-	assert.Len(t, searchEntities, 2)
-	// After reindex, updated age=15 for es1 should be searchable
-	searchEntities, err = entities.GenerateEntityWithSearchProvider.SearchManyInRedis(ctx, fluxaorm.NewRedisSearchQuery().Filter(
-		entities.GenerateEntityWithSearchProvider.FieldsRedisSearch.Age.Eq(15),
-	))
-	assert.NoError(t, err)
-	assert.Len(t, searchEntities, 1)
-	assert.Equal(t, es1.GetID(), searchEntities[0].GetID())
-	searchEntities, err = entities.GenerateEntityWithSearchProvider.SearchManyInRedis(ctx, fluxaorm.NewRedisSearchQuery().Filter(
-		entities.GenerateEntityWithSearchProvider.FieldsRedisSearch.Ref.Eq(searchRef2.GetID()),
-	))
-	assert.NoError(t, err)
-	assert.Len(t, searchEntities, 1)
-	assert.Equal(t, es2.GetID(), searchEntities[0].GetID())
-
 	// ---- Timestamp auto-set tests (no Redis cache) ----
 	beforeInsert := time.Now().UTC().Truncate(time.Second)
 	ts1 := entities.GenerateEntityWithTimestampsProvider.New(ctx)
@@ -952,8 +804,6 @@ func TestGenerate(t *testing.T) {
 	assert.Equal(t, "default", entities.GenerateEntityProvider.DBCode())
 	assert.Equal(t, "generateEntityNoRedis", entities.GenerateEntityNoRedisProvider.TableName())
 	assert.Equal(t, "default", entities.GenerateEntityNoRedisProvider.DBCode())
-	assert.Equal(t, "generateEntityWithSearch", entities.GenerateEntityWithSearchProvider.TableName())
-	assert.Equal(t, "default", entities.GenerateEntityWithSearchProvider.DBCode())
 	assert.Equal(t, "generateEntityCachedUnique", entities.GenerateEntityCachedUniqueProvider.TableName())
 	assert.Equal(t, "generateEntityCachedUniqueNoRedis", entities.GenerateEntityCachedUniqueNoRedisProvider.TableName())
 	assert.Equal(t, "generateEntityCachedUniqueFakeDelete", entities.GenerateEntityCachedUniqueFakeDeleteProvider.TableName())
@@ -985,28 +835,8 @@ func TestGenerate(t *testing.T) {
 	_, isRedisCache := entityProvider.(fluxaorm.RedisCacheEntityProvider)
 	assert.False(t, isRedisCache)
 
-	entityProvider = &entities.GenerateEntityWithSearchProvider
-	_, isRedisCache = entityProvider.(fluxaorm.RedisCacheEntityProvider)
-	assert.False(t, isRedisCache)
-
-	// RedisSearchEntityProvider: only search providers
-	var redisSearchProvider fluxaorm.RedisSearchEntityProvider
-	redisSearchProvider = &entities.GenerateEntityWithSearchProvider
-	assert.Equal(t, "default", redisSearchProvider.RedisSearchCode())
-	assert.NotEmpty(t, redisSearchProvider.RedisSearchIndexName())
-	assert.NotEmpty(t, redisSearchProvider.RedisSearchHashPrefix())
-
-	// Negative: non-search providers do NOT implement RedisSearchEntityProvider
-	entityProvider = &entities.GenerateEntityProvider
-	_, isRedisSearch := entityProvider.(fluxaorm.RedisSearchEntityProvider)
-	assert.False(t, isRedisSearch)
-
-	entityProvider = &entities.GenerateEntityNoRedisProvider
-	_, isRedisSearch = entityProvider.(fluxaorm.RedisSearchEntityProvider)
-	assert.False(t, isRedisSearch)
-
-	// AllProviders: correct length (19 entities)
-	assert.Len(t, entities.AllProviders, 19)
+	// AllProviders: correct length (18 entities)
+	assert.Len(t, entities.AllProviders, 18)
 
 	// AllProviders: all entries implement EntityProvider and have non-empty TableName
 	for _, p := range entities.AllProviders {

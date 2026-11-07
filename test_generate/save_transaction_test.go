@@ -343,33 +343,3 @@ func TestTransactionWorksWithAMockedDBClient(t *testing.T) {
 	assert.NoError(t, err)
 	assert.Len(t, all, 1)
 }
-
-func TestRolledBackTransactionPublishesNoSearchDocument(t *testing.T) {
-	ctx := fluxaorm.PrepareTables(t, fluxaorm.NewRegistry(), generateEntityWithSearch{})
-
-	var rolledBackID uint64
-	err := ctx.Transaction(func(tx fluxaorm.Context) error {
-		e := entities.GenerateEntityWithSearchProvider.New(tx)
-		e.SetName("Rolled").SetAge(1).SetScore(1)
-		rolledBackID = e.GetID()
-		if sErr := tx.Save(e); sErr != nil {
-			return sErr
-		}
-		return errors.New("roll it back")
-	})
-	assert.Error(t, err)
-
-	// A later successful write must not carry the discarded search write with it.
-	kept := entities.GenerateEntityWithSearchProvider.New(ctx)
-	kept.SetName("Kept").SetAge(2).SetScore(2)
-	assert.NoError(t, ctx.Save(kept))
-
-	redis := ctx.Engine().Redis(fluxaorm.DefaultPoolCode)
-	exists, err := redis.Exists(ctx, entities.GenerateEntityWithSearchProvider.RedisSearchHashPrefix()+strconv.FormatUint(rolledBackID, 10))
-	assert.NoError(t, err)
-	assert.Zero(t, exists)
-
-	exists, err = redis.Exists(ctx, entities.GenerateEntityWithSearchProvider.RedisSearchHashPrefix()+strconv.FormatUint(kept.GetID(), 10))
-	assert.NoError(t, err)
-	assert.Equal(t, int64(1), exists)
-}

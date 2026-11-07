@@ -54,7 +54,7 @@ FLUXA ORM is a **code-generation-based** Go ORM targeting MySQL + Redis 8.2+ or 
 
 A Redis pool address is `host:port`, a `.sock` path, or a `redis://` / `rediss://` URL (`RegisterRedis`, `InitByConfig`'s `redisPools[].uri`, and `InitByYaml`'s `redis:` key). A URL is parsed with go-redis `ParseURL`, so `rediss://` turns on TLS (server name = host) and the URL can carry the ACL user, password and database. The `database` argument overrides the URL's when it is not 0; `user`/`password` options override the URL's when set. `GetAddress()` returns only `host:port`, never the password. A malformed URL is an error from `InitByConfig`/`InitByYaml` and a panic from `RegisterRedis`. Cluster mode is not supported: the client is a single-node `redis.Client`.
 
-`Validate()` reads each pool's `INFO server`. Valkey always reports `redis_version:7.2.4` for compatibility and its own version in `valkey_version`, so that field is checked first: Valkey needs 9.0+, Redis 8.2+. Valkey has no Redis Search, so an entity tagged `redisSearch` on a Valkey pool fails `Validate()`. The other Redis 8.2 command, `XAckDel`, is not checked; it fails when called on a server without it.
+`Validate()` reads each pool's `INFO server`. Valkey always reports `redis_version:7.2.4` for compatibility and its own version in `valkey_version`, so that field is checked first: Valkey needs 9.0+, Redis 8.2+. The floor exists for `XAckDel` (Redis 8.2), which is not probed; it fails when called on a server without it.
 
 ### Replicated ClickHouse Pools
 
@@ -72,9 +72,7 @@ Key struct tags:
 - `orm:"enum=a,b,c"` / `orm:"set=a,b,c"` — MySQL ENUM/SET column
 - `orm:"enumName=TypeName"` — share an enum type across fields
 - `orm:"time"` — store as DATETIME (default is DATE for `time.Time` fields)
-- `orm:"redisSearch=poolName"` — enable Redis Search indexing for this entity (on ID field only; uses `DefaultPoolCode` if omitted)
-- `orm:"searchable"` — include field in Redis Search index
-- `orm:"sortable"` — add SORTABLE flag to Redis Search index field (requires `searchable`)
+- `orm:"redisSearch"`, `orm:"searchable"`, `orm:"sortable"` — **removed** along with Redis Search; `Validate()` rejects them (see Redis Search below)
 
 Entity registration: `registry.RegisterEntity(&MyEntity{})`, then call `registry.Validate()`.
 
@@ -127,7 +125,7 @@ Redis batch readers use `LRangeBatchInto` with caller-owned result handles. Comm
 
 ### Single Reads (`GetByID`)
 
-`GetByID`, `SearchOne`, `SearchOneInRedis` and reference getters (`Get<Ref>`) return `(entity, error)`. A miss is a `*NotFoundError` (`not_found.go`) carrying the table name and, for `GetByID`, the ID; an unset reference (ID 0) is a miss too. Callers detect it with `errors.AsType[*fluxaorm.NotFoundError](err)`.
+`GetByID`, `SearchOne` and reference getters (`Get<Ref>`) return `(entity, error)`. A miss is a `*NotFoundError` (`not_found.go`) carrying the table name and, for `GetByID`, the ID; an unset reference (ID 0) is a miss too. Callers detect it with `errors.AsType[*fluxaorm.NotFoundError](err)`.
 
 Generated `GetByID` returns context-cache hits before constructing query or Redis buffers. Other reads format the uint64 ID with `strconv.AppendUint` using stack scratch. Schemas without MySQL FLOAT columns use the decimal ID directly in SELECT, avoiding a transient prepared statement. Schemas with `float32` or `*float32` fields without a `decimal` tag retain the parameterized query: MySQL text replies can round FLOAT values differently from binary replies. The decision uses flattened field metadata, including nested fields. Both paths use `SQLScanTarget` while retaining QueryRow logging, metrics, error propagation and independent entity row storage.
 
@@ -167,19 +165,16 @@ Snowflake (`newSnowflakeGenerator`). Reference columns are rejected at registrat
 
 ### Redis Search
 
-Entities opt in to Redis Search (FT.SEARCH) indexing via struct tags on the ID field and individual fields. The ORM manages index lifecycle and hash document writes automatically.
+Removed. There is no FT.* support: no `GetRedisSearchAlters`, `RedisSearchQuery`/`RedisSearch*Field`, `RedisSearchEntityProvider`, generated `*InRedis`/`ReindexRedisSearch`/`FieldsRedisSearch`, and no `FT*` methods on `RedisCache`. `PrivateFlush()` no longer writes search hashes.
 
-- `redis_search.go` — `RedisSearchWhere` query builder, `RedisSearchAlter`, `GetRedisSearchAlters(ctx)` (returns pending FT.CREATE operations, similar to `GetAlters`)
-- Index name = `<tableName>_<8-char FNV hash of field definitions>` — index is recreated when schema changes
-- Hash key prefix = `<5-char FNV hash of "<tableName>:search">:h:` + entity ID
-- `PrivateFlush()` maintains Redis hashes: Del+HSet on INSERT/UPDATE, Del on DELETE; soft-deleted entities are removed from the index
-- Generated query methods: `SearchOneInRedis`, `SearchManyInRedis`, `SearchManyInRedisWithTotal`, `ReindexRedisSearch`
-- Type mapping: numeric types + bool + time.Time + Reference → NUMERIC; string → TEXT; enum/set → TAG
+The `redisSearch`, `searchable` and `sortable` tags are rejected by `Validate()` (checked per field in `buildTableFields`, so nested structs are covered) rather than ignored, so an application still relying on search fails loudly instead of silently losing index maintenance.
+
+Upgrading applications must drop what the old code left in Redis; nothing here cleans it up and `ClearRedisCache` does not reach it (the search prefix was separate from the row-cache prefix). List the indexes with `FT._LIST` and run `FT.DROPINDEX <tableName>_<hash> DD` for each; `DD` also deletes the `<5hex>:h:<id>` hashes.
 
 ### Key Supporting Files
 
 - `entity_schema.go` — `entitySchema` struct; all per-entity metadata (columns, indexes, caching, enums, references, struct hash). **The row-cache prefix names only `(pool, table)`** — 8 hex of sha256. It used to include the column list, so any schema change moved the key space and two versions in a rolling deploy could not see each other's invalidations. The stamp (element 0 of the cached value list) is sha256 of the full column list at 16 hex, and is now the only thing separating two layouts under one prefix
-- `redis_key_namespace.go` — rejects two entities claiming one Redis prefix, in both validators; row keys and search documents share a keyspace and `ClearRedisCache` deletes by SCANning the prefix
+- `redis_key_namespace.go` — rejects two entities claiming one Redis prefix, in both validators; `ClearRedisCache` deletes by SCANning the prefix, so an overlap would unlink another entity's keys
 - `unique_index_key.go` — `UniqueIndexKeySegment` (index name + its column list) and `UniqueIndexKeyHash` (sha256/64 of the looked-up values). Every read and every invalidation builds keys through these two, so the paths cannot drift. A cache hit is verified against the loaded row before it is returned — see `docs/entity-cache-keys.md` in droplet
 - `alter.go` — `AlterSafety` (destructive is the zero value), `AlterKind`, `SplitAlters`, kind-ordered sort
 - `save.go` — the write API: `ctx.Save` / `ctx.Delete` / `ctx.ForceDelete`, dirty-set preparation, post-commit work

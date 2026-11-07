@@ -31,7 +31,6 @@ func (g *codeGenerator) generateCodeForEntity(schema *entitySchema) error {
 	g.addImport("github.com/latolukasz/fluxaorm/v2")
 
 	g.generateTypedFields(schema, names)
-	g.generateRedisSearchFields(schema, names)
 	g.generateProviderAndSQLRow(schema, names)
 	g.generateGetByID(schema, names)
 	g.generateGetByIDs(schema, names)
@@ -43,12 +42,6 @@ func (g *codeGenerator) generateCodeForEntity(schema *entitySchema) error {
 	g.generateSearchMany(schema, names)
 	g.generateSearchManyWithTotal(schema, names)
 	g.generateCount(schema, names)
-	if schema.hasRedisSearch {
-		g.generateSearchOneInRedis(schema, names)
-		g.generateSearchManyInRedis(schema, names)
-		g.generateSearchManyInRedisWithTotal(schema, names)
-		g.generateReindexRedisSearch(schema, names)
-	}
 	g.generateEntityStruct(schema, names)
 
 	g.filedIndex = 0

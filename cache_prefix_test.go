@@ -78,15 +78,3 @@ func TestCollidingPrefixesAreRejected(t *testing.T) {
 	assert.Contains(t, err.Error(), "alpha")
 	assert.Contains(t, err.Error(), "beta")
 }
-
-// Row keys and search document keys live in one Redis keyspace, and ClearRedisCache deletes by
-// SCANning the row prefix. Today's two derivations cannot produce the same string; the guard is
-// what keeps that true if either one changes.
-func TestSearchPrefixSharesTheNamespace(t *testing.T) {
-	schemas := map[string]*entitySchema{
-		"a": {tableName: "alpha", cacheKey: "abc12345", hasRedisCache: true},
-		"b": {tableName: "beta", redisSearchPrefix: "abc12345:", hasRedisSearch: true},
-	}
-
-	assert.Error(t, validateRedisKeyNamespaces(schemas))
-}

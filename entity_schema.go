@@ -4,31 +4,12 @@ import (
 	"crypto/sha256"
 	"database/sql"
 	"fmt"
-	"hash/fnv"
 	"math"
 	"reflect"
 	"slices"
 	"strconv"
 	"strings"
 )
-
-type searchableFieldDef struct {
-	columnName  string
-	sqlRowIndex int
-	redisType   string
-	sortable    bool
-	goKind      string
-	nullable    bool
-	precision   int
-}
-
-type pendingSearchableField struct {
-	redisType string
-	goKind    string
-	sortable  bool
-	nullable  bool
-	precision int
-}
 
 type enumDefinition struct {
 	fields       []string
@@ -99,45 +80,39 @@ func enumValueToFieldName(value string) string {
 }
 
 type entitySchema struct {
-	index                   string
-	cacheTTL                int
-	tableName               string
-	mysqlPoolCode           string
-	t                       reflect.Type
-	hasFakeDelete           bool
-	fields                  *tableFields
-	engine                  Engine
-	tags                    map[string]map[string]string
-	columnNames             []string
-	fieldDefinitions        map[string]schemaFieldAttributes
-	uniqueIndexes           map[string]indexDefinition
-	uniqueIndexesColumns    map[string][]string
-	indexes                 map[string]indexDefinition
-	indexesColumns          map[string][]string
-	references              map[string]referenceDefinition
-	referencesMulti         map[string]referencesDefinition
-	options                 map[string]any
-	redisCacheName          string
-	hasRedisCache           bool
-	cacheAll                bool
-	redisCache              *redisCache
-	cacheKey                string
-	structureHash           string
-	hasCreatedAt            bool
-	createdAtFIndex         int
-	hasUpdatedAt            bool
-	updatedAtFIndex         int
-	hasRedisSearch          bool
-	redisSearchPoolCode     string
-	redisSearchIndex        string
-	redisSearchPrefix       string
-	searchableFields        []searchableFieldDef
-	pendingSearchableFields map[string]pendingSearchableField
-	cdc                     bool
-	outbox                  bool
-	cachedUniqueIndexes     map[string]bool
-	hasCachedUniqueIndexes  bool
-	uniqueIndexFIndexes     map[string][]int
+	index                  string
+	cacheTTL               int
+	tableName              string
+	mysqlPoolCode          string
+	t                      reflect.Type
+	hasFakeDelete          bool
+	fields                 *tableFields
+	engine                 Engine
+	tags                   map[string]map[string]string
+	columnNames            []string
+	fieldDefinitions       map[string]schemaFieldAttributes
+	uniqueIndexes          map[string]indexDefinition
+	uniqueIndexesColumns   map[string][]string
+	indexes                map[string]indexDefinition
+	indexesColumns         map[string][]string
+	references             map[string]referenceDefinition
+	referencesMulti        map[string]referencesDefinition
+	options                map[string]any
+	redisCacheName         string
+	hasRedisCache          bool
+	cacheAll               bool
+	redisCache             *redisCache
+	cacheKey               string
+	structureHash          string
+	hasCreatedAt           bool
+	createdAtFIndex        int
+	hasUpdatedAt           bool
+	updatedAtFIndex        int
+	cdc                    bool
+	outbox                 bool
+	cachedUniqueIndexes    map[string]bool
+	hasCachedUniqueIndexes bool
+	uniqueIndexFIndexes    map[string][]int
 }
 
 type tableFields struct {
@@ -272,19 +247,6 @@ func (e *entitySchema) GetSchemaChanges(ctx Context) (alters []Alter, has bool, 
 	return alters, len(alters) > 0, nil
 }
 
-func (e *entitySchema) markSearchableField(colName, redisType, goKind string, sortable, nullable bool, precision int) {
-	if e.pendingSearchableFields == nil {
-		e.pendingSearchableFields = make(map[string]pendingSearchableField)
-	}
-	e.pendingSearchableFields[colName] = pendingSearchableField{
-		redisType: redisType,
-		goKind:    goKind,
-		sortable:  sortable,
-		nullable:  nullable,
-		precision: precision,
-	}
-}
-
 func (e *entitySchema) init(registry *registry, entityType reflect.Type) error {
 	e.t = entityType
 	e.tags = extractTags(registry, entityType, "")
@@ -317,14 +279,6 @@ func (e *entitySchema) init(registry *registry, entityType reflect.Type) error {
 	_, has := registry.mysqlPools[e.mysqlPoolCode]
 	if !has {
 		return fmt.Errorf("mysql pool '%s' not found", e.mysqlPoolCode)
-	}
-	redisSearchPoolCode := e.getTag("redisSearch", DefaultPoolCode, "")
-	if redisSearchPoolCode != "" {
-		_, has := registry.redisPools[redisSearchPoolCode]
-		if !has {
-			return fmt.Errorf("redis pool '%s' not found for redisSearch in entity '%s'", redisSearchPoolCode, entityType.Name())
-		}
-		e.redisSearchPoolCode = redisSearchPoolCode
 	}
 	// The `dirty=a,b,c` form made the entity name its own readers, which is the
 	// wrong direction: adding a consumer meant editing the entity. Rejected
@@ -382,50 +336,6 @@ func (e *entitySchema) init(registry *registry, entityType reflect.Type) error {
 		}
 		e.uniqueIndexFIndexes[indexName] = fIndexes
 	}
-	if len(e.pendingSearchableFields) > 0 {
-		if e.redisSearchPoolCode == "" {
-			e.redisSearchPoolCode = DefaultPoolCode
-			_, has := registry.redisPools[e.redisSearchPoolCode]
-			if !has {
-				return fmt.Errorf("redis pool '%s' not found for redisSearch in entity '%s'", e.redisSearchPoolCode, entityType.Name())
-			}
-		}
-		for i, colName := range e.columnNames {
-			if pending, ok := e.pendingSearchableFields[colName]; ok {
-				e.searchableFields = append(e.searchableFields, searchableFieldDef{
-					columnName:  colName,
-					sqlRowIndex: i,
-					redisType:   pending.redisType,
-					sortable:    pending.sortable,
-					goKind:      pending.goKind,
-					nullable:    pending.nullable,
-					precision:   pending.precision,
-				})
-			}
-		}
-		if len(e.searchableFields) > 0 {
-			e.hasRedisSearch = true
-			sortedDefs := make([]string, len(e.searchableFields))
-			for i, f := range e.searchableFields {
-				sortable := "0"
-				if f.sortable {
-					sortable = "1"
-				}
-				sortedDefs[i] = f.columnName + ":" + f.redisType + ":" + sortable
-			}
-			slices.Sort(sortedDefs)
-			h := fnv.New32a()
-			for _, s := range sortedDefs {
-				_, _ = h.Write([]byte(s))
-			}
-			e.redisSearchIndex = e.tableName + "_" + fmt.Sprintf("%08x", h.Sum32())
-			h2 := fnv.New32a()
-			_, _ = h2.Write([]byte(e.tableName + ":search"))
-			prefix := fmt.Sprintf("%08x", h2.Sum32())
-			e.redisSearchPrefix = prefix[:5] + ":h:"
-		}
-	}
-	e.pendingSearchableFields = nil
 
 	// Table-only, so two code versions in a rolling deploy share one key space and each other's
 	// invalidations.
@@ -644,6 +554,15 @@ func (e *entitySchema) buildTableFields(t reflect.Type, registry *registry,
 		if has {
 			continue
 		}
+		// Redis Search was removed. Rejected rather than ignored, so an entity that
+		// still relies on it fails Validate() instead of silently losing its index.
+		for _, removed := range []string{"redisSearch", "searchable", "sortable"} {
+			if _, hasRemoved := tags[removed]; hasRemoved {
+				return nil, fmt.Errorf(
+					"field '%s' of entity '%s' uses `orm:\"%s\"`, but Redis Search support was removed; drop the tag",
+					prefix+f.Name, e.t.String(), removed)
+			}
+		}
 		attributes := schemaFieldAttributes{
 			Fields:      fields,
 			Tags:        tags,
@@ -783,9 +702,6 @@ func (e *entitySchema) buildUintField(attributes schemaFieldAttributes, min int6
 	attributes.Fields.uIntegers = append(attributes.Fields.uIntegers, attributes.Index)
 	for _, columnName := range attributes.GetColumnNames() {
 		e.fieldDefinitions[columnName] = attributes
-		if attributes.Tags["searchable"] == "true" {
-			e.markSearchableField(columnName, "NUMERIC", "uint", attributes.Tags["sortable"] == "true", false, 0)
-		}
 	}
 }
 
@@ -804,10 +720,6 @@ func (e *entitySchema) buildReferenceField(attributes schemaFieldAttributes) {
 			e.references[columnName] = def
 		}
 		e.fieldDefinitions[columnName] = attributes
-		if attributes.Tags["searchable"] == "true" {
-			// TAG, not NUMERIC: RediSearch keeps numbers as float64, which merges IDs above 2^53.
-			e.markSearchableField(columnName, "TAG", "ref", attributes.Tags["sortable"] == "true", !isRequired, 0)
-		}
 	}
 }
 
@@ -840,9 +752,6 @@ func (e *entitySchema) buildUintPointerField(attributes schemaFieldAttributes, m
 			}
 		}
 		e.fieldDefinitions[columnName] = attributes
-		if attributes.Tags["searchable"] == "true" {
-			e.markSearchableField(columnName, "NUMERIC", "uint", attributes.Tags["sortable"] == "true", true, 0)
-		}
 	}
 }
 
@@ -850,9 +759,6 @@ func (e *entitySchema) buildIntField(attributes schemaFieldAttributes, min int64
 	attributes.Fields.integers = append(attributes.Fields.integers, attributes.Index)
 	for _, columnName := range attributes.GetColumnNames() {
 		e.fieldDefinitions[columnName] = attributes
-		if attributes.Tags["searchable"] == "true" {
-			e.markSearchableField(columnName, "NUMERIC", "int", attributes.Tags["sortable"] == "true", false, 0)
-		}
 	}
 }
 
@@ -874,9 +780,6 @@ func (e *entitySchema) buildIntPointerField(attributes schemaFieldAttributes, mi
 			}
 		}
 		e.fieldDefinitions[columnName] = attributes
-		if attributes.Tags["searchable"] == "true" {
-			e.markSearchableField(columnName, "NUMERIC", "int", attributes.Tags["sortable"] == "true", true, 0)
-		}
 	}
 }
 
@@ -898,9 +801,6 @@ func (e *entitySchema) buildEnumField(attributes schemaFieldAttributes, values [
 			attributes.Fields.enums = append(attributes.Fields.enums, def)
 		}
 		e.fieldDefinitions[columnName] = attributes
-		if attributes.Tags["searchable"] == "true" {
-			e.markSearchableField(columnName, "TAG", "enum", attributes.Tags["sortable"] == "true", !required, 0)
-		}
 	}
 }
 
@@ -920,9 +820,6 @@ func (e *entitySchema) buildStringField(attributes schemaFieldAttributes) {
 			attributes.Fields.stringsRequired = append(attributes.Fields.stringsRequired, isRequired)
 		}
 		e.fieldDefinitions[columnName] = attributes
-		if attributes.Tags["searchable"] == "true" {
-			e.markSearchableField(columnName, "TEXT", "string", attributes.Tags["sortable"] == "true", !isRequired, 0)
-		}
 	}
 }
 
@@ -951,9 +848,6 @@ func (e *entitySchema) buildStringSliceField(attributes schemaFieldAttributes, v
 			attributes.Fields.sets = append(attributes.Fields.sets, def)
 		}
 		e.fieldDefinitions[columnName] = attributes
-		if attributes.Tags["searchable"] == "true" {
-			e.markSearchableField(columnName, "TAG", "set", attributes.Tags["sortable"] == "true", !required, 0)
-		}
 	}
 }
 
@@ -961,9 +855,6 @@ func (e *entitySchema) buildBoolField(attributes schemaFieldAttributes) {
 	attributes.Fields.booleans = append(attributes.Fields.booleans, attributes.Index)
 	for _, columnName := range attributes.GetColumnNames() {
 		e.fieldDefinitions[columnName] = attributes
-		if attributes.Tags["searchable"] == "true" {
-			e.markSearchableField(columnName, "NUMERIC", "bool", attributes.Tags["sortable"] == "true", false, 0)
-		}
 	}
 }
 
@@ -971,9 +862,6 @@ func (e *entitySchema) buildBoolPointerField(attributes schemaFieldAttributes) {
 	attributes.Fields.booleansNullable = append(attributes.Fields.booleansNullable, attributes.Index)
 	for _, columnName := range attributes.GetColumnNames() {
 		e.fieldDefinitions[columnName] = attributes
-		if attributes.Tags["searchable"] == "true" {
-			e.markSearchableField(columnName, "NUMERIC", "bool", attributes.Tags["sortable"] == "true", true, 0)
-		}
 	}
 }
 
@@ -1013,9 +901,6 @@ func (e *entitySchema) buildFloatField(attributes schemaFieldAttributes) {
 			attributes.Fields.floatsUnsigned = append(attributes.Fields.floatsUnsigned, unsigned)
 		}
 		e.fieldDefinitions[columnName] = attributes
-		if attributes.Tags["searchable"] == "true" {
-			e.markSearchableField(columnName, "NUMERIC", "float", attributes.Tags["sortable"] == "true", false, precision)
-		}
 	}
 }
 
@@ -1055,9 +940,6 @@ func (e *entitySchema) buildFloatPointerField(attributes schemaFieldAttributes) 
 			attributes.Fields.floatsNullableUnsigned = append(attributes.Fields.floatsNullableUnsigned, unsigned)
 		}
 		e.fieldDefinitions[columnName] = attributes
-		if attributes.Tags["searchable"] == "true" {
-			e.markSearchableField(columnName, "NUMERIC", "float", attributes.Tags["sortable"] == "true", true, precision)
-		}
 	}
 }
 
@@ -1070,15 +952,8 @@ func (e *entitySchema) buildTimePointerField(attributes schemaFieldAttributes) {
 	} else {
 		attributes.Fields.datesNullable = append(attributes.Fields.datesNullable, attributes.Index)
 	}
-	goKind := "date"
-	if hasTime || forceTime {
-		goKind = "time"
-	}
 	for _, columnName := range attributes.GetColumnNames() {
 		e.fieldDefinitions[columnName] = attributes
-		if attributes.Tags["searchable"] == "true" {
-			e.markSearchableField(columnName, "NUMERIC", goKind, attributes.Tags["sortable"] == "true", true, 0)
-		}
 	}
 }
 
@@ -1091,15 +966,8 @@ func (e *entitySchema) buildTimeField(attributes schemaFieldAttributes) {
 	} else {
 		attributes.Fields.dates = append(attributes.Fields.dates, attributes.Index)
 	}
-	goKind := "date"
-	if hasTime || forceTime {
-		goKind = "time"
-	}
 	for _, columnName := range attributes.GetColumnNames() {
 		e.fieldDefinitions[columnName] = attributes
-		if attributes.Tags["searchable"] == "true" {
-			e.markSearchableField(columnName, "NUMERIC", goKind, attributes.Tags["sortable"] == "true", false, 0)
-		}
 	}
 }
 
