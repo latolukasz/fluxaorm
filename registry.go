@@ -282,6 +282,7 @@ func (r *registry) Validate() (Engine, error) {
 	if e.redisServers == nil {
 		e.redisServers = make(map[string]RedisCache)
 	}
+	valkeyPools := make(map[string]bool)
 	for k, v := range r.redisPools {
 		client := v.getClient()
 		server := &redisCache{config: v, client: client}
@@ -289,9 +290,11 @@ func (r *registry) Validate() (Engine, error) {
 		if err != nil {
 			return nil, fmt.Errorf("failed to get Redis server info for pool '%s': %w", k, err)
 		}
-		if err := validateRedisVersion(info, k); err != nil {
+		valkey, err := validateRedisVersion(info, k)
+		if err != nil {
 			return nil, err
 		}
+		valkeyPools[k] = valkey
 		e.redisServers[k] = server
 		if len(k) > maxPoolLen {
 			maxPoolLen = len(k)
@@ -310,6 +313,9 @@ func (r *registry) Validate() (Engine, error) {
 		err := schema.init(r, entityType)
 		if err != nil {
 			return nil, err
+		}
+		if schema.hasRedisSearch && valkeyPools[schema.redisSearchPoolCode] {
+			return nil, fmt.Errorf("entity %s uses Redis Search, which Valkey pool '%s' doesn't provide", entityName, schema.redisSearchPoolCode)
 		}
 		e.registry.entitySchemas[entityType] = schema
 	}
@@ -623,30 +629,53 @@ func (p *redisCacheConfig) getClient() *redis.Client {
 	return p.client
 }
 
-func validateRedisVersion(info string, pool string) error {
+// validateRedisVersion accepts Redis 8.2+ or Valkey 9.0+ and reports which one it is. Valkey reports redis_version 7.2.4
+// for compatibility and its own version in valkey_version.
+func validateRedisVersion(info string, pool string) (valkey bool, err error) {
+	fields := make(map[string]string)
 	for _, line := range strings.Split(info, "\n") {
-		line = strings.TrimSpace(line)
-		if strings.HasPrefix(line, "redis_version:") {
-			version := strings.TrimPrefix(line, "redis_version:")
-			parts := strings.Split(version, ".")
-			if len(parts) < 2 {
-				return fmt.Errorf("redis pool '%s': unable to parse version '%s'", pool, version)
-			}
-			major, err := strconv.Atoi(parts[0])
-			if err != nil {
-				return fmt.Errorf("redis pool '%s': unable to parse version '%s'", pool, version)
-			}
-			minor, err := strconv.Atoi(parts[1])
-			if err != nil {
-				return fmt.Errorf("redis pool '%s': unable to parse version '%s'", pool, version)
-			}
-			if major < 8 || (major == 8 && minor < 2) {
-				return fmt.Errorf("redis pool '%s' version %s is not supported, minimum required is 8.2", pool, version)
-			}
-			return nil
+		if key, value, ok := strings.Cut(strings.TrimSpace(line), ":"); ok {
+			fields[key] = value
 		}
 	}
-	return fmt.Errorf("redis pool '%s': unable to determine Redis version from INFO", pool)
+	if version, ok := fields["valkey_version"]; ok {
+		major, _, err := parseRedisVersion(version, pool)
+		if err != nil {
+			return true, err
+		}
+		if major < 9 {
+			return true, fmt.Errorf("redis pool '%s' is Valkey %s, minimum required is 9.0", pool, version)
+		}
+		return true, nil
+	}
+	version, ok := fields["redis_version"]
+	if !ok {
+		return false, fmt.Errorf("redis pool '%s': unable to determine Redis version from INFO", pool)
+	}
+	major, minor, err := parseRedisVersion(version, pool)
+	if err != nil {
+		return false, err
+	}
+	if major < 8 || (major == 8 && minor < 2) {
+		return false, fmt.Errorf("redis pool '%s' version %s is not supported, minimum required is 8.2", pool, version)
+	}
+	return false, nil
+}
+
+func parseRedisVersion(version string, pool string) (major, minor int, err error) {
+	parts := strings.Split(version, ".")
+	if len(parts) < 2 {
+		return 0, 0, fmt.Errorf("redis pool '%s': unable to parse version '%s'", pool, version)
+	}
+	major, err = strconv.Atoi(parts[0])
+	if err != nil {
+		return 0, 0, fmt.Errorf("redis pool '%s': unable to parse version '%s'", pool, version)
+	}
+	minor, err = strconv.Atoi(parts[1])
+	if err != nil {
+		return 0, 0, fmt.Errorf("redis pool '%s': unable to parse version '%s'", pool, version)
+	}
+	return major, minor, nil
 }
 
 type enumSource struct {

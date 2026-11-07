@@ -42,7 +42,7 @@ Pushes to `v2` and release tags matching `v2.*` run `.github/workflows/release.y
 
 ## Architecture
 
-FLUXA ORM is a **code-generation-based** Go ORM targeting MySQL + Redis 8.2+ (`Validate()` rejects older Redis). Go 1.25. The main package is everything at the root level (`github.com/latolukasz/fluxaorm/v2`).
+FLUXA ORM is a **code-generation-based** Go ORM targeting MySQL + Redis 8.2+ or Valkey 9.0+ (`Validate()` rejects older servers; see Redis Pools). Go 1.25. The main package is everything at the root level (`github.com/latolukasz/fluxaorm/v2`).
 
 ### Core Flow
 
@@ -53,6 +53,8 @@ FLUXA ORM is a **code-generation-based** Go ORM targeting MySQL + Redis 8.2+ (`V
 ### Redis Pools
 
 A Redis pool address is `host:port`, a `.sock` path, or a `redis://` / `rediss://` URL (`RegisterRedis`, `InitByConfig`'s `redisPools[].uri`, and `InitByYaml`'s `redis:` key). A URL is parsed with go-redis `ParseURL`, so `rediss://` turns on TLS (server name = host) and the URL can carry the ACL user, password and database. The `database` argument overrides the URL's when it is not 0; `user`/`password` options override the URL's when set. `GetAddress()` returns only `host:port`, never the password. A malformed URL is an error from `InitByConfig`/`InitByYaml` and a panic from `RegisterRedis`. Cluster mode is not supported: the client is a single-node `redis.Client`.
+
+`Validate()` reads each pool's `INFO server`. Valkey always reports `redis_version:7.2.4` for compatibility and its own version in `valkey_version`, so that field is checked first: Valkey needs 9.0+, Redis 8.2+. Valkey has no Redis Search, so an entity tagged `redisSearch` on a Valkey pool fails `Validate()`. The other Redis 8.2 command, `XAckDel`, is not checked; it fails when called on a server without it.
 
 ### Replicated ClickHouse Pools
 
